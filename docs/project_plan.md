@@ -41,6 +41,11 @@ Goal: establish the domain model, event log, projections, and role-based auth.
 Tasks (in order)
 
 1. Define core domain types and event schemas.
+----------------------------------------------------------------------------------------
+I AM HERE
+----------------------------------------------------------------------------------------
+
+
 2. Implement server-side event log (append-only) in PostgreSQL.
 3. Implement projections for people, points balances, inventory, and reports.
 4. Implement authentication and RBAC (collector, shop operator, manager).
