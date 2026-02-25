@@ -24,6 +24,9 @@
     "test:api": "jest --config apps/api/jest.config.cjs --passWithNoTests",
     "test:e2e": "playwright test --pass-with-no-tests",
     "typecheck": "tsc -p apps/web/tsconfig.json && tsc -p apps/api/tsconfig.json && tsc -p packages/shared/tsconfig.json",
+    "prisma:generate": "cd apps/api && npx prisma generate",
+    "prisma:migrate": "cd apps/api && npx prisma migrate dev --name init",
+    "prisma:studio": "cd apps/api && npx prisma studio",
     "prepare": "husky install"
   },
   "devDependencies": {
@@ -51,5 +54,9 @@
     "ts-jest": "^29.2.5",
     "typescript": "^5.5.4",
     "vitest": "^4.0.18"
+  },
+  "dependencies": {
+    "@prisma/client": "^7.4.1",
+    "prisma": "^7.4.1"
   }
 }

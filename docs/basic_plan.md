@@ -11,6 +11,7 @@ We also need to keep track of all the recyclable material. We need to know how m
 Project plan (v1)
 
 Scope and rules - Multi-user system with asynchronous sync across devices - Offline-first with event-log merge and audit trail - Points are pegged to currency: 1 point = 1 rand, rounded down to whole rand - Items can only be bought with points (no cash sales) - Locations are free-form text (no fixed list) - No negative point balances; sales are blocked if insufficient points - Adjustments require a logged request; only managers can approve and apply - Overlapping edits are flagged for manager resolution
+Tech stack notes - Postgres event log with Prisma schema (`apps/api/prisma/schema.prisma`) - Projections via Postgres materialized views refreshed after each sync batch (30s cadence, 100-event batches) - Hybrid inventory valuation: total cost kept; sellable cost excludes spoiled/damaged/missing; losses tracked explicitly
 
 Primary actors - Collector (intake) - Shop operator (sales) - Manager (stock, procurement, expenses, reporting)
 

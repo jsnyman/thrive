@@ -1,0 +1,99 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// --- Core event log and reference tables ---
+
+model Event {
+  eventId       String    @id @db.Uuid
+  eventType     EventType
+  occurredAt    DateTime  @db.Timestamptz(6)
+  recordedAt    DateTime  @default(now()) @db.Timestamptz(6)
+  actorUserId   String    @db.Uuid
+  deviceId      String
+  locationText  String?
+  schemaVersion Int
+  correlationId String?
+  causationId   String?
+  payload       Json
+
+  @@index([eventType])
+  @@index([occurredAt])
+  @@index([actorUserId])
+}
+
+model StaffUser {
+  id           String    @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  username     String    @unique
+  passcodeHash String
+  role         StaffRole
+  createdAt    DateTime  @default(now()) @db.Timestamptz(6)
+}
+
+model Person {
+  id        String   @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  name      String
+  surname   String
+  idNumber  String?
+  phone     String?
+  address   String?
+  notes     String?
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+}
+
+model MaterialType {
+  id          String   @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  name        String   @unique
+  pointsPerKg Decimal  @db.Decimal(10, 2)
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+}
+
+model Item {
+  id          String   @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  name        String
+  pointsPrice Int
+  costPrice   Decimal? @db.Decimal(12, 2)
+  sku         String?
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([name])
+}
+
+enum StaffRole {
+  collector
+  shop_operator
+  manager
+}
+
+enum EventType {
+  person_created                 @map("person.created")
+  person_profile_updated         @map("person.profile_updated")
+  material_type_created          @map("material_type.created")
+  material_type_updated          @map("material_type.updated")
+  item_created                   @map("item.created")
+  item_updated                   @map("item.updated")
+  staff_user_created             @map("staff_user.created")
+  staff_user_role_changed        @map("staff_user.role_changed")
+  intake_recorded                @map("intake.recorded")
+  sale_recorded                  @map("sale.recorded")
+  procurement_recorded           @map("procurement.recorded")
+  expense_recorded               @map("expense.recorded")
+  inventory_status_changed       @map("inventory.status_changed")
+  inventory_adjustment_requested @map("inventory.adjustment_requested")
+  inventory_adjustment_applied   @map("inventory.adjustment_applied")
+  points_adjustment_requested    @map("points.adjustment_requested")
+  points_adjustment_applied      @map("points.adjustment_applied")
+  conflict_detected              @map("conflict.detected")
+  conflict_resolved              @map("conflict.resolved")
+}

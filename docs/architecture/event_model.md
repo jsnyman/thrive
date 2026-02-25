@@ -26,6 +26,8 @@ Each event shares a common envelope so it can be stored, synced, and audited con
 | `correlationId` | Links related events (for example intake + ledger). |
 | `causationId` | References the event that caused this one. |
 
+Implementation note: the server stores events in Postgres via Prisma (`apps/api/prisma/schema.prisma`). Event types are a Postgres enum mapped to dotted names (e.g., `intake.recorded`). Projections are derived through materialized views refreshed after each sync batch.
+
 Example event (illustrative)
 ```json
 {

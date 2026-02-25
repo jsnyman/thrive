@@ -10,13 +10,13 @@ Client
 
 Server
 - Canonical append-only event log in PostgreSQL.
-- Server projections for reporting and cross-device reads.
+- Server projections for reporting and cross-device reads via Postgres materialized views refreshed after each sync batch.
 
 ## Sync Flow
 
 1. Client appends a new event to its local log and updates local projections.
 2. Client initiates sync automatically when online or manually by the user.
-3. Client pushes unsynced events in batches with its last known server cursor.
+3. Client pushes unsynced events in batches (max 100 events) with its last known server cursor.
 4. Server validates events, appends accepted events, and returns per-event ack.
 5. Server returns new events since the client cursor.
 6. Client appends server events locally and rebuilds projections if needed.
@@ -39,3 +39,7 @@ Server
 - If a push fails, the client retains events and retries.
 - If a pull fails, the client keeps its cursor and resumes later.
 - If validation fails, the server returns errors and the client marks events as rejected for review.
+
+## Cadence
+- Devices attempt sync every ~30 seconds when online.
+- After each successful batch, the server refreshes the materialized views (balances, inventory, reports) using `REFRESH MATERIALIZED VIEW CONCURRENTLY` and records freshness. Writes that depend on fresh balances can be blocked if views are older than ~60s.

@@ -7,6 +7,8 @@ This plan sequences the work to deliver the Recycling Swap-Shop software describ
 - Offline-first PWA with event-sourced sync.
 - Single codebase for web (laptops, tablets, phones).
 - Small team (1-4 engineers). Timeline is expressed in weeks relative to project start.
+- Database: PostgreSQL with Prisma schema; projections implemented as materialized views refreshed after each sync batch (30s cadence, max 100 events per batch).
+- Inventory valuation: hybrid approach (total cost retained; sellable excludes spoiled/damaged/missing; losses tracked explicitly).
 
 If you want exact calendar dates, add the start date and team size.
 
@@ -41,13 +43,8 @@ Goal: establish the domain model, event log, projections, and role-based auth.
 Tasks (in order)
 
 1. Define core domain types and event schemas.
-----------------------------------------------------------------------------------------
-I AM HERE
-----------------------------------------------------------------------------------------
-
-
-2. Implement server-side event log (append-only) in PostgreSQL.
-3. Implement projections for people, points balances, inventory, and reports.
+2. Implement server-side event log (append-only) in PostgreSQL via Prisma.
+3. Implement projections for people, points balances, inventory, and reports using materialized views and scheduled refresh.
 4. Implement authentication and RBAC (collector, shop operator, manager).
 5. Implement API skeleton for core entities (people, items, materials, ledger).
 

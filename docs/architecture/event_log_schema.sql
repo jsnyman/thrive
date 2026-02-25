@@ -1,5 +1,5 @@
-﻿-- Event log schema (JSONB payload)
--- Source of truth for event payload shape: packages/shared/src/domain/events.ts
+-- Event log schema aligned with Prisma (apps/api/prisma/schema.prisma)
+-- Payload shapes are defined in packages/shared/src/domain/events.ts
 
 create type event_type as enum (
   'person.created',
@@ -23,47 +23,39 @@ create type event_type as enum (
   'conflict.resolved'
 );
 
-create type stream_type as enum (
-  'person',
-  'material_type',
-  'item',
-  'staff_user',
-  'intake',
-  'sale',
-  'procurement',
-  'expense',
-  'inventory_batch',
-  'points',
-  'conflict'
-);
-
-create table event_log (
-  event_id text primary key,
-  event_sequence bigint generated always as identity unique,
+create table event (
+  event_id uuid primary key,
   event_type event_type not null,
   occurred_at timestamptz not null,
-  recorded_at timestamptz,
-  actor_user_id text not null,
+  recorded_at timestamptz not null default now(),
+  actor_user_id uuid not null,
   device_id text not null,
   location_text text,
-  schema_version integer not null default 1 check (schema_version = 1),
+  schema_version integer not null,
   correlation_id text,
   causation_id text,
-  stream_type stream_type,
-  stream_id text,
   payload jsonb not null check (jsonb_typeof(payload) = 'object')
 );
 
-create index event_log_event_type_seq_idx on event_log (event_type, event_sequence);
-create index event_log_stream_seq_idx on event_log (stream_type, stream_id, event_sequence);
-create index event_log_occurred_at_idx on event_log (occurred_at);
-create index event_log_actor_seq_idx on event_log (actor_user_id, event_sequence);
-create index event_log_correlation_idx on event_log (correlation_id);
-create index event_log_causation_idx on event_log (causation_id);
+create index event_event_type_idx on event (event_type);
+create index event_occurred_at_idx on event (occurred_at);
+create index event_actor_user_idx on event (actor_user_id);
+create index event_payload_gin_idx on event using gin (payload);
 
--- General payload index for containment queries like payload @> '{"personId":"..."}'
-create index event_log_payload_gin_idx on event_log using gin (payload);
+-- Optional targeted payload indexes (enable based on query patterns)
+-- create index event_payload_person_idx on event ((payload ->> 'personId'));
+-- create index event_payload_batch_idx on event ((payload ->> 'inventoryBatchId'));
 
--- Optional: targeted indexes for common lookups
--- create index event_log_payload_person_idx on event_log ((payload ->> 'personId'));
--- create index event_log_payload_inventory_batch_idx on event_log ((payload ->> 'inventoryBatchId'));
+-- Non-admin application role (replace CHANGE_ME)
+do $$
+begin
+  if not exists (select 1 from pg_roles where rolname = 'recycling_app') then
+    create role recycling_app login password 'CHANGE_ME';
+  end if;
+end$$;
+
+grant usage on schema public to recycling_app;
+grant select, insert on all tables in schema public to recycling_app;
+grant usage, select on all sequences in schema public to recycling_app;
+alter default privileges in schema public grant select, insert on tables to recycling_app;
+alter default privileges in schema public grant usage, select on sequences to recycling_app;

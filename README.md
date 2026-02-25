@@ -62,6 +62,7 @@ Offline-first software for a mobile recycling swap-shop that moves between villa
 - User stories: `docs/user_stories.md`
 - Project plan: `basic_plan.md`
 - Stack rationale: `AI_CONTEXT.md`
+- Prisma usage: `docs/prisma.md`
 
 **Status**
 
@@ -70,5 +71,7 @@ Offline-first software for a mobile recycling swap-shop that moves between villa
 
 **Getting Started**
 
-- No build or runtime instructions yet. See the documentation above for scope and requirements.
-- Setup steps will be added once the codebase is initialized.
+- Prereq: PostgreSQL running; set `DATABASE_URL` in `apps/api/.env` (see `docs/prisma.md`).
+- From repo root: `npm install`, then `npm run prisma:migrate` (applies schema) and `npm run prisma:generate` (refreshes client).
+- Tests: `npm run test:unit` (web/shared/api) and `npm run test:e2e`.
+- Prisma docs: `docs/prisma.md` for workflow and commands.
