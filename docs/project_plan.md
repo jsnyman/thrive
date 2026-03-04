@@ -44,9 +44,9 @@ Tasks (in order)
 
 1. Define core domain types and event schemas.
 2. Implement server-side event log (append-only) in PostgreSQL via Prisma.
-3. Implement projections for people, points balances, inventory, and reports using materialized views and scheduled refresh.
-4. Implement authentication and RBAC (collector, shop operator, manager).
-5. Implement API skeleton for core entities (people, items, materials, ledger).
+3. Implement projections for people, points balances, inventory, and reports using materialized views and scheduled refresh. (Completed on March 4, 2026)
+4. Implement authentication and RBAC (collector, shop operator, manager). (Completed on March 4, 2026)
+5. Implement API skeleton for core entities (people, items, materials, ledger). (Completed on March 4, 2026)
 
 Deliverables
 

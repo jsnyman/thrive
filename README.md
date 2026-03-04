@@ -60,18 +60,24 @@ Offline-first software for a mobile recycling swap-shop that moves between villa
 
 - Requirements: `docs/requirements.md`
 - User stories: `docs/user_stories.md`
-- Project plan: `basic_plan.md`
+- Project plan: `docs/project_plan.md`
+- API endpoints: `docs/api.md`
 - Stack rationale: `AI_CONTEXT.md`
 - Prisma usage: `docs/prisma.md`
 
 **Status**
 
-- Planning and requirements complete.
-- Implementation has not started yet.
+- Planning and requirements are complete.
+- Phase 1 backend skeleton is in progress:
+  - Authentication and RBAC endpoints implemented (`POST /auth/login`, `GET /auth/me`).
+  - Core API skeleton endpoints implemented (`people`, `materials`, `items`, `ledger`).
+  - Projection SQL and refresh tooling added.
 
 **Getting Started**
 
 - Prereq: PostgreSQL running; set `DATABASE_URL` in `apps/api/.env` (see `docs/prisma.md`).
-- From repo root: `npm install`, then `npm run prisma:migrate` (applies schema) and `npm run prisma:generate` (refreshes client).
+- From repo root: `npm install`, then `npm run prisma:migrate` and `npm run prisma:generate`.
+- Install materialized views: `npm run projections:install`.
+- Seed initial staff users: `npm run seed:staff`.
+- Start API server: `npm run start:api`.
 - Tests: `npm run test:unit` (web/shared/api) and `npm run test:e2e`.
-- Prisma docs: `docs/prisma.md` for workflow and commands.

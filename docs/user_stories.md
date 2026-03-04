@@ -2,7 +2,7 @@
 
 User Stories and Acceptance Criteria (v1)
 
-Last updated: 2026-02-02
+Last updated: 2026-03-04
 
 ---
 
@@ -12,7 +12,7 @@ US-1: As a staff user, I want to log in with a username and passcode so that onl
 Acceptance criteria - Login requires valid username + passcode - Invalid credentials do not allow access - Session identifies the logged-in staff user
 
 US-2: As a manager, I want role-based permissions so that users can only access actions relevant to their role.
-Acceptance criteria - Collector can register persons and record intake events - Shop operator can record sales - Manager can manage procurement, expenses, and reports
+Acceptance criteria - Collector can register persons and record intake events - Shop operator can record sales - Manager can manage procurement, expenses, reports, and administration
 
 ---
 
@@ -40,15 +40,15 @@ Acceptance criteria - Each line requires a material type and weight - Multiple l
 US-8: As a collector, I want points calculated as weight \* points_per_kg, rounded down to whole rand, so that rewards match the rules.
 Acceptance criteria - Points are integer values only - Decimal results are rounded down
 
-US-9: As a collector, I want points to be credited to the person’s account so that they can redeem them later.
-Acceptance criteria - A points ledger entry is created per intake event - The person’s balance increases accordingly
+US-9: As a collector, I want points to be credited to the person's account so that they can redeem them later.
+Acceptance criteria - A points ledger entry is created per intake event - The person's balance increases accordingly
 
 ---
 
 4. Points ledger
 
-US-10: As a staff user, I want to see a person’s points balance so that I can confirm their available credit.
-Acceptance criteria - Balance is derived from ledger entries - Balance is displayed on the person’s profile - Transactions that would create a negative balance are blocked
+US-10: As a staff user, I want to see a person's points balance so that I can confirm their available credit.
+Acceptance criteria - Balance is derived from ledger entries - Balance is displayed on the person's profile - Transactions that would create a negative balance are blocked
 
 US-11: As a manager, I want each points change to reference its source event so that I can audit balances.
 Acceptance criteria - Each ledger entry stores source type and source ID - The source event is viewable from the ledger
@@ -70,8 +70,8 @@ Acceptance criteria - Stock can be moved between storage and shop - Sold stock c
 US-14: As a shop operator, I want to record a sale using points only so that redemption is tracked correctly.
 Acceptance criteria - Payment type is points only - Sale records include date/time and location
 
-US-15: As a shop operator, I want sales to debit the person’s points balance so that the ledger stays accurate.
-Acceptance criteria - A debit entry is created in the points ledger - The person’s balance decreases by the sale total
+US-15: As a shop operator, I want sales to debit the person's points balance so that the ledger stays accurate.
+Acceptance criteria - A debit entry is created in the points ledger - The person's balance decreases by the sale total
 
 US-16: As a shop operator, I want sales to reduce stock and mark items as sold so that inventory stays accurate.
 Acceptance criteria - Inventory quantities decrease by sold quantity - Sold status is recorded
