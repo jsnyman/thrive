@@ -1,4 +1,5 @@
 import supertest = require("supertest");
+import type { Event } from "../../../../packages/shared/src/domain/events";
 import { createPasscodeHash, type AuthConfig, type StaffUserRecord } from "../auth";
 import { createApiServer, type ApiServerDependencies } from "./server";
 
@@ -28,35 +29,47 @@ const authConfig: AuthConfig = {
 const getUserByUsername = async (username: string): Promise<StaffUserRecord | null> =>
   users.find((user) => user.username === username) ?? null;
 
-const createDependencies = (
-  overrides?: Partial<ApiServerDependencies>,
-): ApiServerDependencies => ({
+const defaultEvent: Event = {
+  eventId: "7c5e6ab0-d172-47f7-b0ff-a2480f3d11b4",
+  eventType: "person.created",
+  occurredAt: "2026-03-05T10:00:00.000Z",
+  recordedAt: "2026-03-05T10:00:01.000Z",
+  actorUserId: users[0]?.id ?? "2772c203-5df5-4967-9341-09e391f4cb90",
+  deviceId: "device-a",
+  schemaVersion: 1,
+  payload: {
+    personId: "person-1",
+    name: "stub",
+    surname: "stub",
+  },
+};
+
+const createDependencies = (overrides?: Partial<ApiServerDependencies>): ApiServerDependencies => ({
   authConfig,
   getStaffUserByUsername: getUserByUsername,
   listPeople: async () => [],
-  createPerson: async () => ({
-    id: "person-1",
-    name: "stub",
-    surname: "stub",
-  }),
   listMaterials: async () => [],
-  createMaterial: async () => ({
-    id: "material-1",
-    name: "stub",
-    pointsPerKg: 1,
-  }),
   listItems: async () => [],
-  createItem: async () => ({
-    id: "item-1",
-    name: "stub",
-    pointsPrice: 1,
-  }),
+  getPersonById: async () => null,
+  getMaterialById: async () => null,
+  getItemById: async () => null,
+  appendEventAndProject: async () => ({ status: "accepted" }),
+  appendEvents: async (events) => events.map(() => ({ status: "accepted" })),
   getLedgerBalance: async (personId) => ({
     personId,
     balancePoints: 0,
   }),
   listLedgerEntries: async () => [],
-  refreshProjections: async () => undefined,
+  getLivePointsBalance: async () => 0,
+  pullEvents: async () => ({
+    events: [defaultEvent],
+    nextCursor: null,
+  }),
+  getSyncStatus: async () => ({
+    latestCursor: null,
+    projectionRefreshedAt: null,
+    projectionCursor: null,
+  }),
   ...overrides,
 });
 
@@ -125,7 +138,9 @@ describe("auth HTTP endpoints", () => {
 
     currentNow = new Date("2026-03-04T10:00:02.000Z");
 
-    const response = await supertest(server).get("/auth/me").set("authorization", `Bearer ${token}`);
+    const response = await supertest(server)
+      .get("/auth/me")
+      .set("authorization", `Bearer ${token}`);
 
     expect(response.status).toBe(401);
   });
@@ -139,7 +154,9 @@ describe("auth HTTP endpoints", () => {
     });
     const token = login.body.token as string;
 
-    const response = await supertest(server).get("/auth/me").set("authorization", `Bearer ${token}`);
+    const response = await supertest(server)
+      .get("/auth/me")
+      .set("authorization", `Bearer ${token}`);
 
     expect(response.status).toBe(200);
     expect(response.body.user.username).toBe("manager");
@@ -158,7 +175,9 @@ describe("auth HTTP endpoints", () => {
     });
     const token = login.body.token as string;
 
-    const response = await supertest(server).get("/auth/me").set("authorization", `Bearer ${token}`);
+    const response = await supertest(server)
+      .get("/auth/me")
+      .set("authorization", `Bearer ${token}`);
 
     expect(response.status).toBe(403);
   });

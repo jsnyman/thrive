@@ -17,13 +17,11 @@ export const startApiServer = async (): Promise<ReturnType<typeof createApiServe
     { readApiRuntimeConfig },
     { createPrismaClient },
     { createCoreRepository },
-    { refreshProjections },
   ] = await Promise.all([
     import("./auth/staff-users.js"),
     import("./http/config.js"),
     import("./prisma.js"),
     import("./data/core-repository.js"),
-    import("./projections/refresh.js"),
   ]);
   const runtimeConfig = readApiRuntimeConfig();
   let prismaClient: ReturnType<typeof createPrismaClient> | null = null;
@@ -37,14 +35,25 @@ export const startApiServer = async (): Promise<ReturnType<typeof createApiServe
     authConfig: runtimeConfig.authConfig,
     getStaffUserByUsername: async (username) => getStaffUserByUsername(getPrismaClient(), username),
     listPeople: async (search) => createCoreRepository(getPrismaClient()).listPeople(search),
-    createPerson: async (input) => createCoreRepository(getPrismaClient()).createPerson(input),
     listMaterials: async () => createCoreRepository(getPrismaClient()).listMaterials(),
-    createMaterial: async (input) => createCoreRepository(getPrismaClient()).createMaterial(input),
     listItems: async () => createCoreRepository(getPrismaClient()).listItems(),
-    createItem: async (input) => createCoreRepository(getPrismaClient()).createItem(input),
-    getLedgerBalance: async (personId) => createCoreRepository(getPrismaClient()).getLedgerBalance(personId),
-    listLedgerEntries: async (personId) => createCoreRepository(getPrismaClient()).listLedgerEntries(personId),
-    refreshProjections: async () => refreshProjections(getPrismaClient()),
+    getPersonById: async (personId) =>
+      createCoreRepository(getPrismaClient()).getPersonById(personId),
+    getMaterialById: async (materialId) =>
+      createCoreRepository(getPrismaClient()).getMaterialById(materialId),
+    getItemById: async (itemId) => createCoreRepository(getPrismaClient()).getItemById(itemId),
+    appendEventAndProject: async (event) =>
+      createCoreRepository(getPrismaClient()).appendEventAndProject(event),
+    appendEvents: async (events) => createCoreRepository(getPrismaClient()).appendEvents(events),
+    getLedgerBalance: async (personId) =>
+      createCoreRepository(getPrismaClient()).getLedgerBalance(personId),
+    listLedgerEntries: async (personId) =>
+      createCoreRepository(getPrismaClient()).listLedgerEntries(personId),
+    getLivePointsBalance: async (personId) =>
+      createCoreRepository(getPrismaClient()).getLivePointsBalance(personId),
+    pullEvents: async (cursor, limit) =>
+      createCoreRepository(getPrismaClient()).pullEvents(cursor, limit),
+    getSyncStatus: async () => createCoreRepository(getPrismaClient()).getSyncStatus(),
   });
   server.on("close", () => {
     if (prismaClient !== null) {

@@ -23,6 +23,9 @@
     "test:shared:watch": "vitest --config packages/shared/vitest.config.ts",
     "test:api": "jest --config apps/api/jest.config.cjs --passWithNoTests",
     "start:api": "npx tsx apps/api/src/start.ts",
+    "start:web": "vite --config apps/web/vite.config.ts",
+    "build:web": "vite build --config apps/web/vite.config.ts",
+    "build:api": "npx tsc -p apps/api/tsconfig.json --noEmit false --outDir apps/api/dist",
     "seed:staff": "npx tsx apps/api/src/scripts/seed-staff.ts",
     "projections:install": "npx tsx apps/api/src/projections/install.ts",
     "test:e2e": "playwright test --pass-with-no-tests",
@@ -39,6 +42,8 @@
     "@testing-library/react": "^16.0.1",
     "@testing-library/user-event": "^14.5.2",
     "@types/jest": "^29.5.12",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
     "@types/supertest": "^2.0.16",
     "@typescript-eslint/eslint-plugin": "^6.21.0",
     "@typescript-eslint/parser": "^6.21.0",
@@ -59,7 +64,12 @@
     "vitest": "^4.0.18"
   },
   "dependencies": {
+    "@mantine/core": "^7.13.2",
+    "@mantine/hooks": "^7.13.2",
     "@prisma/client": "^7.4.1",
-    "prisma": "^7.4.1"
+    "prisma": "^7.4.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^5.4.10"
   }
 }

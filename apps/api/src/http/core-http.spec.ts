@@ -1,4 +1,5 @@
 import supertest = require("supertest");
+import type { Event } from "../../../../packages/shared/src/domain/events";
 import { createPasscodeHash, type AuthConfig, type StaffUserRecord } from "../auth";
 import { createApiServer, type ApiServerDependencies } from "./server";
 
@@ -68,10 +69,31 @@ const authConfig: AuthConfig = {
 const getUserByUsername = async (username: string): Promise<StaffUserRecord | null> =>
   users.find((user) => user.username === username) ?? null;
 
+const baseNow = new Date("2026-03-05T12:00:00.000Z");
+
 const createDependencies = (): ApiServerDependencies => {
-  const people: PersonRecord[] = [];
-  const materials: MaterialRecord[] = [];
-  const items: ItemRecord[] = [];
+  const people: PersonRecord[] = [
+    {
+      id: "person-a",
+      name: "Alice",
+      surname: "Zulu",
+    },
+  ];
+  const materials: MaterialRecord[] = [
+    {
+      id: "mat-1",
+      name: "PET",
+      pointsPerKg: 3,
+    },
+  ];
+  const items: ItemRecord[] = [
+    {
+      id: "item-1",
+      name: "Soap",
+      pointsPrice: 10,
+    },
+  ];
+  const events: Event[] = [];
   const ledger: LedgerEntryRecord[] = [
     {
       id: "event-1",
@@ -91,6 +113,58 @@ const createDependencies = (): ApiServerDependencies => {
     },
   ];
 
+  const appendEventAndProject = async (event: Event) => {
+    events.push(event);
+    if (event.eventType === "person.created") {
+      people.push({
+        id: event.payload.personId,
+        name: event.payload.name,
+        surname: event.payload.surname,
+        idNumber: event.payload.idNumber ?? null,
+        phone: event.payload.phone ?? null,
+        address: event.payload.address ?? null,
+        notes: event.payload.notes ?? null,
+      });
+    }
+    if (event.eventType === "material_type.created") {
+      materials.push({
+        id: event.payload.materialTypeId,
+        name: event.payload.name,
+        pointsPerKg: event.payload.pointsPerKg,
+      });
+    }
+    if (event.eventType === "item.created") {
+      items.push({
+        id: event.payload.itemId,
+        name: event.payload.name,
+        pointsPrice: event.payload.pointsPrice,
+        costPrice: event.payload.costPrice ?? null,
+        sku: event.payload.sku ?? null,
+      });
+    }
+    if (event.eventType === "intake.recorded") {
+      ledger.push({
+        id: event.eventId,
+        personId: event.payload.personId,
+        deltaPoints: event.payload.totalPoints,
+        occurredAt: event.occurredAt,
+        sourceEventType: "intake.recorded",
+        sourceEventId: event.eventId,
+      });
+    }
+    if (event.eventType === "sale.recorded") {
+      ledger.push({
+        id: event.eventId,
+        personId: event.payload.personId,
+        deltaPoints: event.payload.totalPoints * -1,
+        occurredAt: event.occurredAt,
+        sourceEventType: "sale.recorded",
+        sourceEventId: event.eventId,
+      });
+    }
+    return { status: "accepted" as const };
+  };
+
   return {
     authConfig,
     getStaffUserByUsername: getUserByUsername,
@@ -100,33 +174,29 @@ const createDependencies = (): ApiServerDependencies => {
           return true;
         }
         const query = search.toLowerCase();
-        return person.name.toLowerCase().includes(query) || person.surname.toLowerCase().includes(query);
+        return (
+          person.name.toLowerCase().includes(query) || person.surname.toLowerCase().includes(query)
+        );
       }),
-    createPerson: async (input) => {
-      const record: PersonRecord = {
-        id: `person-${people.length + 1}`,
-        ...input,
-      };
-      people.push(record);
-      return record;
-    },
     listMaterials: async () => materials,
-    createMaterial: async (input) => {
-      const record: MaterialRecord = {
-        id: `material-${materials.length + 1}`,
-        ...input,
-      };
-      materials.push(record);
-      return record;
-    },
     listItems: async () => items,
-    createItem: async (input) => {
-      const record: ItemRecord = {
-        id: `item-${items.length + 1}`,
-        ...input,
-      };
-      items.push(record);
-      return record;
+    getPersonById: async (personId) => people.find((person) => person.id === personId) ?? null,
+    getMaterialById: async (materialId) =>
+      materials.find((material) => material.id === materialId) ?? null,
+    getItemById: async (itemId) => items.find((item) => item.id === itemId) ?? null,
+    appendEventAndProject,
+    appendEvents: async (incomingEvents) => {
+      const results: Array<{ status: "accepted" | "duplicate" | "rejected"; reason?: string }> = [];
+      for (const event of incomingEvents) {
+        const duplicate = events.some((existing) => existing.eventId === event.eventId);
+        if (duplicate) {
+          results.push({ status: "duplicate" });
+        } else {
+          await appendEventAndProject(event);
+          results.push({ status: "accepted" });
+        }
+      }
+      return results;
     },
     getLedgerBalance: async (personId) => {
       const total = ledger
@@ -138,11 +208,35 @@ const createDependencies = (): ApiServerDependencies => {
       };
     },
     listLedgerEntries: async (personId) => ledger.filter((entry) => entry.personId === personId),
-    refreshProjections: async () => undefined,
+    getLivePointsBalance: async (personId) =>
+      ledger
+        .filter((entry) => entry.personId === personId)
+        .reduce((sum, entry) => sum + entry.deltaPoints, 0),
+    pullEvents: async (cursor, limit) => {
+      const startIndex = cursor === null ? 0 : Number.parseInt(cursor, 10);
+      const normalizedStart = Number.isFinite(startIndex) ? startIndex : 0;
+      const normalizedLimit = Number.isInteger(limit) && limit > 0 ? limit : 100;
+      const slice = events.slice(normalizedStart, normalizedStart + normalizedLimit);
+      const nextCursor = `${normalizedStart + slice.length}`;
+      return {
+        events: slice,
+        nextCursor,
+      };
+    },
+    getSyncStatus: async () => ({
+      latestCursor: `${events.length}`,
+      projectionRefreshedAt: baseNow.toISOString(),
+      projectionCursor: `${events.length}`,
+    }),
+    now: () => baseNow,
   };
 };
 
-const loginAndGetToken = async (server: ReturnType<typeof createApiServer>, username: string, passcode: string) => {
+const loginAndGetToken = async (
+  server: ReturnType<typeof createApiServer>,
+  username: string,
+  passcode: string,
+) => {
   const login = await supertest(server).post("/auth/login").send({
     username,
     passcode,
@@ -207,34 +301,42 @@ describe("core HTTP endpoints", () => {
     expect(allowed.body.item.name).toBe("Soap");
   });
 
-  test("GET /people returns created entries for authorized user", async () => {
+  test("POST /intakes calculates floored points and credits ledger", async () => {
     const server = createApiServer(createDependencies());
     const token = await loginAndGetToken(server, "collector", collectorPasscode);
 
-    await supertest(server).post("/people").set("authorization", `Bearer ${token}`).send({
-      name: "A",
-      surname: "One",
-    });
-    await supertest(server).post("/people").set("authorization", `Bearer ${token}`).send({
-      name: "B",
-      surname: "Two",
-    });
+    const intake = await supertest(server)
+      .post("/intakes")
+      .set("authorization", `Bearer ${token}`)
+      .send({
+        personId: "person-a",
+        lines: [{ materialTypeId: "mat-1", weightKg: 2.9 }],
+      });
 
-    const response = await supertest(server).get("/people").set("authorization", `Bearer ${token}`);
-    expect(response.status).toBe(200);
-    expect(response.body.people.length).toBe(2);
-  });
+    expect(intake.status).toBe(201);
+    expect(intake.body.totalPoints).toBe(8);
 
-  test("GET /ledger/:personId/balance returns projected balance", async () => {
-    const server = createApiServer(createDependencies());
-    const token = await loginAndGetToken(server, "manager", managerPasscode);
-
-    const response = await supertest(server)
+    const balance = await supertest(server)
       .get("/ledger/person-a/balance")
       .set("authorization", `Bearer ${token}`);
-    expect(response.status).toBe(200);
-    expect(response.body.balance.personId).toBe("person-a");
-    expect(response.body.balance.balancePoints).toBe(30);
+    expect(balance.status).toBe(200);
+    expect(balance.body.balance.balancePoints).toBe(38);
+  });
+
+  test("POST /sales blocks insufficient points", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "operator", operatorPasscode);
+
+    const response = await supertest(server)
+      .post("/sales")
+      .set("authorization", `Bearer ${token}`)
+      .send({
+        personId: "person-a",
+        lines: [{ itemId: "item-1", quantity: 9 }],
+      });
+
+    expect(response.status).toBe(409);
+    expect(response.body.error).toBe("INSUFFICIENT_POINTS");
   });
 
   test("GET /ledger/:personId/entries returns projected entries", async () => {
@@ -246,5 +348,41 @@ describe("core HTTP endpoints", () => {
       .set("authorization", `Bearer ${token}`);
     expect(response.status).toBe(200);
     expect(response.body.entries.length).toBe(2);
+  });
+
+  test("sync push and pull work with cursor", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "manager", managerPasscode);
+    const eventId = "88a02142-9ba0-49cc-9f01-b4b4726d1e44";
+
+    const push = await supertest(server)
+      .post("/sync/push")
+      .set("authorization", `Bearer ${token}`)
+      .send({
+        events: [
+          {
+            eventId,
+            eventType: "person.created",
+            occurredAt: "2026-03-05T12:00:00.000Z",
+            actorUserId: users[0]?.id,
+            deviceId: "device-b",
+            schemaVersion: 1,
+            payload: {
+              personId: "person-sync",
+              name: "Sync",
+              surname: "Person",
+            },
+          },
+        ],
+      });
+
+    expect(push.status).toBe(200);
+    expect(push.body.acknowledgements[0].status).toBe("accepted");
+
+    const pull = await supertest(server)
+      .get("/sync/pull?cursor=0&limit=10")
+      .set("authorization", `Bearer ${token}`);
+    expect(pull.status).toBe(200);
+    expect(Array.isArray(pull.body.events)).toBe(true);
   });
 });

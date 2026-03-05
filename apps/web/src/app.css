@@ -1,0 +1,17 @@
+.topBar {
+  border-bottom: 1px solid #dae4dc;
+  background: linear-gradient(90deg, #ecf6ee 0%, #f7f8ed 100%);
+}
+
+.mainSurface {
+  min-height: calc(100vh - 68px);
+  background:
+    radial-gradient(circle at 8% 10%, rgba(106, 170, 111, 0.14), transparent 30%),
+    radial-gradient(circle at 92% 15%, rgba(233, 153, 79, 0.14), transparent 30%),
+    linear-gradient(180deg, #f8fbf6 0%, #f5f8fb 100%);
+}
+
+.sectionCard {
+  border: 1px solid #d5dfd8;
+  background: rgba(255, 255, 255, 0.86);
+}

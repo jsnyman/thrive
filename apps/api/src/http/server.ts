@@ -1,10 +1,20 @@
+import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { URL } from "node:url";
+import type { Event } from "../../../../packages/shared/src/domain/events";
+import type {
+  SyncCursor,
+  SyncPullResponse,
+  SyncPushRequest,
+  SyncPushResponse,
+  SyncStatusResponse,
+} from "../../../../packages/shared/src/domain/sync";
 import {
   authenticateStaffUser,
   readAuthorizedActor,
   type AuthConfig,
   type PermissionAction,
+  type StaffIdentity,
   type StaffUserRecord,
 } from "../auth";
 
@@ -25,6 +35,7 @@ type PersonCreateInput = {
   phone?: string | null;
   address?: string | null;
   notes?: string | null;
+  locationText?: string | null;
 };
 
 type MaterialRecord = {
@@ -36,6 +47,7 @@ type MaterialRecord = {
 type MaterialCreateInput = {
   name: string;
   pointsPerKg: number;
+  locationText?: string | null;
 };
 
 type ItemRecord = {
@@ -51,6 +63,25 @@ type ItemCreateInput = {
   pointsPrice: number;
   costPrice?: number | null;
   sku?: string | null;
+  locationText?: string | null;
+};
+
+type IntakeCreateInput = {
+  personId: string;
+  lines: Array<{
+    materialTypeId: string;
+    weightKg: number;
+  }>;
+  locationText?: string | null;
+};
+
+type SaleCreateInput = {
+  personId: string;
+  lines: Array<{
+    itemId: string;
+    quantity: number;
+  }>;
+  locationText?: string | null;
 };
 
 type LedgerBalanceRecord = {
@@ -67,18 +98,27 @@ type LedgerEntryRecord = {
   sourceEventId: string;
 };
 
+type AppendEventResult = {
+  status: "accepted" | "duplicate" | "rejected";
+  reason?: string;
+};
+
 type ApiServerDependencies = {
   authConfig: AuthConfig;
   getStaffUserByUsername: (username: string) => Promise<StaffUserRecord | null>;
   listPeople: (search?: string) => Promise<PersonRecord[]>;
-  createPerson: (input: PersonCreateInput) => Promise<PersonRecord>;
   listMaterials: () => Promise<MaterialRecord[]>;
-  createMaterial: (input: MaterialCreateInput) => Promise<MaterialRecord>;
   listItems: () => Promise<ItemRecord[]>;
-  createItem: (input: ItemCreateInput) => Promise<ItemRecord>;
+  getPersonById: (personId: string) => Promise<PersonRecord | null>;
+  getMaterialById: (materialId: string) => Promise<MaterialRecord | null>;
+  getItemById: (itemId: string) => Promise<ItemRecord | null>;
+  appendEventAndProject: (event: Event) => Promise<AppendEventResult>;
+  appendEvents: (events: Event[]) => Promise<AppendEventResult[]>;
   getLedgerBalance: (personId: string) => Promise<LedgerBalanceRecord>;
   listLedgerEntries: (personId: string) => Promise<LedgerEntryRecord[]>;
-  refreshProjections: () => Promise<void>;
+  getLivePointsBalance: (personId: string) => Promise<number>;
+  pullEvents: (cursor: SyncCursor | null, limit: number) => Promise<SyncPullResponse>;
+  getSyncStatus: () => Promise<SyncStatusResponse>;
   meRequiredAction?: PermissionAction;
   now?: () => Date;
 };
@@ -87,7 +127,7 @@ type JsonBodyResult =
   | { ok: true; value: unknown }
   | { ok: false; error: "INVALID_JSON" | "BODY_TOO_LARGE" };
 
-const MAX_BODY_BYTES = 16 * 1024;
+const MAX_BODY_BYTES = 64 * 1024;
 
 const sendJson = (res: ServerResponse, statusCode: number, payload: unknown): void => {
   res.statusCode = statusCode;
@@ -148,11 +188,17 @@ const parseLoginRequest = (body: unknown): { username: string; passcode: string 
   return { username, passcode };
 };
 
-const mapAuthErrorToStatus = (error: string): number => {
-  if (error === "FORBIDDEN") {
-    return 403;
+const parseNullableString = (value: unknown): string | null | undefined => {
+  if (value === undefined) {
+    return undefined;
   }
-  return 401;
+  if (value === null) {
+    return null;
+  }
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  return value;
 };
 
 const parsePersonCreateRequest = (body: unknown): PersonCreateInput | null => {
@@ -168,29 +214,34 @@ const parsePersonCreateRequest = (body: unknown): PersonCreateInput | null => {
   if (name.trim().length === 0 || surname.trim().length === 0) {
     return null;
   }
-  const idNumber = record["idNumber"];
-  const phone = record["phone"];
-  const address = record["address"];
-  const notes = record["notes"];
-  if (idNumber !== undefined && idNumber !== null && typeof idNumber !== "string") {
+  const idNumber = parseNullableString(record["idNumber"]);
+  const phone = parseNullableString(record["phone"]);
+  const address = parseNullableString(record["address"]);
+  const notes = parseNullableString(record["notes"]);
+  const locationText = parseNullableString(record["locationText"]);
+  if (idNumber === undefined && record["idNumber"] !== undefined) {
     return null;
   }
-  if (phone !== undefined && phone !== null && typeof phone !== "string") {
+  if (phone === undefined && record["phone"] !== undefined) {
     return null;
   }
-  if (address !== undefined && address !== null && typeof address !== "string") {
+  if (address === undefined && record["address"] !== undefined) {
     return null;
   }
-  if (notes !== undefined && notes !== null && typeof notes !== "string") {
+  if (notes === undefined && record["notes"] !== undefined) {
+    return null;
+  }
+  if (locationText === undefined && record["locationText"] !== undefined) {
     return null;
   }
   return {
     name,
     surname,
-    idNumber: (idNumber as string | null | undefined) ?? null,
-    phone: (phone as string | null | undefined) ?? null,
-    address: (address as string | null | undefined) ?? null,
-    notes: (notes as string | null | undefined) ?? null,
+    idNumber: idNumber ?? null,
+    phone: phone ?? null,
+    address: address ?? null,
+    notes: notes ?? null,
+    locationText: locationText ?? null,
   };
 };
 
@@ -201,15 +252,20 @@ const parseMaterialCreateRequest = (body: unknown): MaterialCreateInput | null =
   const record = body as Record<string, unknown>;
   const name = record["name"];
   const pointsPerKg = record["pointsPerKg"];
+  const locationText = parseNullableString(record["locationText"]);
   if (typeof name !== "string" || name.trim().length === 0) {
     return null;
   }
   if (typeof pointsPerKg !== "number" || !Number.isFinite(pointsPerKg) || pointsPerKg < 0) {
     return null;
   }
+  if (locationText === undefined && record["locationText"] !== undefined) {
+    return null;
+  }
   return {
     name,
     pointsPerKg,
+    locationText: locationText ?? null,
   };
 };
 
@@ -223,11 +279,16 @@ const parseItemCreateRequest = (body: unknown): ItemCreateInput | null => {
   if (typeof name !== "string" || name.trim().length === 0) {
     return null;
   }
-  if (typeof pointsPriceRaw !== "number" || !Number.isInteger(pointsPriceRaw) || pointsPriceRaw < 0) {
+  if (
+    typeof pointsPriceRaw !== "number" ||
+    !Number.isInteger(pointsPriceRaw) ||
+    pointsPriceRaw < 0
+  ) {
     return null;
   }
   const costPriceRaw = record["costPrice"];
   const skuRaw = record["sku"];
+  const locationText = parseNullableString(record["locationText"]);
   if (costPriceRaw !== undefined && costPriceRaw !== null) {
     if (typeof costPriceRaw !== "number" || !Number.isFinite(costPriceRaw) || costPriceRaw < 0) {
       return null;
@@ -236,13 +297,184 @@ const parseItemCreateRequest = (body: unknown): ItemCreateInput | null => {
   if (skuRaw !== undefined && skuRaw !== null && typeof skuRaw !== "string") {
     return null;
   }
+  if (locationText === undefined && record["locationText"] !== undefined) {
+    return null;
+  }
   return {
     name,
     pointsPrice: pointsPriceRaw,
     costPrice: (costPriceRaw as number | null | undefined) ?? null,
     sku: (skuRaw as string | null | undefined) ?? null,
+    locationText: locationText ?? null,
   };
 };
+
+const parseIntakeCreateRequest = (body: unknown): IntakeCreateInput | null => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+  const record = body as Record<string, unknown>;
+  const personId = record["personId"];
+  const lines = record["lines"];
+  const locationText = parseNullableString(record["locationText"]);
+  if (typeof personId !== "string" || personId.trim().length === 0) {
+    return null;
+  }
+  if (!Array.isArray(lines) || lines.length === 0) {
+    return null;
+  }
+  const parsedLines: IntakeCreateInput["lines"] = [];
+  for (const line of lines) {
+    if (typeof line !== "object" || line === null || Array.isArray(line)) {
+      return null;
+    }
+    const lineRecord = line as Record<string, unknown>;
+    const materialTypeId = lineRecord["materialTypeId"];
+    const weightKg = lineRecord["weightKg"];
+    if (typeof materialTypeId !== "string" || materialTypeId.trim().length === 0) {
+      return null;
+    }
+    if (typeof weightKg !== "number" || !Number.isFinite(weightKg) || weightKg <= 0) {
+      return null;
+    }
+    parsedLines.push({
+      materialTypeId,
+      weightKg,
+    });
+  }
+  if (locationText === undefined && record["locationText"] !== undefined) {
+    return null;
+  }
+  return {
+    personId,
+    lines: parsedLines,
+    locationText: locationText ?? null,
+  };
+};
+
+const parseSaleCreateRequest = (body: unknown): SaleCreateInput | null => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+  const record = body as Record<string, unknown>;
+  const personId = record["personId"];
+  const lines = record["lines"];
+  const locationText = parseNullableString(record["locationText"]);
+  if (typeof personId !== "string" || personId.trim().length === 0) {
+    return null;
+  }
+  if (!Array.isArray(lines) || lines.length === 0) {
+    return null;
+  }
+  const parsedLines: SaleCreateInput["lines"] = [];
+  for (const line of lines) {
+    if (typeof line !== "object" || line === null || Array.isArray(line)) {
+      return null;
+    }
+    const lineRecord = line as Record<string, unknown>;
+    const itemId = lineRecord["itemId"];
+    const quantity = lineRecord["quantity"];
+    if (typeof itemId !== "string" || itemId.trim().length === 0) {
+      return null;
+    }
+    if (typeof quantity !== "number" || !Number.isInteger(quantity) || quantity <= 0) {
+      return null;
+    }
+    parsedLines.push({
+      itemId,
+      quantity,
+    });
+  }
+  if (locationText === undefined && record["locationText"] !== undefined) {
+    return null;
+  }
+  return {
+    personId,
+    lines: parsedLines,
+    locationText: locationText ?? null,
+  };
+};
+
+const parseSyncPushRequest = (body: unknown): SyncPushRequest | null => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+  const record = body as Record<string, unknown>;
+  const events = record["events"];
+  const lastKnownCursor = record["lastKnownCursor"];
+  if (!Array.isArray(events)) {
+    return null;
+  }
+  if (
+    lastKnownCursor !== undefined &&
+    lastKnownCursor !== null &&
+    typeof lastKnownCursor !== "string"
+  ) {
+    return null;
+  }
+  return {
+    events: events as Event[],
+    lastKnownCursor: (lastKnownCursor as SyncCursor | null | undefined) ?? null,
+  };
+};
+
+const mapAuthErrorToStatus = (error: string): number => {
+  if (error === "FORBIDDEN") {
+    return 403;
+  }
+  return 401;
+};
+
+const requireAuthorization = (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+  action: PermissionAction,
+): StaffIdentity | null => {
+  const authorization = getHeader(req, "authorization");
+  const actor = readAuthorizedActor(
+    {
+      authorization,
+    },
+    dependencies.authConfig,
+    action,
+    dependencies.now?.() ?? new Date(),
+  );
+  if (!actor.ok) {
+    sendJson(res, mapAuthErrorToStatus(actor.error), { error: actor.error });
+    return null;
+  }
+  return actor.value;
+};
+
+const nowIso = (dependencies: ApiServerDependencies): string =>
+  (dependencies.now?.() ?? new Date()).toISOString();
+
+const toBaseEventFields = (
+  dependencies: ApiServerDependencies,
+  actor: StaffIdentity,
+  req: IncomingMessage,
+  locationText?: string | null,
+): Pick<
+  Event,
+  | "eventId"
+  | "occurredAt"
+  | "actorUserId"
+  | "deviceId"
+  | "schemaVersion"
+  | "correlationId"
+  | "causationId"
+  | "locationText"
+> => ({
+  eventId: randomUUID(),
+  occurredAt: nowIso(dependencies),
+  actorUserId: actor.id,
+  deviceId: getHeader(req, "x-device-id") ?? "api-server",
+  schemaVersion: 1,
+  correlationId: null,
+  causationId: null,
+  locationText: locationText ?? null,
+});
 
 const handleLogin = async (
   req: IncomingMessage,
@@ -278,7 +510,11 @@ const handleLogin = async (
   });
 };
 
-const handleMe = (req: IncomingMessage, res: ServerResponse, dependencies: ApiServerDependencies): void => {
+const handleMe = (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): void => {
   const authorization = getHeader(req, "authorization");
   const requiredAction = dependencies.meRequiredAction ?? "person.update";
   const actor = readAuthorizedActor(
@@ -299,28 +535,6 @@ const handleMe = (req: IncomingMessage, res: ServerResponse, dependencies: ApiSe
   sendJson(res, 200, {
     user: actor.value,
   });
-};
-
-const requireAuthorization = (
-  req: IncomingMessage,
-  res: ServerResponse,
-  dependencies: ApiServerDependencies,
-  action: PermissionAction,
-) => {
-  const authorization = getHeader(req, "authorization");
-  const actor = readAuthorizedActor(
-    {
-      authorization,
-    },
-    dependencies.authConfig,
-    action,
-    dependencies.now?.() ?? new Date(),
-  );
-  if (!actor.ok) {
-    sendJson(res, mapAuthErrorToStatus(actor.error), { error: actor.error });
-    return null;
-  }
-  return actor.value;
 };
 
 const handlePeopleList = async (
@@ -357,8 +571,35 @@ const handlePeopleCreate = async (
     sendJson(res, 400, { error: "BAD_REQUEST" });
     return;
   }
-  const person = await dependencies.createPerson(request);
-  await dependencies.refreshProjections();
+
+  const personId = randomUUID();
+  const event: Event = {
+    ...toBaseEventFields(dependencies, actor, req, request.locationText),
+    eventType: "person.created",
+    payload: {
+      personId,
+      name: request.name,
+      surname: request.surname,
+      idNumber: request.idNumber ?? null,
+      phone: request.phone ?? null,
+      address: request.address ?? null,
+      notes: request.notes ?? null,
+      locationText: request.locationText ?? null,
+    },
+  };
+
+  const appendResult = await dependencies.appendEventAndProject(event);
+  if (appendResult.status !== "accepted") {
+    sendJson(res, 400, { error: "BAD_REQUEST", reason: appendResult.reason ?? null });
+    return;
+  }
+
+  const person = await dependencies.getPersonById(personId);
+  if (person === null) {
+    sendJson(res, 500, { error: "INTERNAL_SERVER_ERROR" });
+    return;
+  }
+
   sendJson(res, 201, { person });
 };
 
@@ -394,8 +635,28 @@ const handleMaterialsCreate = async (
     sendJson(res, 400, { error: "BAD_REQUEST" });
     return;
   }
-  const material = await dependencies.createMaterial(request);
-  await dependencies.refreshProjections();
+
+  const materialTypeId = randomUUID();
+  const event: Event = {
+    ...toBaseEventFields(dependencies, actor, req, request.locationText),
+    eventType: "material_type.created",
+    payload: {
+      materialTypeId,
+      name: request.name,
+      pointsPerKg: request.pointsPerKg,
+    },
+  };
+
+  const appendResult = await dependencies.appendEventAndProject(event);
+  if (appendResult.status !== "accepted") {
+    sendJson(res, 400, { error: "BAD_REQUEST", reason: appendResult.reason ?? null });
+    return;
+  }
+  const material = await dependencies.getMaterialById(materialTypeId);
+  if (material === null) {
+    sendJson(res, 500, { error: "INTERNAL_SERVER_ERROR" });
+    return;
+  }
   sendJson(res, 201, { material });
 };
 
@@ -431,9 +692,183 @@ const handleItemsCreate = async (
     sendJson(res, 400, { error: "BAD_REQUEST" });
     return;
   }
-  const item = await dependencies.createItem(request);
-  await dependencies.refreshProjections();
+
+  const itemId = randomUUID();
+  const event: Event = {
+    ...toBaseEventFields(dependencies, actor, req, request.locationText),
+    eventType: "item.created",
+    payload: {
+      itemId,
+      name: request.name,
+      pointsPrice: request.pointsPrice,
+      costPrice: request.costPrice ?? null,
+      sku: request.sku ?? null,
+    },
+  };
+
+  const appendResult = await dependencies.appendEventAndProject(event);
+  if (appendResult.status !== "accepted") {
+    sendJson(res, 400, { error: "BAD_REQUEST", reason: appendResult.reason ?? null });
+    return;
+  }
+  const item = await dependencies.getItemById(itemId);
+  if (item === null) {
+    sendJson(res, 500, { error: "INTERNAL_SERVER_ERROR" });
+    return;
+  }
   sendJson(res, 201, { item });
+};
+
+const handleIntakeCreate = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "intake.record");
+  if (actor === null) {
+    return;
+  }
+  const bodyResult = await readJsonBody(req);
+  if (!bodyResult.ok) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const request = parseIntakeCreateRequest(bodyResult.value);
+  if (request === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const person = await dependencies.getPersonById(request.personId);
+  if (person === null) {
+    sendJson(res, 404, { error: "PERSON_NOT_FOUND" });
+    return;
+  }
+
+  const lines: Array<{
+    materialTypeId: string;
+    weightKg: number;
+    pointsPerKg: number;
+    pointsAwarded: number;
+  }> = [];
+  let totalPoints = 0;
+  for (const line of request.lines) {
+    const material = await dependencies.getMaterialById(line.materialTypeId);
+    if (material === null) {
+      sendJson(res, 404, { error: "MATERIAL_NOT_FOUND" });
+      return;
+    }
+    const pointsAwarded = Math.floor(line.weightKg * material.pointsPerKg);
+    totalPoints += pointsAwarded;
+    lines.push({
+      materialTypeId: line.materialTypeId,
+      weightKg: line.weightKg,
+      pointsPerKg: material.pointsPerKg,
+      pointsAwarded,
+    });
+  }
+
+  const event: Event = {
+    ...toBaseEventFields(dependencies, actor, req, request.locationText),
+    eventType: "intake.recorded",
+    payload: {
+      personId: request.personId,
+      lines,
+      totalPoints,
+      locationText: request.locationText ?? null,
+    },
+  };
+
+  const appendResult = await dependencies.appendEventAndProject(event);
+  if (appendResult.status !== "accepted") {
+    sendJson(res, 400, { error: "BAD_REQUEST", reason: appendResult.reason ?? null });
+    return;
+  }
+  sendJson(res, 201, {
+    personId: person.id,
+    totalPoints,
+  });
+};
+
+const handleSaleCreate = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "sale.record");
+  if (actor === null) {
+    return;
+  }
+  const bodyResult = await readJsonBody(req);
+  if (!bodyResult.ok) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const request = parseSaleCreateRequest(bodyResult.value);
+  if (request === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const person = await dependencies.getPersonById(request.personId);
+  if (person === null) {
+    sendJson(res, 404, { error: "PERSON_NOT_FOUND" });
+    return;
+  }
+
+  const lines: Array<{
+    itemId: string;
+    inventoryBatchId: null;
+    quantity: number;
+    pointsPrice: number;
+    lineTotalPoints: number;
+  }> = [];
+  let totalPoints = 0;
+  for (const line of request.lines) {
+    const item = await dependencies.getItemById(line.itemId);
+    if (item === null) {
+      sendJson(res, 404, { error: "ITEM_NOT_FOUND" });
+      return;
+    }
+    const lineTotalPoints = item.pointsPrice * line.quantity;
+    totalPoints += lineTotalPoints;
+    lines.push({
+      itemId: line.itemId,
+      inventoryBatchId: null,
+      quantity: line.quantity,
+      pointsPrice: item.pointsPrice,
+      lineTotalPoints,
+    });
+  }
+
+  const currentBalance = await dependencies.getLivePointsBalance(request.personId);
+  if (currentBalance - totalPoints < 0) {
+    sendJson(res, 409, {
+      error: "INSUFFICIENT_POINTS",
+      balancePoints: currentBalance,
+      requestedPoints: totalPoints,
+    });
+    return;
+  }
+
+  const event: Event = {
+    ...toBaseEventFields(dependencies, actor, req, request.locationText),
+    eventType: "sale.recorded",
+    payload: {
+      personId: request.personId,
+      lines,
+      totalPoints,
+      locationText: request.locationText ?? null,
+    },
+  };
+
+  const appendResult = await dependencies.appendEventAndProject(event);
+  if (appendResult.status !== "accepted") {
+    sendJson(res, 400, { error: "BAD_REQUEST", reason: appendResult.reason ?? null });
+    return;
+  }
+  sendJson(res, 201, {
+    personId: person.id,
+    totalPoints,
+  });
 };
 
 const handleLedgerBalance = async (
@@ -462,6 +897,78 @@ const handleLedgerEntries = async (
   }
   const entries = await dependencies.listLedgerEntries(personId);
   sendJson(res, 200, { entries });
+};
+
+const handleSyncPush = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "person.update");
+  if (actor === null) {
+    return;
+  }
+  const bodyResult = await readJsonBody(req);
+  if (!bodyResult.ok) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const request = parseSyncPushRequest(bodyResult.value);
+  if (request === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const appendResults = await dependencies.appendEvents(request.events);
+  const status = await dependencies.getSyncStatus();
+  const response: SyncPushResponse = {
+    acknowledgements: request.events.map((event, index) => {
+      const result = appendResults[index];
+      if (result?.reason !== undefined) {
+        return {
+          eventId: event.eventId,
+          status: result.status,
+          reason: result.reason,
+        };
+      }
+      return {
+        eventId: event.eventId,
+        status: result?.status ?? "rejected",
+      };
+    }),
+    latestCursor: status.latestCursor,
+  };
+  sendJson(res, 200, response);
+};
+
+const handleSyncPull = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "person.update");
+  if (actor === null) {
+    return;
+  }
+  const parsedUrl = new URL(req.url ?? "/", "http://localhost");
+  const cursor = parsedUrl.searchParams.get("cursor");
+  const limitRaw = parsedUrl.searchParams.get("limit");
+  const parsedLimit = limitRaw === null ? 100 : Number.parseInt(limitRaw, 10);
+  const limit = Number.isFinite(parsedLimit) ? parsedLimit : 100;
+  const result = await dependencies.pullEvents(cursor, limit);
+  sendJson(res, 200, result);
+};
+
+const handleSyncStatus = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "person.update");
+  if (actor === null) {
+    return;
+  }
+  const status = await dependencies.getSyncStatus();
+  sendJson(res, 200, status);
 };
 
 const routeRequest = async (
@@ -513,6 +1020,16 @@ const routeRequest = async (
     return;
   }
 
+  if (method === "POST" && pathname === "/intakes") {
+    await handleIntakeCreate(req, res, dependencies);
+    return;
+  }
+
+  if (method === "POST" && pathname === "/sales") {
+    await handleSaleCreate(req, res, dependencies);
+    return;
+  }
+
   const ledgerBalanceMatch = pathname.match(/^\/ledger\/([^/]+)\/balance$/);
   if (method === "GET" && ledgerBalanceMatch !== null) {
     const personId = ledgerBalanceMatch[1];
@@ -529,6 +1046,21 @@ const routeRequest = async (
       await handleLedgerEntries(req, res, dependencies, personId);
       return;
     }
+  }
+
+  if (method === "POST" && pathname === "/sync/push") {
+    await handleSyncPush(req, res, dependencies);
+    return;
+  }
+
+  if (method === "GET" && pathname === "/sync/pull") {
+    await handleSyncPull(req, res, dependencies);
+    return;
+  }
+
+  if (method === "GET" && pathname === "/sync/status") {
+    await handleSyncStatus(req, res, dependencies);
+    return;
   }
 
   sendJson(res, 404, { error: "NOT_FOUND" });

@@ -5,10 +5,12 @@ This document describes the initial offline-first sync model based on an append-
 ## Storage Layout
 
 Client
+
 - Local SQLite event log (OPFS-backed).
 - Local projections for people, inventory, and ledger.
 
 Server
+
 - Canonical append-only event log in PostgreSQL.
 - Server projections for reporting and cross-device reads via Postgres materialized views refreshed after each sync batch.
 
@@ -41,5 +43,7 @@ Server
 - If validation fails, the server returns errors and the client marks events as rejected for review.
 
 ## Cadence
+
 - Devices attempt sync every ~30 seconds when online.
-- After each successful batch, the server refreshes the materialized views (balances, inventory, reports) using `REFRESH MATERIALIZED VIEW CONCURRENTLY` and records freshness. Writes that depend on fresh balances can be blocked if views are older than ~60s.
+- After each successful batch, the server refreshes materialized views and updates `projection_freshness` with refresh timestamp and projected cursor.
+- Freshness metadata is available through `GET /sync/status` for operational monitoring and client-side sync diagnostics.

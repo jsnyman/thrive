@@ -1,3 +1,10 @@
+create table if not exists projection_freshness (
+  key text primary key,
+  refreshed_at timestamptz not null default now(),
+  cursor_recorded_at timestamptz,
+  cursor_event_id uuid
+);
+
 create materialized view if not exists mv_people as
 select
   p.id,

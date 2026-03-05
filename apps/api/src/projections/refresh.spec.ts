@@ -9,11 +9,10 @@ describe("refreshProjections", () => {
       },
     });
 
-    expect(executed).toEqual([
-      "REFRESH MATERIALIZED VIEW mv_people",
-      "REFRESH MATERIALIZED VIEW mv_points_ledger_entries",
-      "REFRESH MATERIALIZED VIEW mv_points_balances",
-      "REFRESH MATERIALIZED VIEW mv_inventory_status_summary",
-    ]);
+    expect(executed[0]).toBe("REFRESH MATERIALIZED VIEW mv_people");
+    expect(executed[1]).toBe("REFRESH MATERIALIZED VIEW mv_points_ledger_entries");
+    expect(executed[2]).toBe("REFRESH MATERIALIZED VIEW mv_points_balances");
+    expect(executed[3]).toBe("REFRESH MATERIALIZED VIEW mv_inventory_status_summary");
+    expect(executed[4]).toContain("insert into projection_freshness");
   });
 });

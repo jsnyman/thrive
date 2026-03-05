@@ -254,6 +254,7 @@ export type EventEnvelope<TType extends EventType = EventType> = {
   recordedAt?: ISODateTime | null;
   actorUserId: UserId;
   deviceId: DeviceId;
+  locationText?: string | null;
   schemaVersion: EventSchemaVersion;
   correlationId?: string | null;
   causationId?: string | null;

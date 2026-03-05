@@ -1,16 +1,12 @@
+import type { Event } from "../../../../packages/shared/src/domain/events";
+import type { SyncCursor } from "../../../../packages/shared/src/domain/sync";
 import type { PrismaClient } from "../generated/prisma/client";
+import { refreshProjections } from "../projections/refresh";
+import { createEventStore, type AppendEventResult } from "./event-store";
+import { projectEventToReadModels } from "./project-event";
 
 type PersonRecord = {
   id: string;
-  name: string;
-  surname: string;
-  idNumber?: string | null;
-  phone?: string | null;
-  address?: string | null;
-  notes?: string | null;
-};
-
-type PersonCreateInput = {
   name: string;
   surname: string;
   idNumber?: string | null;
@@ -25,20 +21,8 @@ type MaterialRecord = {
   pointsPerKg: number;
 };
 
-type MaterialCreateInput = {
-  name: string;
-  pointsPerKg: number;
-};
-
 type ItemRecord = {
   id: string;
-  name: string;
-  pointsPrice: number;
-  costPrice?: number | null;
-  sku?: string | null;
-};
-
-type ItemCreateInput = {
   name: string;
   pointsPrice: number;
   costPrice?: number | null;
@@ -57,6 +41,31 @@ type LedgerEntryRecord = {
   occurredAt: string;
   sourceEventType: string;
   sourceEventId: string;
+};
+
+type PullEventsResult = {
+  events: Event[];
+  nextCursor: SyncCursor | null;
+};
+
+type ProjectionStatusRecord = {
+  latestCursor: SyncCursor | null;
+  projectionRefreshedAt: string | null;
+  projectionCursor: SyncCursor | null;
+};
+
+type LedgerBalanceRow = {
+  person_id: string;
+  balance_points: number;
+};
+
+type LedgerEntryRow = {
+  id: string;
+  person_id: string;
+  delta_points: number;
+  occurred_at: Date;
+  source_event_type: string;
+  source_event_id: string;
 };
 
 const toNumber = (value: unknown): number => {
@@ -108,21 +117,9 @@ const toItemRecord = (item: {
   sku: item.sku,
 });
 
-type LedgerBalanceRow = {
-  person_id: string;
-  balance_points: number;
-};
-
-type LedgerEntryRow = {
-  id: string;
-  person_id: string;
-  delta_points: number;
-  occurred_at: Date;
-  source_event_type: string;
-  source_event_id: string;
-};
-
 export const createCoreRepository = (prisma: PrismaClient) => {
+  const eventStore = createEventStore(prisma);
+
   const listPeople = async (search?: string): Promise<PersonRecord[]> => {
     const hasSearch = search !== undefined && search.trim().length > 0;
     const rows = hasSearch
@@ -153,20 +150,6 @@ export const createCoreRepository = (prisma: PrismaClient) => {
     return rows.map(toPersonRecord);
   };
 
-  const createPerson = async (input: PersonCreateInput): Promise<PersonRecord> => {
-    const created = await prisma.person.create({
-      data: {
-        name: input.name,
-        surname: input.surname,
-        idNumber: input.idNumber ?? null,
-        phone: input.phone ?? null,
-        address: input.address ?? null,
-        notes: input.notes ?? null,
-      },
-    });
-    return toPersonRecord(created);
-  };
-
   const listMaterials = async (): Promise<MaterialRecord[]> => {
     const rows = await prisma.materialType.findMany({
       orderBy: {
@@ -174,16 +157,6 @@ export const createCoreRepository = (prisma: PrismaClient) => {
       },
     });
     return rows.map(toMaterialRecord);
-  };
-
-  const createMaterial = async (input: MaterialCreateInput): Promise<MaterialRecord> => {
-    const created = await prisma.materialType.create({
-      data: {
-        name: input.name,
-        pointsPerKg: input.pointsPerKg.toString(),
-      },
-    });
-    return toMaterialRecord(created);
   };
 
   const listItems = async (): Promise<ItemRecord[]> => {
@@ -195,16 +168,65 @@ export const createCoreRepository = (prisma: PrismaClient) => {
     return rows.map(toItemRecord);
   };
 
-  const createItem = async (input: ItemCreateInput): Promise<ItemRecord> => {
-    const created = await prisma.item.create({
-      data: {
-        name: input.name,
-        pointsPrice: input.pointsPrice,
-        costPrice: input.costPrice === null || input.costPrice === undefined ? null : input.costPrice.toString(),
-        sku: input.sku ?? null,
+  const getPersonById = async (personId: string): Promise<PersonRecord | null> => {
+    const row = await prisma.person.findUnique({
+      where: {
+        id: personId,
       },
     });
-    return toItemRecord(created);
+    if (row === null) {
+      return null;
+    }
+    return toPersonRecord(row);
+  };
+
+  const getMaterialById = async (materialTypeId: string): Promise<MaterialRecord | null> => {
+    const row = await prisma.materialType.findUnique({
+      where: {
+        id: materialTypeId,
+      },
+    });
+    if (row === null) {
+      return null;
+    }
+    return toMaterialRecord(row);
+  };
+
+  const getItemById = async (itemId: string): Promise<ItemRecord | null> => {
+    const row = await prisma.item.findUnique({
+      where: {
+        id: itemId,
+      },
+    });
+    if (row === null) {
+      return null;
+    }
+    return toItemRecord(row);
+  };
+
+  const appendEventAndProject = async (event: Event): Promise<AppendEventResult> => {
+    const result = await prisma.$transaction(async (tx) => {
+      const txEventStore = createEventStore(tx);
+      const appendResult = await txEventStore.appendEvent(event);
+      if (appendResult.status === "accepted") {
+        await projectEventToReadModels(tx, event);
+      }
+      return appendResult;
+    });
+
+    if (result.status === "accepted") {
+      await refreshProjections(prisma);
+    }
+    return result;
+  };
+
+  const appendEvents = async (events: Event[]): Promise<AppendEventResult[]> => {
+    const acknowledgements: AppendEventResult[] = [];
+    for (const event of events) {
+      const result = await appendEventAndProject(event);
+      acknowledgements.push(result);
+    }
+    return acknowledgements;
   };
 
   const getLedgerBalance = async (personId: string): Promise<LedgerBalanceRecord> => {
@@ -244,14 +266,62 @@ export const createCoreRepository = (prisma: PrismaClient) => {
     }));
   };
 
+  const getLivePointsBalance = async (personId: string): Promise<number> => {
+    const rows = await prisma.$queryRaw<
+      {
+        balance_points: number;
+      }[]
+    >`
+      with ledger as (
+        select
+          case
+            when event_type = 'intake.recorded' then (payload ->> 'totalPoints')::integer
+            when event_type = 'sale.recorded' then ((payload ->> 'totalPoints')::integer * -1)
+            when event_type = 'points.adjustment_applied' then (payload ->> 'deltaPoints')::integer
+            else 0
+          end as delta_points
+        from event
+        where payload ->> 'personId' = ${personId}
+          and event_type in ('intake.recorded', 'sale.recorded', 'points.adjustment_applied')
+      )
+      select coalesce(sum(delta_points), 0)::integer as balance_points
+      from ledger
+    `;
+    const first = rows[0];
+    if (first === undefined) {
+      return 0;
+    }
+    return first.balance_points;
+  };
+
+  const pullEvents = async (cursor: string | null, limit: number): Promise<PullEventsResult> =>
+    eventStore.pullEvents(cursor, limit);
+
+  const getSyncStatus = async (): Promise<ProjectionStatusRecord> => {
+    const [latestCursor, freshness] = await Promise.all([
+      eventStore.getLatestCursor(),
+      eventStore.getProjectionFreshness(),
+    ]);
+    return {
+      latestCursor,
+      projectionRefreshedAt: freshness.refreshedAt,
+      projectionCursor: freshness.cursor,
+    };
+  };
+
   return {
     listPeople,
-    createPerson,
     listMaterials,
-    createMaterial,
     listItems,
-    createItem,
+    getPersonById,
+    getMaterialById,
+    getItemById,
+    appendEventAndProject,
+    appendEvents,
     getLedgerBalance,
     listLedgerEntries,
+    getLivePointsBalance,
+    pullEvents,
+    getSyncStatus,
   };
 };

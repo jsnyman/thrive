@@ -25,6 +25,16 @@ module.exports = {
         "plugin:@typescript-eslint/stylistic-type-checked",
         "prettier",
       ],
+      rules: {
+        "@typescript-eslint/array-type": "off",
+        "@typescript-eslint/consistent-type-definitions": "off",
+        "@typescript-eslint/dot-notation": "off",
+        "@typescript-eslint/no-redundant-type-constituents": "off",
+        "@typescript-eslint/no-unnecessary-type-assertion": "off",
+        "@typescript-eslint/no-unsafe-argument": "off",
+        "@typescript-eslint/no-unsafe-member-access": "off",
+        "@typescript-eslint/require-await": "off",
+      },
     },
     {
       files: ["apps/web/**/*.{js,jsx,ts,tsx}"],

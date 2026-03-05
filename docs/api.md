@@ -1,4 +1,4 @@
-# API Endpoints (Phase 1 Skeleton)
+# API Endpoints (Current)
 
 This document lists the current HTTP API endpoints available in `apps/api`.
 
@@ -38,6 +38,7 @@ Success `200`:
 ```
 
 Errors:
+
 - `400` malformed request body
 - `401` invalid credentials
 
@@ -58,10 +59,11 @@ Success `200`:
 ```
 
 Errors:
+
 - `401` unauthorized
 - `403` forbidden (only if route required action is tightened beyond `person.update`)
 
-## Core Phase 1 Endpoints
+## Core Endpoints
 
 All endpoints below require `Authorization: Bearer <token>`.
 
@@ -118,6 +120,67 @@ All endpoints below require `Authorization: Bearer <token>`.
 - `GET /ledger/:personId/balance`
 - `GET /ledger/:personId/entries`
 
+### Intake
+
+- `POST /intakes` (collector and manager)
+
+`POST /intakes` body:
+
+```json
+{
+  "personId": "uuid",
+  "lines": [{ "materialTypeId": "uuid", "weightKg": 2.9 }],
+  "locationText": "Village A"
+}
+```
+
+### Sales
+
+- `POST /sales` (shop operator and manager)
+
+`POST /sales` body:
+
+```json
+{
+  "personId": "uuid",
+  "lines": [{ "itemId": "uuid", "quantity": 2 }],
+  "locationText": "Village A"
+}
+```
+
+If balance would become negative, API returns `409` with `INSUFFICIENT_POINTS`.
+
+### Sync
+
+- `POST /sync/push`
+- `GET /sync/pull?cursor=<cursor>&limit=<n>`
+- `GET /sync/status`
+
+`POST /sync/push` body:
+
+```json
+{
+  "events": [
+    {
+      "eventId": "uuid",
+      "eventType": "person.created",
+      "occurredAt": "2026-03-05T12:00:00.000Z",
+      "actorUserId": "uuid",
+      "deviceId": "device-1",
+      "schemaVersion": 1,
+      "payload": {
+        "personId": "uuid",
+        "name": "A",
+        "surname": "B"
+      }
+    }
+  ],
+  "lastKnownCursor": null
+}
+```
+
+`GET /sync/status` returns current event cursor and projection freshness cursor.
+
 ## Operational Commands
 
 - Start API: `npm run start:api`
@@ -127,6 +190,7 @@ All endpoints below require `Authorization: Bearer <token>`.
 ### Seed Staff Users
 
 Default seed set is used when `STAFF_SEED_JSON` is not provided:
+
 - `manager / 1234 / manager`
 - `collector / 1234 / collector`
 - `operator / 1234 / shop_operator`
@@ -141,13 +205,17 @@ npm run seed:staff
 ## Projections
 
 Materialized views are defined in:
+
 - `apps/api/prisma/projections.sql`
 
 Current views:
+
 - `mv_people`
 - `mv_points_ledger_entries`
 - `mv_points_balances`
 - `mv_inventory_status_summary`
+- `projection_freshness` table tracks refresh timestamp and latest projected cursor.
 
 Refresh order is implemented by:
+
 - `apps/api/src/projections/refresh.ts`

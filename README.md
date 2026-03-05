@@ -67,11 +67,11 @@ Offline-first software for a mobile recycling swap-shop that moves between villa
 
 **Status**
 
-- Planning and requirements are complete.
-- Phase 1 backend skeleton is in progress:
-  - Authentication and RBAC endpoints implemented (`POST /auth/login`, `GET /auth/me`).
-  - Core API skeleton endpoints implemented (`people`, `materials`, `items`, `ledger`).
-  - Projection SQL and refresh tooling added.
+- Baseline date: March 5, 2026.
+- Phase 0: mostly done (repo, standards, architecture docs, CI quality gates).
+- Phase 1: partial (auth/RBAC, event model, event-first writes for people/materials/items/intake/sales, projection freshness metadata).
+- Phase 2: partial (responsive web shell and local event queue abstraction added; OPFS SQLite and full sync conflict workflow pending).
+- Phase 3-5: not started for full workflow/reporting/hardening scope.
 
 **Getting Started**
 
@@ -80,4 +80,5 @@ Offline-first software for a mobile recycling swap-shop that moves between villa
 - Install materialized views: `npm run projections:install`.
 - Seed initial staff users: `npm run seed:staff`.
 - Start API server: `npm run start:api`.
+- Start web shell: `npm run start:web`.
 - Tests: `npm run test:unit` (web/shared/api) and `npm run test:e2e`.

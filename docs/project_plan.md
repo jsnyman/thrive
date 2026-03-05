@@ -44,7 +44,7 @@ Tasks (in order)
 
 1. Define core domain types and event schemas.
 2. Implement server-side event log (append-only) in PostgreSQL via Prisma.
-3. Implement projections for people, points balances, inventory, and reports using materialized views and scheduled refresh. (Completed on March 4, 2026)
+3. Implement projections for people, points balances, inventory, and reports using materialized views and scheduled refresh. (Partial: implemented; freshness gating enforcement still pending as of March 5, 2026)
 4. Implement authentication and RBAC (collector, shop operator, manager). (Completed on March 4, 2026)
 5. Implement API skeleton for core entities (people, items, materials, ledger). (Completed on March 4, 2026)
 
@@ -175,3 +175,18 @@ Mitigations
 - M4: Core workflows complete (end Week 9)
 - M5: Reporting complete (end Week 11)
 - M6: Pilot-ready release (end Week 13)
+
+---
+
+## Reality Check (March 5, 2026)
+
+| Area                    | Status      | Notes                                                                                                                     |
+| ----------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Phase 0 foundation      | Done        | Repo/workspaces, lint/format/typecheck, architecture docs, CI quality gates.                                              |
+| Event model and RBAC    | Done        | Domain events/types and auth permissions implemented.                                                                     |
+| Event-first writes      | Partial     | Implemented for people/materials/items/intake/sales; broader workflow coverage pending.                                   |
+| Sync protocol endpoints | Partial     | `POST /sync/push`, `GET /sync/pull`, `GET /sync/status` implemented; full conflict UX and reconciliation tooling pending. |
+| Web client shell        | Partial     | Responsive Mantine shell and local in-memory event queue abstraction implemented.                                         |
+| OPFS SQLite local store | Not started | Queue storage abstraction exists; OPFS-backed implementation pending.                                                     |
+| Reports/exports         | Not started | No report endpoints/UI yet.                                                                                               |
+| Hardening/pilot prep    | Not started | Security review, backup/DR, and field testing not started.                                                                |
