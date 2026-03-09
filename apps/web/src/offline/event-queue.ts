@@ -1,6 +1,6 @@
 import type { Event } from "../../../../packages/shared/src/domain/events";
 
-type EventQueueStore = {
+export type EventQueueStore = {
   load: () => Promise<Event[]>;
   save: (events: Event[]) => Promise<void>;
   clear: () => Promise<void>;

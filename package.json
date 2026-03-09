@@ -18,10 +18,13 @@
     "test": "npm run test:unit && npm run test:e2e",
     "test:unit": "npm run test:web && npm run test:shared && npm run test:api",
     "test:web": "vitest run --config apps/web/vitest.config.ts --passWithNoTests",
+    "test:web:coverage": "vitest run --config apps/web/vitest.config.ts --coverage --passWithNoTests",
     "test:web:watch": "vitest --config apps/web/vitest.config.ts",
     "test:shared": "vitest run --config packages/shared/vitest.config.ts --passWithNoTests",
+    "test:shared:coverage": "vitest run --config packages/shared/vitest.config.ts --coverage --passWithNoTests",
     "test:shared:watch": "vitest --config packages/shared/vitest.config.ts",
     "test:api": "jest --config apps/api/jest.config.cjs --passWithNoTests",
+    "test:api:coverage": "jest --config apps/api/jest.config.cjs --coverage --passWithNoTests",
     "start:api": "npx tsx apps/api/src/start.ts",
     "start:web": "vite --config apps/web/vite.config.ts",
     "build:web": "vite build --config apps/web/vite.config.ts",
@@ -47,6 +50,7 @@
     "@types/supertest": "^2.0.16",
     "@typescript-eslint/eslint-plugin": "^6.21.0",
     "@typescript-eslint/parser": "^6.21.0",
+    "@vitest/coverage-v8": "^4.0.18",
     "eslint": "^8.57.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-react": "^7.37.5",
@@ -70,6 +74,7 @@
     "prisma": "^7.4.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "vite": "^5.4.10"
+    "vite": "^5.4.10",
+    "wa-sqlite": "^1.0.0"
   }
 }

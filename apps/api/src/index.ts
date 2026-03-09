@@ -37,14 +37,31 @@ export const startApiServer = async (): Promise<ReturnType<typeof createApiServe
     listPeople: async (search) => createCoreRepository(getPrismaClient()).listPeople(search),
     listMaterials: async () => createCoreRepository(getPrismaClient()).listMaterials(),
     listItems: async () => createCoreRepository(getPrismaClient()).listItems(),
+    listInventoryBatches: async () =>
+      createCoreRepository(getPrismaClient()).listInventoryBatches(),
+    listShopBatchesForItem: async (itemId) =>
+      createCoreRepository(getPrismaClient()).listShopBatchesForItem(itemId),
+    listInventoryStatusSummary: async () =>
+      createCoreRepository(getPrismaClient()).listInventoryStatusSummary(),
     getPersonById: async (personId) =>
       createCoreRepository(getPrismaClient()).getPersonById(personId),
     getMaterialById: async (materialId) =>
       createCoreRepository(getPrismaClient()).getMaterialById(materialId),
     getItemById: async (itemId) => createCoreRepository(getPrismaClient()).getItemById(itemId),
+    getInventoryBatchState: async (inventoryBatchId) =>
+      createCoreRepository(getPrismaClient()).getInventoryBatchState(inventoryBatchId),
     appendEventAndProject: async (event) =>
       createCoreRepository(getPrismaClient()).appendEventAndProject(event),
-    appendEvents: async (events) => createCoreRepository(getPrismaClient()).appendEvents(events),
+    appendEvents: async (events, lastKnownCursor) =>
+      createCoreRepository(getPrismaClient()).appendEvents(events, lastKnownCursor),
+    listSyncConflicts: async (status, limit, cursor) =>
+      createCoreRepository(getPrismaClient()).listSyncConflicts(status, limit, cursor),
+    resolveSyncConflict: async (conflictId, request, actor) =>
+      createCoreRepository(getPrismaClient()).resolveSyncConflict(conflictId, request, actor),
+    listSyncAuditReport: async (limit, cursor) =>
+      createCoreRepository(getPrismaClient()).listSyncAuditReport(limit, cursor),
+    getSyncAuditEvent: async (eventId) =>
+      createCoreRepository(getPrismaClient()).getSyncAuditEvent(eventId),
     getLedgerBalance: async (personId) =>
       createCoreRepository(getPrismaClient()).getLedgerBalance(personId),
     listLedgerEntries: async (personId) =>

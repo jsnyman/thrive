@@ -28,3 +28,80 @@ export type SyncStatusResponse = {
   projectionRefreshedAt: string | null;
   projectionCursor: SyncCursor | null;
 };
+
+export type SyncConflictResolution = "accepted" | "rejected" | "merged";
+
+export type SyncConflictRecord = {
+  conflictId: string;
+  detectedEventId: string;
+  detectedAt: string;
+  entityType:
+    | "person"
+    | "intake"
+    | "sale"
+    | "procurement"
+    | "expense"
+    | "inventory_batch"
+    | "points_ledger";
+  entityId: string;
+  detectedEventIds: string[];
+  summary: string | null;
+  resolved: boolean;
+  resolvedAt: string | null;
+  resolution: SyncConflictResolution | null;
+  resolutionEventId: string | null;
+  resolutionNotes: string | null;
+  resolvedByUserId: string | null;
+};
+
+export type SyncConflictsResponse = {
+  conflicts: SyncConflictRecord[];
+  nextCursor: SyncCursor | null;
+};
+
+export type SyncResolveConflictRequest = {
+  resolution: SyncConflictResolution;
+  notes: string;
+  resolvedEventId?: string | null;
+  relatedEventIds?: string[] | null;
+};
+
+export type SyncResolveConflictResponse = {
+  conflictId: string;
+  resolutionEventId: string;
+};
+
+export type SyncAuditIssueCode =
+  | "MISSING_DETECTED_EVENT_REFERENCE"
+  | "ORPHAN_CONFLICT_RESOLUTION"
+  | "MISSING_RESOLVED_EVENT_REFERENCE"
+  | "MISSING_RELATED_EVENT_REFERENCE"
+  | "DUPLICATE_CONFLICT_ID"
+  | "DUPLICATE_CONFLICT_RESOLUTION"
+  | "PROJECTION_CURSOR_MISSING_EVENT"
+  | "PROJECTION_CURSOR_OUT_OF_RANGE";
+
+export type SyncAuditIssue = {
+  issueId: string;
+  code: SyncAuditIssueCode;
+  detectedAt: string;
+  severity: "error" | "warning";
+  detail: string;
+  relatedEventIds: string[];
+  conflictId?: string | null;
+};
+
+export type SyncAuditReportResponse = {
+  generatedAt: string;
+  totalIssues: number;
+  errorCount: number;
+  warningCount: number;
+  issues: SyncAuditIssue[];
+  nextCursor: SyncCursor | null;
+};
+
+export type SyncAuditEventResponse = {
+  event: Event;
+  linkedConflictIds: string[];
+  linkedResolutionEventIds: string[];
+};

@@ -71,6 +71,7 @@ All endpoints below require `Authorization: Bearer <token>`.
 
 - `GET /people?search=<query>`
 - `POST /people`
+- `PATCH /people/:personId`
 
 `POST /people` body:
 
@@ -84,6 +85,29 @@ All endpoints below require `Authorization: Bearer <token>`.
   "notes": null
 }
 ```
+
+`PATCH /people/:personId` body:
+
+```json
+{
+  "updates": {
+    "name": "Jane",
+    "surname": "Doe",
+    "idNumber": "8001015009087",
+    "phone": "0821234567",
+    "address": "Village A",
+    "notes": "Updated profile"
+  },
+  "locationText": "Village A"
+}
+```
+
+`PATCH /people/:personId` notes:
+
+- Requires `person.update` permission.
+- Appends immutable `person.profile_updated` event (no event mutation/delete).
+- Rejects empty updates or unknown update fields with `400`.
+- Returns `404` when person does not exist.
 
 ### Materials
 
@@ -115,10 +139,112 @@ All endpoints below require `Authorization: Bearer <token>`.
 }
 ```
 
+### Inventory
+
+- `GET /inventory/status-summary` (shop operator and manager)
+- `GET /inventory/batches` (shop operator and manager)
+- `POST /inventory/status-changes` (shop operator and manager)
+- `POST /inventory/adjustments/requests` (collector, shop operator, manager)
+
+`GET /inventory/status-summary` success `200`:
+
+```json
+{
+  "summary": [
+    { "status": "storage", "totalQuantity": 10 },
+    { "status": "shop", "totalQuantity": 4 }
+  ]
+}
+```
+
+`GET /inventory/batches` success `200`:
+
+```json
+{
+  "batches": [
+    {
+      "inventoryBatchId": "batch-1",
+      "itemId": "item-1",
+      "quantities": {
+        "storage": 6,
+        "shop": 4,
+        "sold": 0,
+        "spoiled": 0,
+        "damaged": 0,
+        "missing": 0
+      }
+    }
+  ]
+}
+```
+
+`POST /inventory/status-changes` body:
+
+```json
+{
+  "inventoryBatchId": "batch-1",
+  "fromStatus": "storage",
+  "toStatus": "shop",
+  "quantity": 4,
+  "reason": "Move to shop",
+  "notes": null
+}
+```
+
+Underflow response `409`:
+
+```json
+{
+  "error": "INVENTORY_UNDERFLOW",
+  "availableQuantity": 10,
+  "requestedQuantity": 99
+}
+```
+
+`POST /inventory/adjustments/requests` body:
+
+```json
+{
+  "inventoryBatchId": "batch-1",
+  "requestedStatus": "spoiled",
+  "quantity": 1,
+  "reason": "Packaging tear",
+  "notes": null
+}
+```
+
 ### Ledger
 
 - `GET /ledger/:personId/balance`
 - `GET /ledger/:personId/entries`
+
+`GET /ledger/:personId/balance` success `200`:
+
+```json
+{
+  "balance": {
+    "personId": "uuid",
+    "balancePoints": 38
+  }
+}
+```
+
+`GET /ledger/:personId/entries` success `200`:
+
+```json
+{
+  "entries": [
+    {
+      "id": "uuid",
+      "personId": "uuid",
+      "deltaPoints": 8,
+      "occurredAt": "2026-03-08T08:05:00.000Z",
+      "sourceEventType": "intake.recorded",
+      "sourceEventId": "uuid"
+    }
+  ]
+}
+```
 
 ### Intake
 
@@ -143,18 +269,75 @@ All endpoints below require `Authorization: Bearer <token>`.
 ```json
 {
   "personId": "uuid",
-  "lines": [{ "itemId": "uuid", "quantity": 2 }],
+  "lines": [{ "itemId": "uuid", "quantity": 2, "inventoryBatchId": "batch-1" }],
   "locationText": "Village A"
 }
 ```
 
+`inventoryBatchId` is optional on each line. If omitted, the server allocates from available `shop` inventory batches for that item using FIFO order and can split one requested quantity across multiple batches.
+
 If balance would become negative, API returns `409` with `INSUFFICIENT_POINTS`.
+
+If stock is insufficient, API returns `409` with `INSUFFICIENT_STOCK` and includes `itemId`, `requiredQuantity`, and `availableQuantity`.
+
+### Procurement
+
+- `POST /procurements` (manager only)
+
+`POST /procurements` body:
+
+```json
+{
+  "supplierName": "Village Supplier",
+  "tripDistanceKm": 12,
+  "lines": [{ "itemId": "uuid", "quantity": 2, "unitCost": 3 }],
+  "locationText": "Village A"
+}
+```
+
+`POST /procurements` notes:
+
+- Request lines do not include `inventoryBatchId`; server generates batch IDs.
+- `cashTotal` is computed as sum of `lineTotalCost` (`quantity * unitCost`) across lines.
+- Success `201` response returns `eventId`, `cashTotal`, and generated line details.
+- Errors:
+  - `400 BAD_REQUEST` invalid payload
+  - `404 ITEM_NOT_FOUND` unknown `itemId`
+  - `401/403` auth/permission failures
+
+### Expenses
+
+- `POST /expenses` (manager only)
+
+`POST /expenses` body:
+
+```json
+{
+  "category": "Fuel",
+  "cashAmount": 99.5,
+  "notes": "Round trip collection",
+  "receiptRef": "RCPT-1",
+  "locationText": "Village A"
+}
+```
+
+`POST /expenses` notes:
+
+- Appends immutable `expense.recorded` event on success.
+- Success `201` response returns `eventId` and normalized `expense` payload.
+- Errors:
+  - `400 BAD_REQUEST` invalid payload
+  - `401/403` auth/permission failures
 
 ### Sync
 
 - `POST /sync/push`
 - `GET /sync/pull?cursor=<cursor>&limit=<n>`
 - `GET /sync/status`
+- `GET /sync/conflicts?status=open|all&limit=<n>&cursor=<cursor>` (manager only)
+- `POST /sync/conflicts/:conflictId/resolve` (manager only)
+- `GET /sync/audit/report?limit=<n>&cursor=<cursor>` (manager only)
+- `GET /sync/audit/event/:eventId` (manager only)
 
 `POST /sync/push` body:
 
@@ -180,6 +363,29 @@ If balance would become negative, API returns `409` with `INSUFFICIENT_POINTS`.
 ```
 
 `GET /sync/status` returns current event cursor and projection freshness cursor.
+
+`GET /sync/conflicts` returns unresolved (or all) conflict records sourced from `conflict.detected` and latest matching `conflict.resolved` events.
+
+`POST /sync/conflicts/:conflictId/resolve` body:
+
+```json
+{
+  "resolution": "merged",
+  "notes": "Manual merge after review",
+  "resolvedEventId": null,
+  "relatedEventIds": null
+}
+```
+
+Resolve errors:
+
+- `400` malformed body
+- `404` conflict not found (`CONFLICT_NOT_FOUND`)
+- `409` already resolved (`ALREADY_RESOLVED`)
+
+`GET /sync/audit/report` returns integrity issues derived from `event` and `projection_freshness` (missing references, duplicate conflict IDs/resolutions, projection cursor anomalies).
+
+`GET /sync/audit/event/:eventId` returns the event envelope plus linked conflict/resolution metadata for audit traceability.
 
 ## Operational Commands
 
@@ -215,6 +421,10 @@ Current views:
 - `mv_points_balances`
 - `mv_inventory_status_summary`
 - `projection_freshness` table tracks refresh timestamp and latest projected cursor.
+
+## Web Behavior Notes
+
+- Current web person-registry interaction views mask ID number and phone by default (`****`-style partial masking).
 
 Refresh order is implemented by:
 

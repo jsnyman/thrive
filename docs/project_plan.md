@@ -7,7 +7,7 @@ This plan sequences the work to deliver the Recycling Swap-Shop software describ
 - Offline-first PWA with event-sourced sync.
 - Single codebase for web (laptops, tablets, phones).
 - Small team (1-4 engineers). Timeline is expressed in weeks relative to project start.
-- Database: PostgreSQL with Prisma schema; projections implemented as materialized views refreshed after each sync batch (30s cadence, max 100 events per batch).
+- Database: PostgreSQL with Prisma schema; projections implemented as materialized views refreshed after each accepted event write (current behavior).
 - Inventory valuation: hybrid approach (total cost retained; sellable excludes spoiled/damaged/missing; losses tracked explicitly).
 
 If you want exact calendar dates, add the start date and team size.
@@ -65,7 +65,7 @@ Goal: usable offline PWA with local storage and sync capability.
 Tasks (in order)
 
 1. Implement PWA shell and responsive layouts.
-2. Add local SQLite (OPFS) with event log and projections on-device.
+2. Add local SQLite (OPFS) queue + sync-state persistence on-device.
 3. Build sync protocol (push local events, pull remote events).
 4. Implement event merge rules and conflict detection.
 5. Add conflict resolution workflow for managers.
@@ -178,15 +178,24 @@ Mitigations
 
 ---
 
-## Reality Check (March 5, 2026)
+## Reality Check (March 8, 2026)
 
-| Area                    | Status      | Notes                                                                                                                     |
-| ----------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Phase 0 foundation      | Done        | Repo/workspaces, lint/format/typecheck, architecture docs, CI quality gates.                                              |
-| Event model and RBAC    | Done        | Domain events/types and auth permissions implemented.                                                                     |
-| Event-first writes      | Partial     | Implemented for people/materials/items/intake/sales; broader workflow coverage pending.                                   |
-| Sync protocol endpoints | Partial     | `POST /sync/push`, `GET /sync/pull`, `GET /sync/status` implemented; full conflict UX and reconciliation tooling pending. |
-| Web client shell        | Partial     | Responsive Mantine shell and local in-memory event queue abstraction implemented.                                         |
-| OPFS SQLite local store | Not started | Queue storage abstraction exists; OPFS-backed implementation pending.                                                     |
-| Reports/exports         | Not started | No report endpoints/UI yet.                                                                                               |
-| Hardening/pilot prep    | Not started | Security review, backup/DR, and field testing not started.                                                                |
+| Area                                               | Status      | Notes                                                                                                                                                                                                                                                                        |
+| -------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Phase 0 foundation                                 | Done        | Repo/workspaces, lint/format/typecheck, architecture docs, CI quality gates.                                                                                                                                                                                                 |
+| Event model and RBAC                               | Done        | Domain events/types and auth permissions implemented.                                                                                                                                                                                                                        |
+| Event-first writes                                 | Done        | Event-first append-only writes are active across implemented workflows, including people/materials/items, intake, sales, inventory status/adjustment requests, procurement, and expenses.                                                                                    |
+| Sync protocol endpoints                            | Done        | `POST /sync/push`, `GET /sync/pull`, `GET /sync/status`, `GET /sync/conflicts`, `POST /sync/conflicts/:id/resolve`, `GET /sync/audit/report`, and `GET /sync/audit/event/:eventId` implemented.                                                                              |
+| Web client shell                                   | Done        | Auth-gated Mantine shell implemented with login/logout, Sync Now orchestration, sync status indicators, and manager conflict inbox/resolution panel.                                                                                                                         |
+| OPFS SQLite local store                            | Done        | Queue and sync cursor/last-sync state persist in OPFS-backed SQLite via web worker.                                                                                                                                                                                          |
+| Audit/immutability checks                          | Done        | Audit report diagnostics and append-only event immutability guards validated by automated tests.                                                                                                                                                                             |
+| Coverage gates                                     | Done        | Web/API/shared coverage commands added with enforced thresholds in Vitest/Jest configs for current test scope.                                                                                                                                                               |
+| Phase 3 Task 1 (Person Registry)                   | Done        | `PATCH /people/:personId` event-first update endpoint implemented; web registry create/search/edit flow uses offline queue + sync and masks ID/phone in interaction views.                                                                                                   |
+| Phase 3 Task 2 (Material Intake)                   | Done        | Web intake supports multi-line `intake.recorded` event creation, deterministic per-line/total points previews, client preflight validation, queue+sync submission, and ledger refresh after sync.                                                                            |
+| Phase 3 Task 3 (Points Ledger + Balance)           | Done        | Ledger balance/entries are available via API and web UI, ledger now auto-refreshes for selected person, source event IDs are visible, and negative-balance sales are blocked with `409 INSUFFICIENT_POINTS`.                                                                 |
+| Phase 3 Task 4 (Inventory Status + Requests)       | Done        | API endpoints added for inventory summary/batches and status change/adjustment requests; web inventory panel queues `inventory.status_changed` and `inventory.adjustment_requested` events offline, syncs, and refreshes inventory state.                                    |
+| Phase 3 Task 5 (Sales Checkout + Sold Status)      | Done        | `POST /sales` now supports optional `inventoryBatchId` with server-side FIFO batch allocation and deterministic `INSUFFICIENT_STOCK` errors; web sales panel queues `sale.recorded` events with batch-linked lines, syncs immediately, and refreshes ledger/inventory state. |
+| Phase 3 Task 6 (Procurement + Inventory Additions) | Done        | `POST /procurements` manager endpoint implemented with server-generated `inventoryBatchId` per line and computed `cashTotal`; web procurement panel queues `procurement.recorded` events offline, syncs immediately, and refreshes inventory state.                          |
+| Phase 3 Task 7 (Expenses)                          | Done        | `POST /expenses` manager endpoint implemented to append immutable `expense.recorded` events; web expense panel enqueues expense events offline-first, triggers immediate sync, and updates shell state with deterministic validation/error feedback.                         |
+| Reports/exports                                    | Not started | No report endpoints/UI yet.                                                                                                                                                                                                                                                  |
+| Hardening/pilot prep                               | Not started | Security review, backup/DR, and field testing not started.                                                                                                                                                                                                                   |

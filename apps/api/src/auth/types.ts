@@ -56,4 +56,7 @@ export type PermissionAction =
   | "points.adjustment.apply"
   | "inventory.adjustment.request"
   | "inventory.adjustment.apply"
+  | "conflict.view"
+  | "conflict.resolve"
+  | "audit.view"
   | "users.manage";

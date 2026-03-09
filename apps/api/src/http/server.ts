@@ -3,6 +3,11 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { URL } from "node:url";
 import type { Event } from "../../../../packages/shared/src/domain/events";
 import type {
+  SyncAuditEventResponse,
+  SyncAuditReportResponse,
+  SyncConflictsResponse,
+  SyncResolveConflictRequest,
+  SyncResolveConflictResponse,
   SyncCursor,
   SyncPullResponse,
   SyncPushRequest,
@@ -38,6 +43,18 @@ type PersonCreateInput = {
   locationText?: string | null;
 };
 
+type PersonUpdateInput = {
+  updates: {
+    name?: string;
+    surname?: string;
+    idNumber?: string | null;
+    phone?: string | null;
+    address?: string | null;
+    notes?: string | null;
+  };
+  locationText?: string | null;
+};
+
 type MaterialRecord = {
   id: string;
   name: string;
@@ -58,11 +75,44 @@ type ItemRecord = {
   sku?: string | null;
 };
 
+type InventoryStatus = "storage" | "shop" | "sold" | "spoiled" | "damaged" | "missing";
+type InventoryAdjustmentStatus = "spoiled" | "damaged" | "missing";
+
+type InventoryBatchStateRecord = {
+  inventoryBatchId: string;
+  itemId: string | null;
+  quantities: Record<InventoryStatus, number>;
+};
+
+type InventoryStatusSummaryRecord = {
+  status: InventoryStatus;
+  totalQuantity: number;
+};
+
 type ItemCreateInput = {
   name: string;
   pointsPrice: number;
   costPrice?: number | null;
   sku?: string | null;
+  locationText?: string | null;
+};
+
+type InventoryStatusChangeInput = {
+  inventoryBatchId: string;
+  fromStatus: InventoryStatus;
+  toStatus: InventoryStatus;
+  quantity: number;
+  reason?: string | null;
+  notes?: string | null;
+  locationText?: string | null;
+};
+
+type InventoryAdjustmentRequestInput = {
+  inventoryBatchId: string;
+  requestedStatus: InventoryAdjustmentStatus;
+  quantity: number;
+  reason: string;
+  notes?: string | null;
   locationText?: string | null;
 };
 
@@ -79,8 +129,28 @@ type SaleCreateInput = {
   personId: string;
   lines: Array<{
     itemId: string;
+    inventoryBatchId?: string | null;
     quantity: number;
   }>;
+  locationText?: string | null;
+};
+
+type ProcurementCreateInput = {
+  supplierName?: string | null;
+  tripDistanceKm?: number | null;
+  lines: Array<{
+    itemId: string;
+    quantity: number;
+    unitCost: number;
+  }>;
+  locationText?: string | null;
+};
+
+type ExpenseCreateInput = {
+  category: string;
+  cashAmount: number;
+  notes?: string | null;
+  receiptRef?: string | null;
   locationText?: string | null;
 };
 
@@ -109,11 +179,36 @@ type ApiServerDependencies = {
   listPeople: (search?: string) => Promise<PersonRecord[]>;
   listMaterials: () => Promise<MaterialRecord[]>;
   listItems: () => Promise<ItemRecord[]>;
+  listInventoryBatches: () => Promise<InventoryBatchStateRecord[]>;
+  listShopBatchesForItem: (itemId: string) => Promise<InventoryBatchStateRecord[]>;
+  listInventoryStatusSummary: () => Promise<InventoryStatusSummaryRecord[]>;
   getPersonById: (personId: string) => Promise<PersonRecord | null>;
   getMaterialById: (materialId: string) => Promise<MaterialRecord | null>;
   getItemById: (itemId: string) => Promise<ItemRecord | null>;
+  getInventoryBatchState: (inventoryBatchId: string) => Promise<InventoryBatchStateRecord | null>;
   appendEventAndProject: (event: Event) => Promise<AppendEventResult>;
-  appendEvents: (events: Event[]) => Promise<AppendEventResult[]>;
+  appendEvents: (
+    events: Event[],
+    lastKnownCursor?: SyncCursor | null,
+  ) => Promise<AppendEventResult[]>;
+  listSyncConflicts: (
+    status: "open" | "all",
+    limit: number,
+    cursor: SyncCursor | null,
+  ) => Promise<SyncConflictsResponse>;
+  resolveSyncConflict: (
+    conflictId: string,
+    request: SyncResolveConflictRequest,
+    actor: StaffIdentity,
+  ) => Promise<
+    | { ok: true; value: SyncResolveConflictResponse }
+    | { ok: false; error: "CONFLICT_NOT_FOUND" | "ALREADY_RESOLVED" | "BAD_REQUEST" }
+  >;
+  listSyncAuditReport: (
+    limit: number,
+    cursor: SyncCursor | null,
+  ) => Promise<SyncAuditReportResponse>;
+  getSyncAuditEvent: (eventId: string) => Promise<SyncAuditEventResponse | null>;
   getLedgerBalance: (personId: string) => Promise<LedgerBalanceRecord>;
   listLedgerEntries: (personId: string) => Promise<LedgerEntryRecord[]>;
   getLivePointsBalance: (personId: string) => Promise<number>;
@@ -121,6 +216,14 @@ type ApiServerDependencies = {
   getSyncStatus: () => Promise<SyncStatusResponse>;
   meRequiredAction?: PermissionAction;
   now?: () => Date;
+};
+
+type SaleAllocatedLine = {
+  itemId: string;
+  inventoryBatchId: string;
+  quantity: number;
+  pointsPrice: number;
+  lineTotalPoints: number;
 };
 
 type JsonBodyResult =
@@ -241,6 +344,81 @@ const parsePersonCreateRequest = (body: unknown): PersonCreateInput | null => {
     phone: phone ?? null,
     address: address ?? null,
     notes: notes ?? null,
+    locationText: locationText ?? null,
+  };
+};
+
+const parsePersonUpdateRequest = (body: unknown): PersonUpdateInput | null => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+  const record = body as Record<string, unknown>;
+  const updatesRaw = record["updates"];
+  const locationText = parseNullableString(record["locationText"]);
+  if (locationText === undefined && record["locationText"] !== undefined) {
+    return null;
+  }
+  if (typeof updatesRaw !== "object" || updatesRaw === null || Array.isArray(updatesRaw)) {
+    return null;
+  }
+  const updatesRecord = updatesRaw as Record<string, unknown>;
+  const updateKeys = Object.keys(updatesRecord);
+  if (updateKeys.length === 0) {
+    return null;
+  }
+  const allowedKeys = ["name", "surname", "idNumber", "phone", "address", "notes"];
+  const hasInvalidKey = updateKeys.some((key) => !allowedKeys.includes(key));
+  if (hasInvalidKey) {
+    return null;
+  }
+
+  const updates: PersonUpdateInput["updates"] = {};
+
+  if ("name" in updatesRecord) {
+    const name = updatesRecord["name"];
+    if (typeof name !== "string" || name.trim().length === 0) {
+      return null;
+    }
+    updates.name = name;
+  }
+  if ("surname" in updatesRecord) {
+    const surname = updatesRecord["surname"];
+    if (typeof surname !== "string" || surname.trim().length === 0) {
+      return null;
+    }
+    updates.surname = surname;
+  }
+  if ("idNumber" in updatesRecord) {
+    const idNumber = parseNullableString(updatesRecord["idNumber"]);
+    if (idNumber === undefined && updatesRecord["idNumber"] !== undefined) {
+      return null;
+    }
+    updates.idNumber = idNumber ?? null;
+  }
+  if ("phone" in updatesRecord) {
+    const phone = parseNullableString(updatesRecord["phone"]);
+    if (phone === undefined && updatesRecord["phone"] !== undefined) {
+      return null;
+    }
+    updates.phone = phone ?? null;
+  }
+  if ("address" in updatesRecord) {
+    const address = parseNullableString(updatesRecord["address"]);
+    if (address === undefined && updatesRecord["address"] !== undefined) {
+      return null;
+    }
+    updates.address = address ?? null;
+  }
+  if ("notes" in updatesRecord) {
+    const notes = parseNullableString(updatesRecord["notes"]);
+    if (notes === undefined && updatesRecord["notes"] !== undefined) {
+      return null;
+    }
+    updates.notes = notes ?? null;
+  }
+
+  return {
+    updates,
     locationText: locationText ?? null,
   };
 };
@@ -373,8 +551,16 @@ const parseSaleCreateRequest = (body: unknown): SaleCreateInput | null => {
     }
     const lineRecord = line as Record<string, unknown>;
     const itemId = lineRecord["itemId"];
+    const inventoryBatchId = lineRecord["inventoryBatchId"];
     const quantity = lineRecord["quantity"];
     if (typeof itemId !== "string" || itemId.trim().length === 0) {
+      return null;
+    }
+    if (
+      inventoryBatchId !== undefined &&
+      inventoryBatchId !== null &&
+      (typeof inventoryBatchId !== "string" || inventoryBatchId.trim().length === 0)
+    ) {
       return null;
     }
     if (typeof quantity !== "number" || !Number.isInteger(quantity) || quantity <= 0) {
@@ -382,6 +568,7 @@ const parseSaleCreateRequest = (body: unknown): SaleCreateInput | null => {
     }
     parsedLines.push({
       itemId,
+      inventoryBatchId: inventoryBatchId === undefined ? null : inventoryBatchId,
       quantity,
     });
   }
@@ -391,6 +578,188 @@ const parseSaleCreateRequest = (body: unknown): SaleCreateInput | null => {
   return {
     personId,
     lines: parsedLines,
+    locationText: locationText ?? null,
+  };
+};
+
+const parseProcurementCreateRequest = (body: unknown): ProcurementCreateInput | null => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+  const record = body as Record<string, unknown>;
+  const supplierName = parseNullableString(record["supplierName"]);
+  const tripDistanceKm = record["tripDistanceKm"];
+  const lines = record["lines"];
+  const locationText = parseNullableString(record["locationText"]);
+  if (!Array.isArray(lines) || lines.length === 0) {
+    return null;
+  }
+  const parsedLines: ProcurementCreateInput["lines"] = [];
+  for (const line of lines) {
+    if (typeof line !== "object" || line === null || Array.isArray(line)) {
+      return null;
+    }
+    const lineRecord = line as Record<string, unknown>;
+    const itemId = lineRecord["itemId"];
+    const quantity = lineRecord["quantity"];
+    const unitCost = lineRecord["unitCost"];
+    if (typeof itemId !== "string" || itemId.trim().length === 0) {
+      return null;
+    }
+    if (typeof quantity !== "number" || !Number.isInteger(quantity) || quantity <= 0) {
+      return null;
+    }
+    if (typeof unitCost !== "number" || !Number.isFinite(unitCost) || unitCost < 0) {
+      return null;
+    }
+    parsedLines.push({
+      itemId,
+      quantity,
+      unitCost,
+    });
+  }
+  if (supplierName === undefined && record["supplierName"] !== undefined) {
+    return null;
+  }
+  if (
+    tripDistanceKm !== undefined &&
+    tripDistanceKm !== null &&
+    (typeof tripDistanceKm !== "number" || !Number.isFinite(tripDistanceKm) || tripDistanceKm < 0)
+  ) {
+    return null;
+  }
+  if (locationText === undefined && record["locationText"] !== undefined) {
+    return null;
+  }
+  return {
+    supplierName: supplierName ?? null,
+    tripDistanceKm: (tripDistanceKm as number | null | undefined) ?? null,
+    lines: parsedLines,
+    locationText: locationText ?? null,
+  };
+};
+
+const parseExpenseCreateRequest = (body: unknown): ExpenseCreateInput | null => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+  const record = body as Record<string, unknown>;
+  const category = record["category"];
+  const cashAmount = record["cashAmount"];
+  const notes = parseNullableString(record["notes"]);
+  const receiptRef = parseNullableString(record["receiptRef"]);
+  const locationText = parseNullableString(record["locationText"]);
+  if (typeof category !== "string" || category.trim().length === 0) {
+    return null;
+  }
+  if (typeof cashAmount !== "number" || !Number.isFinite(cashAmount) || cashAmount < 0) {
+    return null;
+  }
+  if (notes === undefined && record["notes"] !== undefined) {
+    return null;
+  }
+  if (receiptRef === undefined && record["receiptRef"] !== undefined) {
+    return null;
+  }
+  if (locationText === undefined && record["locationText"] !== undefined) {
+    return null;
+  }
+  return {
+    category,
+    cashAmount,
+    notes: notes ?? null,
+    receiptRef: receiptRef ?? null,
+    locationText: locationText ?? null,
+  };
+};
+
+const isInventoryStatus = (value: unknown): value is InventoryStatus =>
+  value === "storage" ||
+  value === "shop" ||
+  value === "sold" ||
+  value === "spoiled" ||
+  value === "damaged" ||
+  value === "missing";
+
+const isInventoryAdjustmentStatus = (value: unknown): value is InventoryAdjustmentStatus =>
+  value === "spoiled" || value === "damaged" || value === "missing";
+
+const parseInventoryStatusChangeRequest = (body: unknown): InventoryStatusChangeInput | null => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+  const record = body as Record<string, unknown>;
+  const inventoryBatchId = record["inventoryBatchId"];
+  const fromStatus = record["fromStatus"];
+  const toStatus = record["toStatus"];
+  const quantity = record["quantity"];
+  const reason = parseNullableString(record["reason"]);
+  const notes = parseNullableString(record["notes"]);
+  const locationText = parseNullableString(record["locationText"]);
+  if (typeof inventoryBatchId !== "string" || inventoryBatchId.trim().length === 0) {
+    return null;
+  }
+  if (!isInventoryStatus(fromStatus) || !isInventoryStatus(toStatus) || fromStatus === toStatus) {
+    return null;
+  }
+  if (typeof quantity !== "number" || !Number.isInteger(quantity) || quantity <= 0) {
+    return null;
+  }
+  if (reason === undefined && record["reason"] !== undefined) {
+    return null;
+  }
+  if (notes === undefined && record["notes"] !== undefined) {
+    return null;
+  }
+  if (locationText === undefined && record["locationText"] !== undefined) {
+    return null;
+  }
+  return {
+    inventoryBatchId,
+    fromStatus,
+    toStatus,
+    quantity,
+    reason: reason ?? null,
+    notes: notes ?? null,
+    locationText: locationText ?? null,
+  };
+};
+
+const parseInventoryAdjustmentRequest = (body: unknown): InventoryAdjustmentRequestInput | null => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+  const record = body as Record<string, unknown>;
+  const inventoryBatchId = record["inventoryBatchId"];
+  const requestedStatus = record["requestedStatus"];
+  const quantity = record["quantity"];
+  const reason = record["reason"];
+  const notes = parseNullableString(record["notes"]);
+  const locationText = parseNullableString(record["locationText"]);
+  if (typeof inventoryBatchId !== "string" || inventoryBatchId.trim().length === 0) {
+    return null;
+  }
+  if (!isInventoryAdjustmentStatus(requestedStatus)) {
+    return null;
+  }
+  if (typeof quantity !== "number" || !Number.isInteger(quantity) || quantity <= 0) {
+    return null;
+  }
+  if (typeof reason !== "string" || reason.trim().length === 0) {
+    return null;
+  }
+  if (notes === undefined && record["notes"] !== undefined) {
+    return null;
+  }
+  if (locationText === undefined && record["locationText"] !== undefined) {
+    return null;
+  }
+  return {
+    inventoryBatchId,
+    requestedStatus,
+    quantity,
+    reason,
+    notes: notes ?? null,
     locationText: locationText ?? null,
   };
 };
@@ -415,6 +784,75 @@ const parseSyncPushRequest = (body: unknown): SyncPushRequest | null => {
   return {
     events: events as Event[],
     lastKnownCursor: (lastKnownCursor as SyncCursor | null | undefined) ?? null,
+  };
+};
+
+const parseSyncConflictsStatus = (value: string | null): "open" | "all" => {
+  if (value === "all") {
+    return "all";
+  }
+  return "open";
+};
+
+const parseSyncConflictsLimit = (value: string | null): number => {
+  const parsed = value === null ? 50 : Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return 50;
+  }
+  if (parsed > 200) {
+    return 200;
+  }
+  return parsed;
+};
+
+const parseSyncAuditLimit = (value: string | null): number => {
+  const parsed = value === null ? 50 : Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return 50;
+  }
+  if (parsed > 200) {
+    return 200;
+  }
+  return parsed;
+};
+
+const parseResolveConflictRequest = (body: unknown): SyncResolveConflictRequest | null => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+  const record = body as Record<string, unknown>;
+  const resolution = record["resolution"];
+  const notes = record["notes"];
+  const resolvedEventId = record["resolvedEventId"];
+  const relatedEventIds = record["relatedEventIds"];
+  if (resolution !== "accepted" && resolution !== "rejected" && resolution !== "merged") {
+    return null;
+  }
+  if (typeof notes !== "string" || notes.trim().length === 0) {
+    return null;
+  }
+  if (
+    resolvedEventId !== undefined &&
+    resolvedEventId !== null &&
+    typeof resolvedEventId !== "string"
+  ) {
+    return null;
+  }
+  if (relatedEventIds !== undefined && relatedEventIds !== null) {
+    if (!Array.isArray(relatedEventIds)) {
+      return null;
+    }
+    for (const id of relatedEventIds) {
+      if (typeof id !== "string") {
+        return null;
+      }
+    }
+  }
+  return {
+    resolution,
+    notes,
+    resolvedEventId: (resolvedEventId as string | null | undefined) ?? null,
+    relatedEventIds: (relatedEventIds as string[] | null | undefined) ?? null,
   };
 };
 
@@ -603,6 +1041,54 @@ const handlePeopleCreate = async (
   sendJson(res, 201, { person });
 };
 
+const handlePeopleUpdate = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+  personId: string,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "person.update");
+  if (actor === null) {
+    return;
+  }
+  const person = await dependencies.getPersonById(personId);
+  if (person === null) {
+    sendJson(res, 404, { error: "PERSON_NOT_FOUND" });
+    return;
+  }
+  const bodyResult = await readJsonBody(req);
+  if (!bodyResult.ok) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const request = parsePersonUpdateRequest(bodyResult.value);
+  if (request === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+
+  const event: Event = {
+    ...toBaseEventFields(dependencies, actor, req, request.locationText),
+    eventType: "person.profile_updated",
+    payload: {
+      personId,
+      updates: request.updates,
+    },
+  };
+  const appendResult = await dependencies.appendEventAndProject(event);
+  if (appendResult.status !== "accepted") {
+    sendJson(res, 400, { error: "BAD_REQUEST", reason: appendResult.reason ?? null });
+    return;
+  }
+
+  const updated = await dependencies.getPersonById(personId);
+  if (updated === null) {
+    sendJson(res, 500, { error: "INTERNAL_SERVER_ERROR" });
+    return;
+  }
+  sendJson(res, 200, { person: updated });
+};
+
 const handleMaterialsList = async (
   req: IncomingMessage,
   res: ServerResponse,
@@ -719,6 +1205,135 @@ const handleItemsCreate = async (
   sendJson(res, 201, { item });
 };
 
+const handleInventoryStatusSummary = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "inventory.move");
+  if (actor === null) {
+    return;
+  }
+  const summary = await dependencies.listInventoryStatusSummary();
+  sendJson(res, 200, { summary });
+};
+
+const handleInventoryBatches = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "inventory.move");
+  if (actor === null) {
+    return;
+  }
+  const batches = await dependencies.listInventoryBatches();
+  sendJson(res, 200, { batches });
+};
+
+const handleInventoryStatusChange = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "inventory.move");
+  if (actor === null) {
+    return;
+  }
+  const bodyResult = await readJsonBody(req);
+  if (!bodyResult.ok) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const request = parseInventoryStatusChangeRequest(bodyResult.value);
+  if (request === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const batch = await dependencies.getInventoryBatchState(request.inventoryBatchId);
+  if (batch === null) {
+    sendJson(res, 404, { error: "INVENTORY_BATCH_NOT_FOUND" });
+    return;
+  }
+  const availableQuantity = batch.quantities[request.fromStatus];
+  if (availableQuantity < request.quantity) {
+    sendJson(res, 409, {
+      error: "INVENTORY_UNDERFLOW",
+      availableQuantity,
+      requestedQuantity: request.quantity,
+    });
+    return;
+  }
+  const event: Event = {
+    ...toBaseEventFields(dependencies, actor, req, request.locationText),
+    eventType: "inventory.status_changed",
+    payload: {
+      inventoryBatchId: request.inventoryBatchId,
+      fromStatus: request.fromStatus,
+      toStatus: request.toStatus,
+      quantity: request.quantity,
+      reason: request.reason ?? null,
+      notes: request.notes ?? null,
+    },
+  };
+  const appendResult = await dependencies.appendEventAndProject(event);
+  if (appendResult.status !== "accepted") {
+    sendJson(res, 400, { error: "BAD_REQUEST", reason: appendResult.reason ?? null });
+    return;
+  }
+  sendJson(res, 201, {
+    inventoryBatchId: request.inventoryBatchId,
+    fromStatus: request.fromStatus,
+    toStatus: request.toStatus,
+    quantity: request.quantity,
+  });
+};
+
+const handleInventoryAdjustmentRequest = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "inventory.adjustment.request");
+  if (actor === null) {
+    return;
+  }
+  const bodyResult = await readJsonBody(req);
+  if (!bodyResult.ok) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const request = parseInventoryAdjustmentRequest(bodyResult.value);
+  if (request === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const batch = await dependencies.getInventoryBatchState(request.inventoryBatchId);
+  if (batch === null) {
+    sendJson(res, 404, { error: "INVENTORY_BATCH_NOT_FOUND" });
+    return;
+  }
+  const event: Event = {
+    ...toBaseEventFields(dependencies, actor, req, request.locationText),
+    eventType: "inventory.adjustment_requested",
+    payload: {
+      inventoryBatchId: request.inventoryBatchId,
+      requestedStatus: request.requestedStatus,
+      quantity: request.quantity,
+      reason: request.reason,
+      notes: request.notes ?? null,
+    },
+  };
+  const appendResult = await dependencies.appendEventAndProject(event);
+  if (appendResult.status !== "accepted") {
+    sendJson(res, 400, { error: "BAD_REQUEST", reason: appendResult.reason ?? null });
+    return;
+  }
+  sendJson(res, 201, {
+    requestEventId: event.eventId,
+  });
+};
+
 const handleIntakeCreate = async (
   req: IncomingMessage,
   res: ServerResponse,
@@ -789,6 +1404,114 @@ const handleIntakeCreate = async (
   });
 };
 
+const buildSaleAllocatedLines = async (
+  dependencies: ApiServerDependencies,
+  request: SaleCreateInput,
+): Promise<
+  | { ok: true; lines: SaleAllocatedLine[]; totalPoints: number }
+  | {
+      ok: false;
+      status: 404 | 409;
+      body:
+        | { error: "ITEM_NOT_FOUND" }
+        | { error: "INVENTORY_BATCH_NOT_FOUND" }
+        | { error: "INVENTORY_BATCH_ITEM_MISMATCH"; itemId: string; inventoryBatchId: string }
+        | {
+            error: "INSUFFICIENT_STOCK";
+            itemId: string;
+            requiredQuantity: number;
+            availableQuantity: number;
+          };
+    }
+> => {
+  const allocatedLines: SaleAllocatedLine[] = [];
+  let totalPoints = 0;
+
+  for (const line of request.lines) {
+    const item = await dependencies.getItemById(line.itemId);
+    if (item === null) {
+      return { ok: false, status: 404, body: { error: "ITEM_NOT_FOUND" } };
+    }
+    if (line.inventoryBatchId !== null && line.inventoryBatchId !== undefined) {
+      const batch = await dependencies.getInventoryBatchState(line.inventoryBatchId);
+      if (batch === null) {
+        return { ok: false, status: 404, body: { error: "INVENTORY_BATCH_NOT_FOUND" } };
+      }
+      if (batch.itemId !== line.itemId) {
+        return {
+          ok: false,
+          status: 409,
+          body: {
+            error: "INVENTORY_BATCH_ITEM_MISMATCH",
+            itemId: line.itemId,
+            inventoryBatchId: line.inventoryBatchId,
+          },
+        };
+      }
+      const available = batch.quantities.shop;
+      if (available < line.quantity) {
+        return {
+          ok: false,
+          status: 409,
+          body: {
+            error: "INSUFFICIENT_STOCK",
+            itemId: line.itemId,
+            requiredQuantity: line.quantity,
+            availableQuantity: available,
+          },
+        };
+      }
+      const lineTotalPoints = item.pointsPrice * line.quantity;
+      totalPoints += lineTotalPoints;
+      allocatedLines.push({
+        itemId: line.itemId,
+        inventoryBatchId: line.inventoryBatchId,
+        quantity: line.quantity,
+        pointsPrice: item.pointsPrice,
+        lineTotalPoints,
+      });
+      continue;
+    }
+
+    const shopBatches = await dependencies.listShopBatchesForItem(line.itemId);
+    const totalAvailable = shopBatches.reduce((sum, batch) => sum + batch.quantities.shop, 0);
+    if (totalAvailable < line.quantity) {
+      return {
+        ok: false,
+        status: 409,
+        body: {
+          error: "INSUFFICIENT_STOCK",
+          itemId: line.itemId,
+          requiredQuantity: line.quantity,
+          availableQuantity: totalAvailable,
+        },
+      };
+    }
+    let remaining = line.quantity;
+    for (const batch of shopBatches) {
+      if (remaining <= 0) {
+        break;
+      }
+      const alloc = Math.min(remaining, batch.quantities.shop);
+      if (alloc <= 0) {
+        continue;
+      }
+      const lineTotalPoints = item.pointsPrice * alloc;
+      totalPoints += lineTotalPoints;
+      allocatedLines.push({
+        itemId: line.itemId,
+        inventoryBatchId: batch.inventoryBatchId,
+        quantity: alloc,
+        pointsPrice: item.pointsPrice,
+        lineTotalPoints,
+      });
+      remaining -= alloc;
+    }
+  }
+
+  return { ok: true, lines: allocatedLines, totalPoints };
+};
+
 const handleSaleCreate = async (
   req: IncomingMessage,
   res: ServerResponse,
@@ -814,30 +1537,13 @@ const handleSaleCreate = async (
     return;
   }
 
-  const lines: Array<{
-    itemId: string;
-    inventoryBatchId: null;
-    quantity: number;
-    pointsPrice: number;
-    lineTotalPoints: number;
-  }> = [];
-  let totalPoints = 0;
-  for (const line of request.lines) {
-    const item = await dependencies.getItemById(line.itemId);
-    if (item === null) {
-      sendJson(res, 404, { error: "ITEM_NOT_FOUND" });
-      return;
-    }
-    const lineTotalPoints = item.pointsPrice * line.quantity;
-    totalPoints += lineTotalPoints;
-    lines.push({
-      itemId: line.itemId,
-      inventoryBatchId: null,
-      quantity: line.quantity,
-      pointsPrice: item.pointsPrice,
-      lineTotalPoints,
-    });
+  const allocation = await buildSaleAllocatedLines(dependencies, request);
+  if (!allocation.ok) {
+    sendJson(res, allocation.status, allocation.body);
+    return;
   }
+  const lines = allocation.lines;
+  const totalPoints = allocation.totalPoints;
 
   const currentBalance = await dependencies.getLivePointsBalance(request.personId);
   if (currentBalance - totalPoints < 0) {
@@ -868,6 +1574,118 @@ const handleSaleCreate = async (
   sendJson(res, 201, {
     personId: person.id,
     totalPoints,
+  });
+};
+
+const handleProcurementCreate = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "procurement.record");
+  if (actor === null) {
+    return;
+  }
+  const bodyResult = await readJsonBody(req);
+  if (!bodyResult.ok) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const request = parseProcurementCreateRequest(bodyResult.value);
+  if (request === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+
+  const lines: Array<{
+    itemId: string;
+    inventoryBatchId: string;
+    quantity: number;
+    unitCost: number;
+    lineTotalCost: number;
+  }> = [];
+  let cashTotal = 0;
+  for (const line of request.lines) {
+    const item = await dependencies.getItemById(line.itemId);
+    if (item === null) {
+      sendJson(res, 404, { error: "ITEM_NOT_FOUND" });
+      return;
+    }
+    const lineTotalCost = line.quantity * line.unitCost;
+    cashTotal += lineTotalCost;
+    lines.push({
+      itemId: line.itemId,
+      inventoryBatchId: randomUUID(),
+      quantity: line.quantity,
+      unitCost: line.unitCost,
+      lineTotalCost,
+    });
+  }
+
+  const event: Event = {
+    ...toBaseEventFields(dependencies, actor, req, request.locationText),
+    eventType: "procurement.recorded",
+    payload: {
+      supplierName: request.supplierName ?? null,
+      tripDistanceKm: request.tripDistanceKm ?? null,
+      cashTotal,
+      lines,
+    },
+  };
+  const appendResult = await dependencies.appendEventAndProject(event);
+  if (appendResult.status !== "accepted") {
+    sendJson(res, 400, { error: "BAD_REQUEST", reason: appendResult.reason ?? null });
+    return;
+  }
+  sendJson(res, 201, {
+    eventId: event.eventId,
+    cashTotal,
+    lines,
+  });
+};
+
+const handleExpenseCreate = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "expense.record");
+  if (actor === null) {
+    return;
+  }
+  const bodyResult = await readJsonBody(req);
+  if (!bodyResult.ok) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const request = parseExpenseCreateRequest(bodyResult.value);
+  if (request === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const event: Event = {
+    ...toBaseEventFields(dependencies, actor, req, request.locationText),
+    eventType: "expense.recorded",
+    payload: {
+      category: request.category,
+      cashAmount: request.cashAmount,
+      notes: request.notes ?? null,
+      receiptRef: request.receiptRef ?? null,
+    },
+  };
+  const appendResult = await dependencies.appendEventAndProject(event);
+  if (appendResult.status !== "accepted") {
+    sendJson(res, 400, { error: "BAD_REQUEST", reason: appendResult.reason ?? null });
+    return;
+  }
+  sendJson(res, 201, {
+    eventId: event.eventId,
+    expense: {
+      category: request.category,
+      cashAmount: request.cashAmount,
+      notes: request.notes ?? null,
+      receiptRef: request.receiptRef ?? null,
+    },
   });
 };
 
@@ -918,7 +1736,10 @@ const handleSyncPush = async (
     sendJson(res, 400, { error: "BAD_REQUEST" });
     return;
   }
-  const appendResults = await dependencies.appendEvents(request.events);
+  const appendResults = await dependencies.appendEvents(
+    request.events,
+    request.lastKnownCursor ?? null,
+  );
   const status = await dependencies.getSyncStatus();
   const response: SyncPushResponse = {
     acknowledgements: request.events.map((event, index) => {
@@ -971,6 +1792,93 @@ const handleSyncStatus = async (
   sendJson(res, 200, status);
 };
 
+const handleSyncConflictsList = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "conflict.view");
+  if (actor === null) {
+    return;
+  }
+  const parsedUrl = new URL(req.url ?? "/", "http://localhost");
+  const status = parseSyncConflictsStatus(parsedUrl.searchParams.get("status"));
+  const limit = parseSyncConflictsLimit(parsedUrl.searchParams.get("limit"));
+  const cursor = parsedUrl.searchParams.get("cursor");
+  const response = await dependencies.listSyncConflicts(status, limit, cursor);
+  sendJson(res, 200, response);
+};
+
+const handleSyncConflictResolve = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+  conflictId: string,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "conflict.resolve");
+  if (actor === null) {
+    return;
+  }
+  const bodyResult = await readJsonBody(req);
+  if (!bodyResult.ok) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const request = parseResolveConflictRequest(bodyResult.value);
+  if (request === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const result = await dependencies.resolveSyncConflict(conflictId, request, actor);
+  if (!result.ok) {
+    if (result.error === "CONFLICT_NOT_FOUND") {
+      sendJson(res, 404, { error: result.error });
+      return;
+    }
+    if (result.error === "ALREADY_RESOLVED") {
+      sendJson(res, 409, { error: result.error });
+      return;
+    }
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  sendJson(res, 200, result.value);
+};
+
+const handleSyncAuditReport = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "audit.view");
+  if (actor === null) {
+    return;
+  }
+  const parsedUrl = new URL(req.url ?? "/", "http://localhost");
+  const limit = parseSyncAuditLimit(parsedUrl.searchParams.get("limit"));
+  const cursor = parsedUrl.searchParams.get("cursor");
+  const report = await dependencies.listSyncAuditReport(limit, cursor);
+  sendJson(res, 200, report);
+};
+
+const handleSyncAuditEvent = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+  eventId: string,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "audit.view");
+  if (actor === null) {
+    return;
+  }
+  const result = await dependencies.getSyncAuditEvent(eventId);
+  if (result === null) {
+    sendJson(res, 404, { error: "NOT_FOUND" });
+    return;
+  }
+  sendJson(res, 200, result);
+};
+
 const routeRequest = async (
   req: IncomingMessage,
   res: ServerResponse,
@@ -1000,6 +1908,15 @@ const routeRequest = async (
     return;
   }
 
+  const peopleUpdateMatch = pathname.match(/^\/people\/([^/]+)$/);
+  if (method === "PATCH" && peopleUpdateMatch !== null) {
+    const personId = peopleUpdateMatch[1];
+    if (personId !== undefined) {
+      await handlePeopleUpdate(req, res, dependencies, personId);
+      return;
+    }
+  }
+
   if (method === "GET" && pathname === "/materials") {
     await handleMaterialsList(req, res, dependencies);
     return;
@@ -1020,6 +1937,26 @@ const routeRequest = async (
     return;
   }
 
+  if (method === "GET" && pathname === "/inventory/status-summary") {
+    await handleInventoryStatusSummary(req, res, dependencies);
+    return;
+  }
+
+  if (method === "GET" && pathname === "/inventory/batches") {
+    await handleInventoryBatches(req, res, dependencies);
+    return;
+  }
+
+  if (method === "POST" && pathname === "/inventory/status-changes") {
+    await handleInventoryStatusChange(req, res, dependencies);
+    return;
+  }
+
+  if (method === "POST" && pathname === "/inventory/adjustments/requests") {
+    await handleInventoryAdjustmentRequest(req, res, dependencies);
+    return;
+  }
+
   if (method === "POST" && pathname === "/intakes") {
     await handleIntakeCreate(req, res, dependencies);
     return;
@@ -1027,6 +1964,15 @@ const routeRequest = async (
 
   if (method === "POST" && pathname === "/sales") {
     await handleSaleCreate(req, res, dependencies);
+    return;
+  }
+
+  if (method === "POST" && pathname === "/procurements") {
+    await handleProcurementCreate(req, res, dependencies);
+    return;
+  }
+  if (method === "POST" && pathname === "/expenses") {
+    await handleExpenseCreate(req, res, dependencies);
     return;
   }
 
@@ -1061,6 +2007,34 @@ const routeRequest = async (
   if (method === "GET" && pathname === "/sync/status") {
     await handleSyncStatus(req, res, dependencies);
     return;
+  }
+
+  if (method === "GET" && pathname === "/sync/conflicts") {
+    await handleSyncConflictsList(req, res, dependencies);
+    return;
+  }
+
+  const resolveConflictMatch = pathname.match(/^\/sync\/conflicts\/([^/]+)\/resolve$/);
+  if (method === "POST" && resolveConflictMatch !== null) {
+    const conflictId = resolveConflictMatch[1];
+    if (conflictId !== undefined) {
+      await handleSyncConflictResolve(req, res, dependencies, conflictId);
+      return;
+    }
+  }
+
+  if (method === "GET" && pathname === "/sync/audit/report") {
+    await handleSyncAuditReport(req, res, dependencies);
+    return;
+  }
+
+  const auditEventMatch = pathname.match(/^\/sync\/audit\/event\/([^/]+)$/);
+  if (method === "GET" && auditEventMatch !== null) {
+    const eventId = auditEventMatch[1];
+    if (eventId !== undefined) {
+      await handleSyncAuditEvent(req, res, dependencies, eventId);
+      return;
+    }
   }
 
   sendJson(res, 404, { error: "NOT_FOUND" });

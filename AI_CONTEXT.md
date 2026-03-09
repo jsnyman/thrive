@@ -10,7 +10,7 @@ This document captures the recommended technology stack for the Recycling Swap-S
 - UI: Mantine with a strictly responsive layout
 - Offline storage: SQLite in the browser via OPFS (e.g., wa-sqlite)
 - Sync model: Event-sourced sync using an append-only log and merge on the server
-- Backend API: Node.js + NestJS (or FastAPI if the team prefers Python)
+- Backend API: Node.js + TypeScript HTTP server
 - Database: PostgreSQL for server-side event log + projections
 - Auth: Username + passcode with role-based access enforced in the API
 - Hosting: Linux VM or managed platform

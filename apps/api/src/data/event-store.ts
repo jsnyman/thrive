@@ -20,6 +20,20 @@ type StoredEventRow = {
   payload: unknown;
 };
 
+type ReplayEventRow = {
+  event_id: string;
+  event_type: string;
+  occurred_at: Date;
+  recorded_at: Date;
+  actor_user_id: string;
+  device_id: string;
+  location_text: string | null;
+  schema_version: number;
+  correlation_id: string | null;
+  causation_id: string | null;
+  payload: unknown;
+};
+
 type CursorParts = {
   recordedAt: string;
   eventId: string;
@@ -62,6 +76,21 @@ const decodeCursor = (cursor: string): CursorParts | null => {
 };
 
 const mapStoredEvent = (row: StoredEventRow): Event =>
+  ({
+    eventId: row.event_id,
+    eventType: row.event_type as Event["eventType"],
+    occurredAt: row.occurred_at.toISOString(),
+    recordedAt: row.recorded_at.toISOString(),
+    actorUserId: row.actor_user_id,
+    deviceId: row.device_id,
+    locationText: row.location_text,
+    schemaVersion: row.schema_version as 1,
+    correlationId: row.correlation_id,
+    causationId: row.causation_id,
+    payload: row.payload as Event["payload"],
+  }) as Event;
+
+const mapReplayEvent = (row: ReplayEventRow): Event =>
   ({
     eventId: row.event_id,
     eventType: row.event_type as Event["eventType"],
@@ -274,10 +303,38 @@ export const createEventStore = (executor: RawQueryExecutor) => {
     };
   };
 
+  const listEventsForMergeReplay = async (): Promise<
+    Array<{ event: Event; recordedAt: string }>
+  > => {
+    const rows = await executor.$queryRawUnsafe<ReplayEventRow>(
+      `
+        select
+          event_id,
+          event_type::text as event_type,
+          occurred_at,
+          recorded_at,
+          actor_user_id,
+          device_id,
+          location_text,
+          schema_version,
+          correlation_id,
+          causation_id,
+          payload
+        from event
+        order by recorded_at asc, event_id asc
+      `,
+    );
+    return rows.map((row) => ({
+      event: mapReplayEvent(row),
+      recordedAt: row.recorded_at.toISOString(),
+    }));
+  };
+
   return {
     appendEvent,
     getLatestCursor,
     pullEvents,
     getProjectionFreshness,
+    listEventsForMergeReplay,
   };
 };

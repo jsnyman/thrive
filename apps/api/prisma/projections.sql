@@ -5,6 +5,21 @@ create table if not exists projection_freshness (
   cursor_event_id uuid
 );
 
+create or replace function prevent_event_mutation()
+returns trigger
+language plpgsql
+as $$
+begin
+  raise exception 'event table is append-only; % is not allowed', tg_op;
+end;
+$$;
+
+drop trigger if exists event_append_only_guard on event;
+create trigger event_append_only_guard
+before update or delete on event
+for each row
+execute function prevent_event_mutation();
+
 create materialized view if not exists mv_people as
 select
   p.id,

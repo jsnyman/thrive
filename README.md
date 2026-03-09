@@ -37,7 +37,7 @@ Offline-first software for a mobile recycling swap-shop that moves between villa
 - UI: Mantine with strictly responsive layouts
 - Offline storage: SQLite in the browser via OPFS (e.g., wa-sqlite)
 - Sync model: Event-sourced sync using an append-only log and server-side merge
-- Backend API: Node.js + NestJS (or FastAPI if the team prefers Python)
+- Backend API: Node.js + TypeScript HTTP server (NestJS migration still planned, not started in code)
 - Database: PostgreSQL for server-side event log and projections
 - Auth: Username + passcode with role-based access control
 - Hosting: Linux VM or managed platform
@@ -67,11 +67,13 @@ Offline-first software for a mobile recycling swap-shop that moves between villa
 
 **Status**
 
-- Baseline date: March 5, 2026.
+- Baseline date: March 8, 2026.
 - Phase 0: mostly done (repo, standards, architecture docs, CI quality gates).
 - Phase 1: partial (auth/RBAC, event model, event-first writes for people/materials/items/intake/sales, projection freshness metadata).
-- Phase 2: partial (responsive web shell and local event queue abstraction added; OPFS SQLite and full sync conflict workflow pending).
-- Phase 3-5: not started for full workflow/reporting/hardening scope.
+- Phase 2: done for sync spine tasks 1-6 (responsive web shell, OPFS SQLite `queued_event` + `sync_state`, push/ack/pull/status orchestration, merge/conflict detection, manager conflict resolution, and audit/immutability validation endpoints plus checks).
+- Phase 3: in progress. Tasks 1-7 are complete: person registry, multi-line intake, points ledger/balance view with negative-balance prevention on sales (`INSUFFICIENT_POINTS`), inventory status change/adjustment request workflows, sales checkout with FIFO inventory-batch linkage to sold status, procurement event capture with inventory batch additions, and manager expense capture (`expense.recorded`) via queue-first sync flow.
+- Coverage and quality: unit suites now include explicit coverage commands and enforced thresholds for web/api/shared configs.
+- Phase 4-5: not started for full workflow/reporting/hardening scope.
 
 **Getting Started**
 
@@ -82,3 +84,4 @@ Offline-first software for a mobile recycling swap-shop that moves between villa
 - Start API server: `npm run start:api`.
 - Start web shell: `npm run start:web`.
 - Tests: `npm run test:unit` (web/shared/api) and `npm run test:e2e`.
+- Coverage: `npm run test:web:coverage`, `npm run test:api:coverage`, `npm run test:shared:coverage`.

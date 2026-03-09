@@ -1,16 +1,18 @@
-﻿# Event Log Schema (JSONB)
+# Event Log Schema (JSONB)
 
 This document describes the PostgreSQL event log schema stored in `docs/architecture/event_log_schema.sql` and implemented via Prisma in `apps/api/prisma/schema.prisma`.
 
 The event payload shapes are defined in `packages/shared/src/domain/events.ts`. Payload fields use camelCase.
 
 Principles
+
 - Append-only log.
 - Envelope fields are typed columns; payload is JSONB for evolution.
 - Event types are stored as Postgres enum values matching dotted names (`intake.recorded`, etc.), mapped from Prisma enum via `@map`.
 
 Current table: `event` (singular).
 Current columns
+
 - `event_id uuid primary key`
 - `event_type event_type not null` (enum)
 - `occurred_at timestamptz not null`
@@ -24,10 +26,12 @@ Current columns
 - `payload jsonb not null`
 
 Indexing Notes
-- `events_payload_gin_idx` supports key existence (`?`) and containment (`@>`) queries.
+
+- `event_payload_gin_idx` supports key existence (`?`) and containment (`@>`) queries.
 - Add functional indexes for hot keys (`payload ->> 'personId'`) as needed.
 
 Example Queries
+
 ```sql
 -- Insert an event
 insert into event (
@@ -40,7 +44,7 @@ insert into event (
   schema_version,
   payload
 ) values (
-  '01HZXXTEST0001',
+  '11111111-1111-4111-8111-111111111111',
   'intake.recorded',
   '2026-02-19T08:15:22Z',
   '00000000-0000-0000-0000-000000000123',
