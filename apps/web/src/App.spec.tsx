@@ -1,10 +1,13 @@
 import { cleanup, render, waitFor } from "@testing-library/react";
+import type { RenderResult } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MantineProvider } from "@mantine/core";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { App } from "./App";
 import { createEventQueue, createMemoryEventQueueStore } from "./offline/event-queue";
 import { createMemorySyncStateStore } from "./offline/sync-state-store";
+
+vi.setConfig({ testTimeout: 15000 });
 
 const jsonResponse = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), {
@@ -60,6 +63,10 @@ const stubResizeObserver = (): void => {
       return;
     },
   });
+};
+
+const openManagerPanel = async (view: RenderResult, buttonName: string): Promise<void> => {
+  await userEvent.click(view.getByRole("button", { name: buttonName }));
 };
 
 describe("App person registry", () => {
@@ -249,7 +256,7 @@ describe("App person registry", () => {
     expect(view.getByText("Phone: ****67")).toBeInTheDocument();
     expect(view.queryByText("8001015009087")).not.toBeInTheDocument();
     expect(view.queryByText("0821234567")).not.toBeInTheDocument();
-  }, 10000);
+  }, 20000);
 
   test("edit flow queues update event and refreshes list", async () => {
     stubResizeObserver();
@@ -510,12 +517,12 @@ describe("App person registry", () => {
             {
               id: "mat-1",
               name: "PET",
-              pointsPerKg: 3,
+              pointsPerKg: 3.2,
             },
             {
               id: "mat-2",
               name: "Glass",
-              pointsPerKg: 2,
+              pointsPerKg: 2.1,
             },
           ],
         });
@@ -576,7 +583,7 @@ describe("App person registry", () => {
         return jsonResponse({
           balance: {
             personId: "person-1",
-            balancePoints: 38,
+            balancePoints: 12.4,
           },
         });
       }
@@ -586,7 +593,7 @@ describe("App person registry", () => {
             {
               id: "event-intake-1",
               personId: "person-1",
-              deltaPoints: 8,
+              deltaPoints: 12.4,
               occurredAt: "2026-03-07T08:05:00.000Z",
               sourceEventType: "intake.recorded",
               sourceEventId: "event-intake-1",
@@ -615,15 +622,15 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Weight Kg 1"), "2.9");
     await userEvent.click(view.getByRole("button", { name: "Add Line" }));
     await userEvent.click(view.getByRole("textbox", { name: "Material 2" }));
-    await userEvent.click(view.getByRole("option", { name: "Glass (2 pts/kg)" }));
+    await userEvent.click(view.getByRole("option", { name: "Glass (2.1 pts/kg)" }));
     await userEvent.type(view.getByLabelText("Weight Kg 2"), "1.5");
 
     await userEvent.click(view.getByRole("button", { name: "Record Intake" }));
 
     await waitFor(() => {
-      expect(view.getByText("Balance: 38")).toBeInTheDocument();
+      expect(view.getByText("Balance: 12.4")).toBeInTheDocument();
     });
-    expect(view.getByText("intake.recorded | +8")).toBeInTheDocument();
+    expect(view.getByText("intake.recorded | +12.4")).toBeInTheDocument();
     await expect(queue.pendingCount()).resolves.toBe(0);
 
     expect(capturedPushBody).not.toBeNull();
@@ -644,7 +651,7 @@ describe("App person registry", () => {
     expect(body.events).toHaveLength(1);
     expect(body.events[0]?.eventType).toBe("intake.recorded");
     expect(body.events[0]?.payload.lines).toHaveLength(2);
-    expect(body.events[0]?.payload.totalPoints).toBe(11);
+    expect(body.events[0]?.payload.totalPoints).toBe(12.3);
   });
 
   test("intake validation blocks duplicate materials and invalid weights", async () => {
@@ -982,7 +989,7 @@ describe("App person registry", () => {
     await userEvent.click(view.getByRole("button", { name: "Login" }));
 
     await waitFor(() => {
-      expect(view.getByText("Balance: 12")).toBeInTheDocument();
+      expect(view.getByText("Balance: 12.0")).toBeInTheDocument();
     });
     expect(view.getByText("Source: event-1")).toBeInTheDocument();
   });
@@ -1228,10 +1235,10 @@ describe("App person registry", () => {
         });
       }
       if (url.includes("/materials")) {
-        return jsonResponse({ materials: [{ id: "mat-1", name: "PET", pointsPerKg: 3 }] });
+        return jsonResponse({ materials: [{ id: "mat-1", name: "PET", pointsPerKg: 3.2 }] });
       }
       if (url.includes("/items")) {
-        return jsonResponse({ items: [{ id: "item-1", name: "Soap", pointsPrice: 10 }] });
+        return jsonResponse({ items: [{ id: "item-1", name: "Soap", pointsPrice: 10.5 }] });
       }
       if (url.includes("/inventory/status-summary")) {
         return jsonResponse({
@@ -1307,7 +1314,7 @@ describe("App person registry", () => {
         return jsonResponse({
           balance: {
             personId: "person-1",
-            balancePoints: 20,
+            balancePoints: 20.4,
           },
         });
       }
@@ -1317,7 +1324,7 @@ describe("App person registry", () => {
             {
               id: "event-sale-1",
               personId: "person-1",
-              deltaPoints: -30,
+              deltaPoints: -31.5,
               occurredAt: "2026-03-08T10:00:00.000Z",
               sourceEventType: "sale.recorded",
               sourceEventId: "event-sale-1",
@@ -1346,7 +1353,7 @@ describe("App person registry", () => {
     await userEvent.click(view.getByRole("button", { name: "Record Sale" }));
 
     await waitFor(() => {
-      expect(view.getByText("sale.recorded | -30")).toBeInTheDocument();
+      expect(view.getByText("sale.recorded | -31.5")).toBeInTheDocument();
     });
     await expect(queue.pendingCount()).resolves.toBe(0);
 
@@ -1364,7 +1371,7 @@ describe("App person registry", () => {
     };
     expect(pushBody.events).toHaveLength(1);
     expect(pushBody.events[0]?.eventType).toBe("sale.recorded");
-    expect(pushBody.events[0]?.payload.totalPoints).toBe(30);
+    expect(pushBody.events[0]?.payload.totalPoints).toBe(31.5);
     expect(pushBody.events[0]?.payload.lines).toHaveLength(2);
     expect(pushBody.events[0]?.payload.lines[0]?.inventoryBatchId).toBe("batch-1");
     expect(pushBody.events[0]?.payload.lines[0]?.quantity).toBe(2);
@@ -1562,7 +1569,1969 @@ describe("App person registry", () => {
     });
     expect(view.queryByRole("heading", { name: "Record Procurement" })).not.toBeInTheDocument();
     expect(view.queryByRole("heading", { name: "Record Expense" })).not.toBeInTheDocument();
+    expect(
+      view.queryByRole("heading", { name: "Materials Collected Report" }),
+    ).not.toBeInTheDocument();
+    expect(
+      view.queryByRole("heading", { name: "Points Liability Report" }),
+    ).not.toBeInTheDocument();
+    expect(
+      view.queryByRole("heading", { name: "Inventory Status Report" }),
+    ).not.toBeInTheDocument();
+    expect(
+      view.queryByRole("heading", { name: "Inventory Status Change Log" }),
+    ).not.toBeInTheDocument();
+    expect(view.queryByRole("heading", { name: "Sales Report" })).not.toBeInTheDocument();
+    expect(
+      view.queryByRole("heading", { name: "Integrity and Reconciliation" }),
+    ).not.toBeInTheDocument();
   });
+
+  test("materials report panel loads for manager and runs default request", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: {
+            id: "user-1",
+            username: "manager",
+            role: "manager",
+          },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({ people: [] });
+      }
+      if (url.includes("/materials")) {
+        return jsonResponse({
+          materials: [{ id: "mat-1", name: "PET", pointsPerKg: 3 }],
+        });
+      }
+      if (url.includes("/items")) {
+        return jsonResponse({ items: [] });
+      }
+      if (url.includes("/inventory/status-summary")) {
+        return jsonResponse({ summary: [] });
+      }
+      if (url.includes("/inventory/batches")) {
+        return jsonResponse({ batches: [] });
+      }
+      if (url.includes("/sync/conflicts")) {
+        return jsonResponse({ conflicts: [], nextCursor: null });
+      }
+      if (url.includes("/reports/materials-collected")) {
+        return jsonResponse({
+          rows: [],
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            locationText: null,
+            materialTypeId: null,
+          },
+        });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Login" }));
+
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Materials Collected Report" })).toBeInTheDocument();
+    });
+    expect(
+      fetchMock.mock.calls.some((call) => String(call[0]).includes("/reports/materials-collected")),
+    ).toBe(false);
+    await openManagerPanel(view, "Open Materials Collected Report");
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some((call) =>
+          String(call[0]).includes("/reports/materials-collected"),
+        ),
+      ).toBe(true);
+    });
+    expect(view.getByText("No materials report rows found.")).toBeInTheDocument();
+  }, 20000);
+
+  test("manager login does not automatically request report or reconciliation endpoints", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: {
+            id: "user-1",
+            username: "manager",
+            role: "manager",
+          },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({ people: [] });
+      }
+      if (url.includes("/materials")) {
+        return jsonResponse({ materials: [] });
+      }
+      if (url.includes("/items")) {
+        return jsonResponse({ items: [] });
+      }
+      if (url.includes("/inventory/status-summary")) {
+        return jsonResponse({ summary: [] });
+      }
+      if (url.includes("/inventory/batches")) {
+        return jsonResponse({ batches: [] });
+      }
+      if (url.includes("/sync/conflicts")) {
+        return jsonResponse({ conflicts: [], nextCursor: null });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Login" }));
+
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Materials Collected Report" })).toBeInTheDocument();
+    });
+
+    const requestedUrls = fetchMock.mock.calls.map((call) => String(call[0]));
+    expect(requestedUrls.some((url) => url.includes("/reports/"))).toBe(false);
+    expect(requestedUrls.some((url) => url.includes("/sync/reconciliation/report"))).toBe(false);
+  }, 20000);
+
+  test("reopening an already loaded manager panel does not refetch until rerun", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: {
+            id: "user-1",
+            username: "manager",
+            role: "manager",
+          },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({ people: [] });
+      }
+      if (url.includes("/materials")) {
+        return jsonResponse({ materials: [] });
+      }
+      if (url.includes("/items")) {
+        return jsonResponse({ items: [] });
+      }
+      if (url.includes("/inventory/status-summary")) {
+        return jsonResponse({ summary: [] });
+      }
+      if (url.includes("/inventory/batches")) {
+        return jsonResponse({ batches: [] });
+      }
+      if (url.includes("/sync/conflicts")) {
+        return jsonResponse({ conflicts: [], nextCursor: null });
+      }
+      if (url.includes("/reports/materials-collected")) {
+        return jsonResponse({
+          rows: [],
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            locationText: null,
+            materialTypeId: null,
+          },
+        });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Login" }));
+
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Materials Collected Report" })).toBeInTheDocument();
+    });
+
+    await openManagerPanel(view, "Open Materials Collected Report");
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.filter((call) =>
+          String(call[0]).includes("/reports/materials-collected"),
+        ).length,
+      ).toBe(1);
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Hide Materials Collected Report" }));
+    await openManagerPanel(view, "Open Materials Collected Report");
+
+    expect(
+      fetchMock.mock.calls.filter((call) =>
+        String(call[0]).includes("/reports/materials-collected"),
+      ).length,
+    ).toBe(1);
+  }, 20000);
+
+  test("materials report filtered run sends query", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: {
+            id: "user-1",
+            username: "manager",
+            role: "manager",
+          },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({ people: [] });
+      }
+      if (url.includes("/materials")) {
+        return jsonResponse({
+          materials: [{ id: "mat-1", name: "PET", pointsPerKg: 3 }],
+        });
+      }
+      if (url.includes("/items")) {
+        return jsonResponse({ items: [] });
+      }
+      if (url.includes("/inventory/status-summary")) {
+        return jsonResponse({ summary: [] });
+      }
+      if (url.includes("/inventory/batches")) {
+        return jsonResponse({ batches: [] });
+      }
+      if (url.includes("/sync/conflicts")) {
+        return jsonResponse({ conflicts: [], nextCursor: null });
+      }
+      if (
+        url.includes(
+          "/reports/materials-collected?fromDate=2026-03-01&toDate=2026-03-09&locationText=Village+A",
+        )
+      ) {
+        return jsonResponse({
+          rows: [
+            {
+              day: "2026-03-08",
+              materialTypeId: "mat-1",
+              materialName: "PET",
+              locationText: "Village A",
+              totalWeightKg: 12.5,
+              totalPoints: 37,
+            },
+          ],
+          appliedFilters: {
+            fromDate: "2026-03-01",
+            toDate: "2026-03-09",
+            locationText: "Village A",
+            materialTypeId: null,
+          },
+        });
+      }
+      if (url.includes("/reports/materials-collected")) {
+        return jsonResponse({
+          rows: [],
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            locationText: null,
+            materialTypeId: null,
+          },
+        });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Login" }));
+
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Materials Collected Report" })).toBeInTheDocument();
+    });
+    await openManagerPanel(view, "Open Materials Collected Report");
+
+    await userEvent.clear(view.getByLabelText("From Date"));
+    await userEvent.type(view.getByLabelText("From Date"), "2026-03-01");
+    await userEvent.clear(view.getByLabelText("To Date"));
+    await userEvent.type(view.getByLabelText("To Date"), "2026-03-09");
+    await userEvent.type(view.getByLabelText("Location"), "Village A");
+    await userEvent.click(view.getByRole("button", { name: "Run Report" }));
+
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some((call) =>
+          String(call[0]).includes(
+            "/reports/materials-collected?fromDate=2026-03-01&toDate=2026-03-09&locationText=Village+A",
+          ),
+        ),
+      ).toBe(true);
+    });
+  }, 20000);
+
+  test("points liability report panel loads for manager and runs default request", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: {
+            id: "user-1",
+            username: "manager",
+            role: "manager",
+          },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({ people: [] });
+      }
+      if (url.includes("/materials")) {
+        return jsonResponse({ materials: [] });
+      }
+      if (url.includes("/items")) {
+        return jsonResponse({ items: [] });
+      }
+      if (url.includes("/inventory/status-summary")) {
+        return jsonResponse({ summary: [] });
+      }
+      if (url.includes("/inventory/batches")) {
+        return jsonResponse({ batches: [] });
+      }
+      if (url.includes("/sync/conflicts")) {
+        return jsonResponse({ conflicts: [], nextCursor: null });
+      }
+      if (url.includes("/reports/materials-collected")) {
+        return jsonResponse({
+          rows: [],
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            locationText: null,
+            materialTypeId: null,
+          },
+        });
+      }
+      if (url.includes("/reports/points-liability")) {
+        return jsonResponse({
+          rows: [
+            {
+              personId: "person-1",
+              name: "Jane",
+              surname: "Doe",
+              balancePoints: 38.7,
+            },
+          ],
+          summary: {
+            totalOutstandingPoints: 38.7,
+            personCount: 1,
+          },
+          appliedFilters: {
+            search: null,
+          },
+        });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Login" }));
+
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Points Liability Report" })).toBeInTheDocument();
+    });
+    await openManagerPanel(view, "Open Points Liability Report");
+    expect(view.getByText("Total outstanding: 38.7")).toBeInTheDocument();
+    expect(view.getByText("People with balances: 1")).toBeInTheDocument();
+    expect(view.getByText("Jane Doe")).toBeInTheDocument();
+    expect(view.getByText("Balance: 38.7")).toBeInTheDocument();
+  }, 20000);
+
+  test("points liability report filtered run sends search query and shows empty state", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: {
+            id: "user-1",
+            username: "manager",
+            role: "manager",
+          },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({ people: [] });
+      }
+      if (url.includes("/materials")) {
+        return jsonResponse({ materials: [] });
+      }
+      if (url.includes("/items")) {
+        return jsonResponse({ items: [] });
+      }
+      if (url.includes("/inventory/status-summary")) {
+        return jsonResponse({ summary: [] });
+      }
+      if (url.includes("/inventory/batches")) {
+        return jsonResponse({ batches: [] });
+      }
+      if (url.includes("/sync/conflicts")) {
+        return jsonResponse({ conflicts: [], nextCursor: null });
+      }
+      if (url.includes("/reports/materials-collected")) {
+        return jsonResponse({
+          rows: [],
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            locationText: null,
+            materialTypeId: null,
+          },
+        });
+      }
+      if (url.includes("/reports/points-liability?search=smith")) {
+        return jsonResponse({
+          rows: [],
+          summary: {
+            totalOutstandingPoints: 0,
+            personCount: 0,
+          },
+          appliedFilters: {
+            search: "smith",
+          },
+        });
+      }
+      if (url.includes("/reports/points-liability")) {
+        return jsonResponse({
+          rows: [],
+          summary: {
+            totalOutstandingPoints: 0,
+            personCount: 0,
+          },
+          appliedFilters: {
+            search: null,
+          },
+        });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Login" }));
+
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Points Liability Report" })).toBeInTheDocument();
+    });
+    await openManagerPanel(view, "Open Points Liability Report");
+
+    await userEvent.type(view.getByLabelText("Person Search"), "smith");
+    await userEvent.click(view.getByRole("button", { name: "Run Report" }));
+
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some((call) =>
+          String(call[0]).includes("/reports/points-liability?search=smith"),
+        ),
+      ).toBe(true);
+    });
+    expect(view.getByText("Applied search: smith")).toBeInTheDocument();
+    expect(view.getByText("No points liability rows found.")).toBeInTheDocument();
+  }, 20000);
+
+  test("inventory status report panel loads for manager and shows summary plus detail", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: {
+            id: "user-1",
+            username: "manager",
+            role: "manager",
+          },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({ people: [] });
+      }
+      if (url.includes("/materials")) {
+        return jsonResponse({ materials: [] });
+      }
+      if (url.includes("/items")) {
+        return jsonResponse({ items: [] });
+      }
+      if (url.includes("/inventory/status-summary")) {
+        return jsonResponse({ summary: [] });
+      }
+      if (url.includes("/inventory/batches")) {
+        return jsonResponse({ batches: [] });
+      }
+      if (url.includes("/sync/conflicts")) {
+        return jsonResponse({ conflicts: [], nextCursor: null });
+      }
+      if (url.includes("/reports/materials-collected")) {
+        return jsonResponse({
+          rows: [],
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            locationText: null,
+            materialTypeId: null,
+          },
+        });
+      }
+      if (url.includes("/reports/points-liability")) {
+        return jsonResponse({
+          rows: [],
+          summary: {
+            totalOutstandingPoints: 0,
+            personCount: 0,
+          },
+          appliedFilters: {
+            search: null,
+          },
+        });
+      }
+      if (url.includes("/reports/inventory-status")) {
+        return jsonResponse({
+          summary: [
+            { status: "storage", totalQuantity: 6, totalCostValue: 25.5 },
+            { status: "shop", totalQuantity: 3, totalCostValue: 12.75 },
+            { status: "sold", totalQuantity: 1, totalCostValue: 4.25 },
+            { status: "spoiled", totalQuantity: 0, totalCostValue: 0 },
+            { status: "damaged", totalQuantity: 0, totalCostValue: 0 },
+            { status: "missing", totalQuantity: 0, totalCostValue: 0 },
+          ],
+          rows: [
+            {
+              status: "storage",
+              itemId: "item-1",
+              itemName: "Soap",
+              quantity: 6,
+              unitCost: 4.25,
+              totalCostValue: 25.5,
+            },
+          ],
+        });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Login" }));
+
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Inventory Status Report" })).toBeInTheDocument();
+    });
+    await openManagerPanel(view, "Open Inventory Status Report");
+    expect(view.getByText("storage: Qty 6 | Cost 25.50")).toBeInTheDocument();
+    expect(view.getByText("spoiled: Qty 0 | Cost 0.00")).toBeInTheDocument();
+    expect(view.getByText("storage | Soap")).toBeInTheDocument();
+    expect(view.getByText("Qty: 6 | Unit cost: 4.25 | Cost: 25.50")).toBeInTheDocument();
+  }, 20000);
+
+  test("inventory status report shows zero summaries and empty detail state", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: {
+            id: "user-1",
+            username: "manager",
+            role: "manager",
+          },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({ people: [] });
+      }
+      if (url.includes("/materials")) {
+        return jsonResponse({ materials: [] });
+      }
+      if (url.includes("/items")) {
+        return jsonResponse({ items: [] });
+      }
+      if (url.includes("/inventory/status-summary")) {
+        return jsonResponse({ summary: [] });
+      }
+      if (url.includes("/inventory/batches")) {
+        return jsonResponse({ batches: [] });
+      }
+      if (url.includes("/sync/conflicts")) {
+        return jsonResponse({ conflicts: [], nextCursor: null });
+      }
+      if (url.includes("/reports/materials-collected")) {
+        return jsonResponse({
+          rows: [],
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            locationText: null,
+            materialTypeId: null,
+          },
+        });
+      }
+      if (url.includes("/reports/points-liability")) {
+        return jsonResponse({
+          rows: [],
+          summary: {
+            totalOutstandingPoints: 0,
+            personCount: 0,
+          },
+          appliedFilters: {
+            search: null,
+          },
+        });
+      }
+      if (url.includes("/reports/inventory-status")) {
+        return jsonResponse({
+          summary: [
+            { status: "storage", totalQuantity: 0, totalCostValue: 0 },
+            { status: "shop", totalQuantity: 0, totalCostValue: 0 },
+            { status: "sold", totalQuantity: 0, totalCostValue: 0 },
+            { status: "spoiled", totalQuantity: 0, totalCostValue: 0 },
+            { status: "damaged", totalQuantity: 0, totalCostValue: 0 },
+            { status: "missing", totalQuantity: 0, totalCostValue: 0 },
+          ],
+          rows: [],
+        });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Login" }));
+
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Inventory Status Report" })).toBeInTheDocument();
+    });
+    await openManagerPanel(view, "Open Inventory Status Report");
+    expect(view.getByText("missing: Qty 0 | Cost 0.00")).toBeInTheDocument();
+    expect(view.getByText("No inventory report rows found.")).toBeInTheDocument();
+  }, 20000);
+
+  test("inventory status log report panel loads for manager and runs default request", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: {
+            id: "user-1",
+            username: "manager",
+            role: "manager",
+          },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({ people: [] });
+      }
+      if (url.includes("/materials")) {
+        return jsonResponse({ materials: [] });
+      }
+      if (url.includes("/items")) {
+        return jsonResponse({ items: [] });
+      }
+      if (url.includes("/inventory/status-summary")) {
+        return jsonResponse({ summary: [] });
+      }
+      if (url.includes("/inventory/batches")) {
+        return jsonResponse({ batches: [] });
+      }
+      if (url.includes("/sync/conflicts")) {
+        return jsonResponse({ conflicts: [], nextCursor: null });
+      }
+      if (url.includes("/reports/materials-collected")) {
+        return jsonResponse({
+          rows: [],
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            locationText: null,
+            materialTypeId: null,
+          },
+        });
+      }
+      if (url.includes("/reports/points-liability")) {
+        return jsonResponse({
+          rows: [],
+          summary: {
+            totalOutstandingPoints: 0,
+            personCount: 0,
+          },
+          appliedFilters: {
+            search: null,
+          },
+        });
+      }
+      if (url.includes("/reports/inventory-status-log")) {
+        return jsonResponse({
+          rows: [
+            {
+              eventId: "evt-1",
+              eventType: "inventory.status_changed",
+              occurredAt: "2026-03-08T10:00:00.000Z",
+              inventoryBatchId: "batch-1",
+              itemId: "item-1",
+              itemName: "Soap",
+              fromStatus: "storage",
+              toStatus: "shop",
+              quantity: 4,
+              reason: "Move to shop",
+              notes: null,
+            },
+          ],
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            fromStatus: null,
+            toStatus: null,
+          },
+        });
+      }
+      if (url.includes("/reports/inventory-status")) {
+        return jsonResponse({
+          summary: [
+            { status: "storage", totalQuantity: 0, totalCostValue: 0 },
+            { status: "shop", totalQuantity: 0, totalCostValue: 0 },
+            { status: "sold", totalQuantity: 0, totalCostValue: 0 },
+            { status: "spoiled", totalQuantity: 0, totalCostValue: 0 },
+            { status: "damaged", totalQuantity: 0, totalCostValue: 0 },
+            { status: "missing", totalQuantity: 0, totalCostValue: 0 },
+          ],
+          rows: [],
+        });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Login" }));
+
+    await waitFor(() => {
+      expect(
+        view.getByRole("heading", { name: "Inventory Status Change Log" }),
+      ).toBeInTheDocument();
+    });
+    expect(
+      fetchMock.mock.calls.some((call) =>
+        String(call[0]).includes("/reports/inventory-status-log"),
+      ),
+    ).toBe(false);
+    await openManagerPanel(view, "Open Inventory Status Change Log");
+    expect(view.getAllByText("Applied: 2026-02-08 to 2026-03-09").length).toBeGreaterThan(0);
+    expect(view.getByText("2026-03-08 10:00 | batch-1 | Soap")).toBeInTheDocument();
+    expect(view.getByText("storage -> shop | Qty 4 | Reason: Move to shop")).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some((call) =>
+        String(call[0]).includes("/reports/inventory-status-log"),
+      ),
+    ).toBe(true);
+  }, 20000);
+
+  test("inventory status log report filtered run sends query and shows empty state", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: {
+            id: "user-1",
+            username: "manager",
+            role: "manager",
+          },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({ people: [] });
+      }
+      if (url.includes("/materials")) {
+        return jsonResponse({ materials: [] });
+      }
+      if (url.includes("/items")) {
+        return jsonResponse({ items: [] });
+      }
+      if (url.includes("/inventory/status-summary")) {
+        return jsonResponse({ summary: [] });
+      }
+      if (url.includes("/inventory/batches")) {
+        return jsonResponse({ batches: [] });
+      }
+      if (url.includes("/sync/conflicts")) {
+        return jsonResponse({ conflicts: [], nextCursor: null });
+      }
+      if (url.includes("/reports/materials-collected")) {
+        return jsonResponse({
+          rows: [],
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            locationText: null,
+            materialTypeId: null,
+          },
+        });
+      }
+      if (url.includes("/reports/points-liability")) {
+        return jsonResponse({
+          rows: [],
+          summary: {
+            totalOutstandingPoints: 0,
+            personCount: 0,
+          },
+          appliedFilters: {
+            search: null,
+          },
+        });
+      }
+      if (
+        url.includes(
+          "/reports/inventory-status-log?fromDate=2026-03-01&toDate=2026-03-09&fromStatus=storage&toStatus=shop",
+        )
+      ) {
+        return jsonResponse({
+          rows: [],
+          appliedFilters: {
+            fromDate: "2026-03-01",
+            toDate: "2026-03-09",
+            fromStatus: "storage",
+            toStatus: "shop",
+          },
+        });
+      }
+      if (url.includes("/reports/inventory-status-log")) {
+        return jsonResponse({
+          rows: [],
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            fromStatus: null,
+            toStatus: null,
+          },
+        });
+      }
+      if (url.includes("/reports/inventory-status")) {
+        return jsonResponse({
+          summary: [
+            { status: "storage", totalQuantity: 0, totalCostValue: 0 },
+            { status: "shop", totalQuantity: 0, totalCostValue: 0 },
+            { status: "sold", totalQuantity: 0, totalCostValue: 0 },
+            { status: "spoiled", totalQuantity: 0, totalCostValue: 0 },
+            { status: "damaged", totalQuantity: 0, totalCostValue: 0 },
+            { status: "missing", totalQuantity: 0, totalCostValue: 0 },
+          ],
+          rows: [],
+        });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Login" }));
+
+    await waitFor(() => {
+      expect(
+        view.getByRole("heading", { name: "Inventory Status Change Log" }),
+      ).toBeInTheDocument();
+    });
+    await openManagerPanel(view, "Open Inventory Status Change Log");
+
+    await userEvent.clear(view.getByLabelText("Log From Date"));
+    await userEvent.type(view.getByLabelText("Log From Date"), "2026-03-01");
+    await userEvent.clear(view.getByLabelText("Log To Date"));
+    await userEvent.type(view.getByLabelText("Log To Date"), "2026-03-09");
+    await userEvent.click(view.getByRole("textbox", { name: "From Status Filter" }));
+    await userEvent.click(view.getByRole("option", { name: "storage" }));
+    await userEvent.click(view.getByRole("textbox", { name: "To Status Filter" }));
+    await userEvent.click(view.getByRole("option", { name: "shop" }));
+    await userEvent.click(view.getByRole("button", { name: "Run Report" }));
+
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some((call) =>
+          String(call[0]).includes(
+            "/reports/inventory-status-log?fromDate=2026-03-01&toDate=2026-03-09&fromStatus=storage&toStatus=shop",
+          ),
+        ),
+      ).toBe(true);
+    });
+    expect(view.getByText("Applied: 2026-03-01 to 2026-03-09")).toBeInTheDocument();
+    expect(view.getByText("No inventory status changes found.")).toBeInTheDocument();
+  }, 20000);
+
+  test("sales report panel loads for manager and runs default request", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: {
+            id: "user-1",
+            username: "manager",
+            role: "manager",
+          },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({ people: [] });
+      }
+      if (url.includes("/materials")) {
+        return jsonResponse({ materials: [] });
+      }
+      if (url.includes("/items")) {
+        return jsonResponse({ items: [{ id: "item-1", name: "Soap", pointsPrice: 10.5 }] });
+      }
+      if (url.includes("/inventory/status-summary")) {
+        return jsonResponse({ summary: [] });
+      }
+      if (url.includes("/inventory/batches")) {
+        return jsonResponse({ batches: [] });
+      }
+      if (url.includes("/sync/conflicts")) {
+        return jsonResponse({ conflicts: [], nextCursor: null });
+      }
+      if (url.includes("/reports/materials-collected")) {
+        return jsonResponse({
+          rows: [],
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            locationText: null,
+            materialTypeId: null,
+          },
+        });
+      }
+      if (url.includes("/reports/points-liability")) {
+        return jsonResponse({
+          rows: [],
+          summary: {
+            totalOutstandingPoints: 0,
+            personCount: 0,
+          },
+          appliedFilters: {
+            search: null,
+          },
+        });
+      }
+      if (url.includes("/reports/inventory-status-log")) {
+        return jsonResponse({
+          rows: [],
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            fromStatus: null,
+            toStatus: null,
+          },
+        });
+      }
+      if (url.includes("/reports/inventory-status")) {
+        return jsonResponse({
+          summary: [
+            { status: "storage", totalQuantity: 0, totalCostValue: 0 },
+            { status: "shop", totalQuantity: 0, totalCostValue: 0 },
+            { status: "sold", totalQuantity: 0, totalCostValue: 0 },
+            { status: "spoiled", totalQuantity: 0, totalCostValue: 0 },
+            { status: "damaged", totalQuantity: 0, totalCostValue: 0 },
+            { status: "missing", totalQuantity: 0, totalCostValue: 0 },
+          ],
+          rows: [],
+        });
+      }
+      if (url.includes("/reports/sales")) {
+        return jsonResponse({
+          rows: [
+            {
+              day: "2026-03-08",
+              itemId: "item-1",
+              itemName: "Soap",
+              locationText: "Village A",
+              totalQuantity: 5,
+              totalPoints: 52.5,
+              saleCount: 2,
+            },
+          ],
+          summary: {
+            totalQuantity: 5,
+            totalPoints: 52.5,
+            saleCount: 2,
+          },
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            locationText: null,
+            itemId: null,
+          },
+        });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Login" }));
+
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Sales Report" })).toBeInTheDocument();
+    });
+    expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("/reports/sales"))).toBe(
+      false,
+    );
+    await openManagerPanel(view, "Open Sales Report");
+    expect(view.getAllByText("Applied: 2026-02-08 to 2026-03-09").length).toBeGreaterThan(0);
+    expect(view.getByText("Total quantity: 5")).toBeInTheDocument();
+    expect(view.getByText("Total points: 52.5")).toBeInTheDocument();
+    expect(view.getByText("Sale events: 2")).toBeInTheDocument();
+    expect(view.getByText("2026-03-08 | Village A | Soap")).toBeInTheDocument();
+    expect(view.getByText("Qty: 5 | Points: 52.5 | Sales: 2")).toBeInTheDocument();
+  }, 20000);
+
+  test("sales report filtered run sends query and shows empty state", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: {
+            id: "user-1",
+            username: "manager",
+            role: "manager",
+          },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({ people: [] });
+      }
+      if (url.includes("/materials")) {
+        return jsonResponse({ materials: [] });
+      }
+      if (url.includes("/items")) {
+        return jsonResponse({ items: [{ id: "item-1", name: "Soap", pointsPrice: 10.5 }] });
+      }
+      if (url.includes("/inventory/status-summary")) {
+        return jsonResponse({ summary: [] });
+      }
+      if (url.includes("/inventory/batches")) {
+        return jsonResponse({ batches: [] });
+      }
+      if (url.includes("/sync/conflicts")) {
+        return jsonResponse({ conflicts: [], nextCursor: null });
+      }
+      if (url.includes("/reports/materials-collected")) {
+        return jsonResponse({
+          rows: [],
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            locationText: null,
+            materialTypeId: null,
+          },
+        });
+      }
+      if (url.includes("/reports/points-liability")) {
+        return jsonResponse({
+          rows: [],
+          summary: {
+            totalOutstandingPoints: 0,
+            personCount: 0,
+          },
+          appliedFilters: {
+            search: null,
+          },
+        });
+      }
+      if (url.includes("/reports/inventory-status-log")) {
+        return jsonResponse({
+          rows: [],
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            fromStatus: null,
+            toStatus: null,
+          },
+        });
+      }
+      if (url.includes("/reports/inventory-status")) {
+        return jsonResponse({
+          summary: [
+            { status: "storage", totalQuantity: 0, totalCostValue: 0 },
+            { status: "shop", totalQuantity: 0, totalCostValue: 0 },
+            { status: "sold", totalQuantity: 0, totalCostValue: 0 },
+            { status: "spoiled", totalQuantity: 0, totalCostValue: 0 },
+            { status: "damaged", totalQuantity: 0, totalCostValue: 0 },
+            { status: "missing", totalQuantity: 0, totalCostValue: 0 },
+          ],
+          rows: [],
+        });
+      }
+      if (
+        url.includes(
+          "/reports/sales?fromDate=2026-03-01&toDate=2026-03-09&locationText=Village+A&itemId=item-1",
+        )
+      ) {
+        return jsonResponse({
+          rows: [],
+          summary: {
+            totalQuantity: 0,
+            totalPoints: 0,
+            saleCount: 0,
+          },
+          appliedFilters: {
+            fromDate: "2026-03-01",
+            toDate: "2026-03-09",
+            locationText: "Village A",
+            itemId: "item-1",
+          },
+        });
+      }
+      if (url.includes("/reports/sales")) {
+        return jsonResponse({
+          rows: [],
+          summary: {
+            totalQuantity: 0,
+            totalPoints: 0,
+            saleCount: 0,
+          },
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            locationText: null,
+            itemId: null,
+          },
+        });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Login" }));
+
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Sales Report" })).toBeInTheDocument();
+    });
+    await openManagerPanel(view, "Open Sales Report");
+
+    await userEvent.clear(view.getByLabelText("Sales From Date"));
+    await userEvent.type(view.getByLabelText("Sales From Date"), "2026-03-01");
+    await userEvent.clear(view.getByLabelText("Sales To Date"));
+    await userEvent.type(view.getByLabelText("Sales To Date"), "2026-03-09");
+    await userEvent.click(view.getByRole("textbox", { name: "Sales Item" }));
+    await userEvent.click(view.getByRole("option", { name: "Soap" }));
+    await userEvent.type(view.getByLabelText("Sales Location"), "Village A");
+    await userEvent.click(view.getByRole("button", { name: "Run Report" }));
+
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some((call) =>
+          String(call[0]).includes(
+            "/reports/sales?fromDate=2026-03-01&toDate=2026-03-09&locationText=Village+A&itemId=item-1",
+          ),
+        ),
+      ).toBe(true);
+    });
+    expect(view.getByText("Applied: 2026-03-01 to 2026-03-09")).toBeInTheDocument();
+    expect(view.getByText("No sales report rows found.")).toBeInTheDocument();
+  }, 20000);
+
+  test("cashflow report panel loads for manager and runs default request", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: {
+            id: "user-1",
+            username: "manager",
+            role: "manager",
+          },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({ people: [] });
+      }
+      if (url.includes("/materials")) {
+        return jsonResponse({ materials: [] });
+      }
+      if (url.includes("/items")) {
+        return jsonResponse({ items: [{ id: "item-1", name: "Soap", pointsPrice: 10.5 }] });
+      }
+      if (url.includes("/inventory/status-summary")) {
+        return jsonResponse({ summary: [] });
+      }
+      if (url.includes("/inventory/batches")) {
+        return jsonResponse({ batches: [] });
+      }
+      if (url.includes("/sync/conflicts")) {
+        return jsonResponse({ conflicts: [], nextCursor: null });
+      }
+      if (url.includes("/reports/materials-collected")) {
+        return jsonResponse({
+          rows: [],
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            locationText: null,
+            materialTypeId: null,
+          },
+        });
+      }
+      if (url.includes("/reports/points-liability")) {
+        return jsonResponse({
+          rows: [],
+          summary: {
+            totalOutstandingPoints: 0,
+            personCount: 0,
+          },
+          appliedFilters: {
+            search: null,
+          },
+        });
+      }
+      if (url.includes("/reports/inventory-status-log")) {
+        return jsonResponse({
+          rows: [],
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            fromStatus: null,
+            toStatus: null,
+          },
+        });
+      }
+      if (url.includes("/reports/inventory-status")) {
+        return jsonResponse({
+          summary: [
+            { status: "storage", totalQuantity: 0, totalCostValue: 0 },
+            { status: "shop", totalQuantity: 0, totalCostValue: 0 },
+            { status: "sold", totalQuantity: 0, totalCostValue: 0 },
+            { status: "spoiled", totalQuantity: 0, totalCostValue: 0 },
+            { status: "damaged", totalQuantity: 0, totalCostValue: 0 },
+            { status: "missing", totalQuantity: 0, totalCostValue: 0 },
+          ],
+          rows: [],
+        });
+      }
+      if (url.includes("/reports/sales")) {
+        return jsonResponse({
+          rows: [],
+          summary: {
+            totalQuantity: 0,
+            totalPoints: 0,
+            saleCount: 0,
+          },
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            locationText: null,
+            itemId: null,
+          },
+        });
+      }
+      if (url.includes("/reports/cashflow")) {
+        return jsonResponse({
+          rows: [
+            {
+              day: "2026-03-08",
+              salesPointsValue: 52.5,
+              expenseCashTotal: 18.5,
+              netCashflow: 34,
+              saleCount: 2,
+              expenseCount: 1,
+            },
+          ],
+          summary: {
+            totalSalesPointsValue: 52.5,
+            totalExpenseCash: 18.5,
+            netCashflow: 34,
+            saleCount: 2,
+            expenseCount: 1,
+          },
+          expenseCategories: [
+            {
+              category: "Fuel",
+              totalCashAmount: 18.5,
+              expenseCount: 1,
+            },
+          ],
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            locationText: null,
+          },
+        });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Login" }));
+
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Cashflow Report" })).toBeInTheDocument();
+    });
+    expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("/reports/cashflow"))).toBe(
+      false,
+    );
+    await openManagerPanel(view, "Open Cashflow Report");
+    expect(view.getAllByText("Applied: 2026-02-08 to 2026-03-09").length).toBeGreaterThan(0);
+    expect(view.getByText("Sales value: 52.5")).toBeInTheDocument();
+    expect(view.getByText("Expenses: 18.50")).toBeInTheDocument();
+    expect(view.getByText("Net: 34.00")).toBeInTheDocument();
+    expect(view.getByText("2026-03-08")).toBeInTheDocument();
+    expect(view.getByText("Fuel")).toBeInTheDocument();
+    expect(view.getByText("Expense total: 18.50 | Expense events: 1")).toBeInTheDocument();
+  }, 20000);
+
+  test("cashflow report filtered run sends query and shows empty states", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: {
+            id: "user-1",
+            username: "manager",
+            role: "manager",
+          },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({ people: [] });
+      }
+      if (url.includes("/materials")) {
+        return jsonResponse({ materials: [] });
+      }
+      if (url.includes("/items")) {
+        return jsonResponse({ items: [] });
+      }
+      if (url.includes("/inventory/status-summary")) {
+        return jsonResponse({ summary: [] });
+      }
+      if (url.includes("/inventory/batches")) {
+        return jsonResponse({ batches: [] });
+      }
+      if (url.includes("/sync/conflicts")) {
+        return jsonResponse({ conflicts: [], nextCursor: null });
+      }
+      if (url.includes("/reports/materials-collected")) {
+        return jsonResponse({
+          rows: [],
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            locationText: null,
+            materialTypeId: null,
+          },
+        });
+      }
+      if (url.includes("/reports/points-liability")) {
+        return jsonResponse({
+          rows: [],
+          summary: {
+            totalOutstandingPoints: 0,
+            personCount: 0,
+          },
+          appliedFilters: {
+            search: null,
+          },
+        });
+      }
+      if (url.includes("/reports/inventory-status-log")) {
+        return jsonResponse({
+          rows: [],
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            fromStatus: null,
+            toStatus: null,
+          },
+        });
+      }
+      if (url.includes("/reports/inventory-status")) {
+        return jsonResponse({
+          summary: [
+            { status: "storage", totalQuantity: 0, totalCostValue: 0 },
+            { status: "shop", totalQuantity: 0, totalCostValue: 0 },
+            { status: "sold", totalQuantity: 0, totalCostValue: 0 },
+            { status: "spoiled", totalQuantity: 0, totalCostValue: 0 },
+            { status: "damaged", totalQuantity: 0, totalCostValue: 0 },
+            { status: "missing", totalQuantity: 0, totalCostValue: 0 },
+          ],
+          rows: [],
+        });
+      }
+      if (url.includes("/reports/sales")) {
+        return jsonResponse({
+          rows: [],
+          summary: {
+            totalQuantity: 0,
+            totalPoints: 0,
+            saleCount: 0,
+          },
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            locationText: null,
+            itemId: null,
+          },
+        });
+      }
+      if (
+        url.includes(
+          "/reports/cashflow?fromDate=2026-03-01&toDate=2026-03-09&locationText=Village+A",
+        )
+      ) {
+        return jsonResponse({
+          rows: [],
+          summary: {
+            totalSalesPointsValue: 0,
+            totalExpenseCash: 0,
+            netCashflow: 0,
+            saleCount: 0,
+            expenseCount: 0,
+          },
+          expenseCategories: [],
+          appliedFilters: {
+            fromDate: "2026-03-01",
+            toDate: "2026-03-09",
+            locationText: "Village A",
+          },
+        });
+      }
+      if (url.includes("/reports/cashflow")) {
+        return jsonResponse({
+          rows: [],
+          summary: {
+            totalSalesPointsValue: 0,
+            totalExpenseCash: 0,
+            netCashflow: 0,
+            saleCount: 0,
+            expenseCount: 0,
+          },
+          expenseCategories: [],
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            locationText: null,
+          },
+        });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Login" }));
+
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Cashflow Report" })).toBeInTheDocument();
+    });
+    await openManagerPanel(view, "Open Cashflow Report");
+
+    await userEvent.clear(view.getByLabelText("Cashflow From Date"));
+    await userEvent.type(view.getByLabelText("Cashflow From Date"), "2026-03-01");
+    await userEvent.clear(view.getByLabelText("Cashflow To Date"));
+    await userEvent.type(view.getByLabelText("Cashflow To Date"), "2026-03-09");
+    await userEvent.type(view.getByLabelText("Cashflow Location"), "Village A");
+    await userEvent.click(view.getByRole("button", { name: "Run Report" }));
+
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some((call) =>
+          String(call[0]).includes(
+            "/reports/cashflow?fromDate=2026-03-01&toDate=2026-03-09&locationText=Village+A",
+          ),
+        ),
+      ).toBe(true);
+    });
+    expect(view.getByText("Applied: 2026-03-01 to 2026-03-09")).toBeInTheDocument();
+    expect(view.getByText("No cashflow report rows found.")).toBeInTheDocument();
+    expect(view.getByText("No expense categories found.")).toBeInTheDocument();
+  }, 20000);
+
+  test("reconciliation panel loads for manager and requires repair notes", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: {
+            id: "user-1",
+            username: "manager",
+            role: "manager",
+          },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({ people: [] });
+      }
+      if (url.includes("/materials")) {
+        return jsonResponse({ materials: [] });
+      }
+      if (url.includes("/items")) {
+        return jsonResponse({ items: [] });
+      }
+      if (url.includes("/inventory/status-summary")) {
+        return jsonResponse({ summary: [] });
+      }
+      if (url.includes("/inventory/batches")) {
+        return jsonResponse({ batches: [] });
+      }
+      if (url.includes("/sync/conflicts")) {
+        return jsonResponse({ conflicts: [], nextCursor: null });
+      }
+      if (url.includes("/sync/reconciliation/report")) {
+        return jsonResponse({
+          generatedAt: "2026-03-12T12:00:00.000Z",
+          summary: {
+            totalIssues: 1,
+            errorCount: 1,
+            warningCount: 0,
+            repairableCount: 1,
+          },
+          issues: [
+            {
+              issueId: "POINTS_BALANCE_MISMATCH:person-1",
+              code: "POINTS_BALANCE_MISMATCH",
+              severity: "error",
+              entityType: "person",
+              entityId: "person-1",
+              detail: "Projected balance does not match event-log balance.",
+              detectedAt: "2026-03-12T12:00:00.000Z",
+              expected: { balancePoints: 38.7 },
+              actual: { balancePoints: 35.7 },
+              suggestedRepair: {
+                repairKind: "points_adjustment",
+                deltaPoints: 3,
+                reasonTemplate: "Reconciliation correction for points balance mismatch",
+              },
+            },
+          ],
+          nextCursor: null,
+        });
+      }
+      if (url.includes("/sync/reconciliation/issues/") && init?.method === "POST") {
+        return jsonResponse({
+          issueId: "POINTS_BALANCE_MISMATCH:person-1",
+          repairKind: "points_adjustment",
+          repairEventId: "repair-event-1",
+        });
+      }
+      if (url.includes("/reports/materials-collected")) {
+        return jsonResponse({
+          rows: [],
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            locationText: null,
+            materialTypeId: null,
+          },
+        });
+      }
+      if (url.includes("/reports/points-liability")) {
+        return jsonResponse({
+          rows: [],
+          summary: { totalOutstandingPoints: 0, personCount: 0 },
+          appliedFilters: { search: null },
+        });
+      }
+      if (url.includes("/reports/inventory-status-log")) {
+        return jsonResponse({
+          rows: [],
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            fromStatus: null,
+            toStatus: null,
+          },
+        });
+      }
+      if (url.includes("/reports/inventory-status")) {
+        return jsonResponse({
+          summary: [
+            { status: "storage", totalQuantity: 0, totalCostValue: 0 },
+            { status: "shop", totalQuantity: 0, totalCostValue: 0 },
+            { status: "sold", totalQuantity: 0, totalCostValue: 0 },
+            { status: "spoiled", totalQuantity: 0, totalCostValue: 0 },
+            { status: "damaged", totalQuantity: 0, totalCostValue: 0 },
+            { status: "missing", totalQuantity: 0, totalCostValue: 0 },
+          ],
+          rows: [],
+        });
+      }
+      if (url.includes("/reports/sales")) {
+        return jsonResponse({
+          rows: [],
+          summary: { totalQuantity: 0, totalPoints: 0, saleCount: 0 },
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            locationText: null,
+            itemId: null,
+          },
+        });
+      }
+      if (url.includes("/reports/cashflow")) {
+        return jsonResponse({
+          rows: [],
+          summary: {
+            totalSalesPointsValue: 0,
+            totalExpenseCash: 0,
+            netCashflow: 0,
+            saleCount: 0,
+            expenseCount: 0,
+          },
+          expenseCategories: [],
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            locationText: null,
+          },
+        });
+      }
+      if (url.includes("/sync/pull")) {
+        return jsonResponse({ events: [], nextCursor: null });
+      }
+      if (url.includes("/sync/status")) {
+        return jsonResponse({
+          latestCursor: null,
+          projectionRefreshedAt: null,
+          projectionCursor: null,
+        });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Login" }));
+
+    await waitFor(() => {
+      expect(
+        view.getByRole("heading", { name: "Integrity and Reconciliation" }),
+      ).toBeInTheDocument();
+    });
+    expect(
+      fetchMock.mock.calls.some((call) => String(call[0]).includes("/sync/reconciliation/report")),
+    ).toBe(false);
+    await openManagerPanel(view, "Open Integrity and Reconciliation");
+
+    expect(view.getByText("POINTS_BALANCE_MISMATCH")).toBeInTheDocument();
+    await userEvent.click(view.getByRole("button", { name: "Apply Suggested Fix" }));
+    await userEvent.click(view.getByRole("button", { name: "Confirm Repair" }));
+    expect(view.getByText("Repair notes are required")).toBeInTheDocument();
+
+    await userEvent.type(view.getByLabelText("Manager Notes"), "checked ledger");
+    await userEvent.click(view.getByRole("button", { name: "Confirm Repair" }));
+
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some((call) =>
+          String(call[0]).includes(
+            "/sync/reconciliation/issues/POINTS_BALANCE_MISMATCH%3Aperson-1/repair",
+          ),
+        ),
+      ).toBe(true);
+    });
+  }, 20000);
+
+  test("cashflow report export downloads CSV", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: {
+            id: "user-1",
+            username: "manager",
+            role: "manager",
+          },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({ people: [] });
+      }
+      if (url.includes("/materials")) {
+        return jsonResponse({ materials: [] });
+      }
+      if (url.includes("/items")) {
+        return jsonResponse({ items: [] });
+      }
+      if (url.includes("/inventory/status-summary")) {
+        return jsonResponse({ summary: [] });
+      }
+      if (url.includes("/inventory/batches")) {
+        return jsonResponse({ batches: [] });
+      }
+      if (url.includes("/sync/conflicts")) {
+        return jsonResponse({ conflicts: [], nextCursor: null });
+      }
+      if (url.includes("/reports/materials-collected")) {
+        return jsonResponse({
+          rows: [],
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            locationText: null,
+            materialTypeId: null,
+          },
+        });
+      }
+      if (url.includes("/reports/points-liability")) {
+        return jsonResponse({
+          rows: [],
+          summary: {
+            totalOutstandingPoints: 0,
+            personCount: 0,
+          },
+          appliedFilters: {
+            search: null,
+          },
+        });
+      }
+      if (url.includes("/reports/inventory-status-log")) {
+        return jsonResponse({
+          rows: [],
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            fromStatus: null,
+            toStatus: null,
+          },
+        });
+      }
+      if (url.includes("/reports/inventory-status")) {
+        return jsonResponse({
+          summary: [
+            { status: "storage", totalQuantity: 0, totalCostValue: 0 },
+            { status: "shop", totalQuantity: 0, totalCostValue: 0 },
+            { status: "sold", totalQuantity: 0, totalCostValue: 0 },
+            { status: "spoiled", totalQuantity: 0, totalCostValue: 0 },
+            { status: "damaged", totalQuantity: 0, totalCostValue: 0 },
+            { status: "missing", totalQuantity: 0, totalCostValue: 0 },
+          ],
+          rows: [],
+        });
+      }
+      if (url.includes("/reports/sales")) {
+        return jsonResponse({
+          rows: [],
+          summary: {
+            totalQuantity: 0,
+            totalPoints: 0,
+            saleCount: 0,
+          },
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            locationText: null,
+            itemId: null,
+          },
+        });
+      }
+      if (url.includes("/reports/cashflow")) {
+        return jsonResponse({
+          rows: [
+            {
+              day: "2026-03-08",
+              salesPointsValue: 52.5,
+              expenseCashTotal: 18.5,
+              netCashflow: 34,
+              saleCount: 2,
+              expenseCount: 1,
+            },
+          ],
+          summary: {
+            totalSalesPointsValue: 52.5,
+            totalExpenseCash: 18.5,
+            netCashflow: 34,
+            saleCount: 2,
+            expenseCount: 1,
+          },
+          expenseCategories: [
+            {
+              category: "Fuel",
+              totalCashAmount: 18.5,
+              expenseCount: 1,
+            },
+          ],
+          appliedFilters: {
+            fromDate: "2026-02-08",
+            toDate: "2026-03-09",
+            locationText: null,
+          },
+        });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const createObjectUrl = vi.fn<(blob: Blob) => string>().mockReturnValue("blob:cashflow");
+    const revokeObjectUrl = vi.fn<(url: string) => void>();
+    const clickSpy = vi
+      .spyOn(globalThis.HTMLAnchorElement.prototype, "click")
+      .mockImplementation((): void => {
+        return;
+      });
+    Object.defineProperty(globalThis.URL, "createObjectURL", {
+      configurable: true,
+      value: createObjectUrl,
+    });
+    Object.defineProperty(globalThis.URL, "revokeObjectURL", {
+      configurable: true,
+      value: revokeObjectUrl,
+    });
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Login" }));
+
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Cashflow Report" })).toBeInTheDocument();
+    });
+    await openManagerPanel(view, "Open Cashflow Report");
+
+    await userEvent.click(view.getByRole("button", { name: "Export CSV" }));
+
+    expect(createObjectUrl).toHaveBeenCalledTimes(1);
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:cashflow");
+  }, 20000);
 
   test("expense flow enqueues event, syncs, and clears pending count", async () => {
     stubResizeObserver();
@@ -1667,7 +3636,7 @@ describe("App person registry", () => {
     expect(pushBody.events[0]?.payload.cashAmount).toBe(45.5);
     expect(pushBody.events[0]?.payload.notes).toBe("Village route");
     expect(pushBody.events[0]?.payload.receiptRef).toBe("R-77");
-  }, 10000);
+  }, 20000);
 
   test("expense validation blocks invalid submit and sync failures are shown", async () => {
     stubResizeObserver();

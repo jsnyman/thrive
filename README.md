@@ -67,13 +67,14 @@ Offline-first software for a mobile recycling swap-shop that moves between villa
 
 **Status**
 
-- Baseline date: March 8, 2026.
+- Baseline date: March 10, 2026.
 - Phase 0: mostly done (repo, standards, architecture docs, CI quality gates).
 - Phase 1: partial (auth/RBAC, event model, event-first writes for people/materials/items/intake/sales, projection freshness metadata).
 - Phase 2: done for sync spine tasks 1-6 (responsive web shell, OPFS SQLite `queued_event` + `sync_state`, push/ack/pull/status orchestration, merge/conflict detection, manager conflict resolution, and audit/immutability validation endpoints plus checks).
-- Phase 3: in progress. Tasks 1-7 are complete: person registry, multi-line intake, points ledger/balance view with negative-balance prevention on sales (`INSUFFICIENT_POINTS`), inventory status change/adjustment request workflows, sales checkout with FIFO inventory-batch linkage to sold status, procurement event capture with inventory batch additions, and manager expense capture (`expense.recorded`) via queue-first sync flow.
+- Phase 3: done. Tasks 1-7 are complete: person registry, multi-line intake, points ledger/balance view with negative-balance prevention on sales (`INSUFFICIENT_POINTS`), inventory status change/adjustment request workflows, sales checkout with FIFO inventory-batch linkage to sold status, procurement event capture with inventory batch additions, and manager expense capture (`expense.recorded`) via queue-first sync flow.
 - Coverage and quality: unit suites now include explicit coverage commands and enforced thresholds for web/api/shared configs.
-- Phase 4-5: not started for full workflow/reporting/hardening scope.
+- Phase 4: in progress. Task 1 is complete: manager-only Materials Collected report (`GET /reports/materials-collected`) with grouped totals by day/material/location and default last-30-days filtering.
+- Phase 5: not started for hardening/pilot-prep scope.
 
 **Getting Started**
 

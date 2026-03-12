@@ -49,9 +49,11 @@ Example event (illustrative)
       {
         "materialTypeId": "00000000-0000-0000-0000-000000000789",
         "weightKg": 4.2,
-        "pointsAwarded": 12
+        "pointsPerKg": 3.2,
+        "pointsAwarded": 13.4
       }
-    ]
+    ],
+    "totalPoints": 13.4
   }
 }
 ```
@@ -86,6 +88,7 @@ Projections are read models derived from the event log.
 
 - Person registry projection uses `person.*` events.
 - Points ledger and balance are derived from `intake.recorded`, `sale.recorded`, and `points.adjustment_applied`.
+- Point-valued fields are normalized to one decimal place; intake lines round down to the nearest `0.1` point before totals are summed.
 - Inventory status and quantities are derived from `procurement.recorded`, `sale.recorded`, and `inventory.status_changed`.
 - Reports are derived from the same projections and never write back to the log.
 

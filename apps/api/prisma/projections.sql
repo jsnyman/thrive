@@ -39,7 +39,7 @@ with intake as (
   select
     e.event_id as id,
     e.payload ->> 'personId' as person_id,
-    (e.payload ->> 'totalPoints')::integer as delta_points,
+    (e.payload ->> 'totalPoints')::numeric(12, 1) as delta_points,
     e.occurred_at as occurred_at,
     'intake.recorded'::text as source_event_type,
     e.event_id as source_event_id
@@ -50,7 +50,7 @@ sale as (
   select
     e.event_id as id,
     e.payload ->> 'personId' as person_id,
-    ((e.payload ->> 'totalPoints')::integer * -1) as delta_points,
+    ((e.payload ->> 'totalPoints')::numeric(12, 1) * -1) as delta_points,
     e.occurred_at as occurred_at,
     'sale.recorded'::text as source_event_type,
     e.event_id as source_event_id
@@ -61,7 +61,7 @@ points_adjustment as (
   select
     e.event_id as id,
     e.payload ->> 'personId' as person_id,
-    (e.payload ->> 'deltaPoints')::integer as delta_points,
+    (e.payload ->> 'deltaPoints')::numeric(12, 1) as delta_points,
     e.occurred_at as occurred_at,
     'points.adjustment_applied'::text as source_event_type,
     coalesce(e.payload ->> 'requestEventId', e.event_id) as source_event_id
@@ -83,7 +83,7 @@ create index if not exists mv_points_ledger_entries_person_idx
 create materialized view if not exists mv_points_balances as
 select
   l.person_id,
-  coalesce(sum(l.delta_points), 0)::integer as balance_points
+  coalesce(sum(l.delta_points), 0)::numeric(12, 1) as balance_points
 from mv_points_ledger_entries l
 group by l.person_id;
 
@@ -106,3 +106,36 @@ group by status;
 
 create unique index if not exists mv_inventory_status_summary_status_idx
   on mv_inventory_status_summary (status);
+
+create materialized view if not exists mv_materials_collected_daily as
+with intake_lines as (
+  select
+    e.occurred_at::date as day,
+    coalesce(nullif(trim(e.location_text), ''), 'Unspecified') as location_text,
+    line ->> 'materialTypeId' as material_type_id,
+    (line ->> 'weightKg')::numeric(12, 3) as weight_kg,
+    (line ->> 'pointsAwarded')::numeric(12, 1) as points_awarded
+  from event e
+  cross join lateral jsonb_array_elements((e.payload -> 'lines')::jsonb) as line
+  where e.event_type = 'intake.recorded'
+)
+select
+  intake.day,
+  intake.material_type_id,
+  coalesce(mt.name, intake.material_type_id) as material_name,
+  intake.location_text,
+  coalesce(sum(intake.weight_kg), 0)::numeric(12, 3) as total_weight_kg,
+  coalesce(sum(intake.points_awarded), 0)::numeric(12, 1) as total_points
+from intake_lines intake
+left join material_type mt on mt.id::text = intake.material_type_id
+where intake.material_type_id is not null
+group by intake.day, intake.material_type_id, coalesce(mt.name, intake.material_type_id), intake.location_text;
+
+create index if not exists mv_materials_collected_daily_day_idx
+  on mv_materials_collected_daily (day desc);
+
+create index if not exists mv_materials_collected_daily_material_idx
+  on mv_materials_collected_daily (material_type_id);
+
+create index if not exists mv_materials_collected_daily_location_idx
+  on mv_materials_collected_daily (location_text);

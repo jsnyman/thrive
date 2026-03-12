@@ -4,13 +4,18 @@ This plan sequences the work to deliver the Recycling Swap-Shop software describ
 
 ## Assumptions
 
-- Offline-first PWA with event-sourced sync.
-- Single codebase for web (laptops, tablets, phones).
-- Small team (1-4 engineers). Timeline is expressed in weeks relative to project start.
-- Database: PostgreSQL with Prisma schema; projections implemented as materialized views refreshed after each accepted event write (current behavior).
-- Inventory valuation: hybrid approach (total cost retained; sellable excludes spoiled/damaged/missing; losses tracked explicitly).
+- Offline-first PWA with event-sourced sync
+- Single codebase for web across laptops, tablets, and phones
+- Small team of `1-4` engineers
+- Timeline expressed in weeks relative to project start
+- Database: PostgreSQL with Prisma schema
+- Projections implemented as materialized views refreshed after each accepted event write, which is the current behavior
+- Inventory valuation uses a hybrid approach:
+  - Total cost retained
+  - Sellable value excludes spoiled, damaged, and missing stock
+  - Losses tracked explicitly
 
-If you want exact calendar dates, add the start date and team size.
+If you want exact calendar dates, add the project start date and team size.
 
 ---
 
@@ -18,21 +23,21 @@ If you want exact calendar dates, add the start date and team size.
 
 Goal: establish project scaffolding, architecture, and delivery pipeline.
 
-Tasks (in order)
+### Tasks
 
-1. Define repo structure (apps/web, apps/api, packages/shared).
-2. Confirm Mantine as the UI library and finalize stack choices.
-3. Set code standards (TypeScript config, lint, format, test tools).
-4. Set up CI (lint, test, build) and basic release workflow.
-5. Create initial architecture docs (event model, sync approach, RBAC).
+1. Define repo structure: `apps/web`, `apps/api`, `packages/shared`
+2. Confirm Mantine as the UI library and finalize stack choices
+3. Set code standards: TypeScript config, lint, format, test tools
+4. Set up CI for lint, test, and build, plus a basic release workflow
+5. Create initial architecture docs for the event model, sync approach, and RBAC
 
-Deliverables
+### Deliverables
 
-- Repo initialized with CI, linting, and baseline architecture docs.
+- Repo initialized with CI, linting, and baseline architecture docs
 
-Dependencies
+### Dependencies
 
-- None.
+- None
 
 ---
 
@@ -40,21 +45,24 @@ Dependencies
 
 Goal: establish the domain model, event log, projections, and role-based auth.
 
-Tasks (in order)
+### Tasks
 
-1. Define core domain types and event schemas.
-2. Implement server-side event log (append-only) in PostgreSQL via Prisma.
-3. Implement projections for people, points balances, inventory, and reports using materialized views and scheduled refresh. (Partial: implemented; freshness gating enforcement still pending as of March 5, 2026)
-4. Implement authentication and RBAC (collector, shop operator, manager). (Completed on March 4, 2026)
-5. Implement API skeleton for core entities (people, items, materials, ledger). (Completed on March 4, 2026)
+1. Define core domain types and event schemas
+2. Implement the server-side append-only event log in PostgreSQL via Prisma
+3. Implement projections for people, points balances, inventory, and reports using materialized views and scheduled refresh
+   Note: partially implemented; freshness gating enforcement was still pending as of `2026-03-05`
+4. Implement authentication and RBAC for collector, shop operator, and manager
+   Status: completed on `2026-03-04`
+5. Implement the API skeleton for core entities such as people, items, materials, and ledger
+   Status: completed on `2026-03-04`
 
-Deliverables
+### Deliverables
 
-- Working API with authentication, event log, and baseline projections.
+- Working API with authentication, event log, and baseline projections
 
-Dependencies
+### Dependencies
 
-- Phase 0 complete.
+- Phase 0 complete
 
 ---
 
@@ -62,22 +70,22 @@ Dependencies
 
 Goal: usable offline PWA with local storage and sync capability.
 
-Tasks (in order)
+### Tasks
 
-1. Implement PWA shell and responsive layouts.
-2. Add local SQLite (OPFS) queue + sync-state persistence on-device.
-3. Build sync protocol (push local events, pull remote events).
-4. Implement event merge rules and conflict detection.
-5. Add conflict resolution workflow for managers.
-6. Validate audit trail preservation and immutability rules.
+1. Implement the PWA shell and responsive layouts
+2. Add local SQLite via OPFS with queue and sync-state persistence
+3. Build the sync protocol to push local events and pull remote events
+4. Implement event merge rules and conflict detection
+5. Add a manager conflict resolution workflow
+6. Validate audit trail preservation and immutability rules
 
-Deliverables
+### Deliverables
 
-- Offline-first client with working sync and conflict flow.
+- Offline-first client with working sync and conflict flow
 
-Dependencies
+### Dependencies
 
-- Phase 1 complete.
+- Phase 1 complete
 
 ---
 
@@ -85,23 +93,24 @@ Dependencies
 
 Goal: deliver intake, points, inventory, sales, procurement, and expenses.
 
-Tasks (in order)
+### Tasks
 
-1. Person registry (create/search/edit) with hidden ID/phone display rules.
-2. Material intake: event creation, lines, points calculation, ledger entry.
-3. Points ledger and balance view with negative balance prevention.
-4. Inventory: items, batches, status changes, and adjustment requests.
-5. Sales: points-only checkout, ledger debit, inventory sold status.
-6. Procurement: create procurement events and inventory additions.
-7. Expenses: non-inventory expenses entry.
+1. Person registry with create, search, edit, and hidden ID/phone display rules
+2. Material intake with event creation, lines, points calculation, and ledger entry
+   Note: point values are pegged to rand with one decimal place, and intake lines round down to the nearest `0.1`
+3. Points ledger and balance view with negative-balance prevention
+4. Inventory with items, batches, status changes, and adjustment requests
+5. Sales with points-only checkout, ledger debit, and sold inventory status
+6. Procurement with procurement events and inventory additions
+7. Expenses for non-inventory cost entry
 
-Deliverables
+### Deliverables
 
-- All core workflows usable offline and synced.
+- All core workflows usable offline and synced
 
-Dependencies
+### Dependencies
 
-- Phase 2 complete.
+- Phase 2 complete
 
 ---
 
@@ -109,23 +118,23 @@ Dependencies
 
 Goal: deliver required reports and export capabilities.
 
-Tasks (in order)
+### Tasks
 
-1. Materials collected report by type/location/date.
-2. Points liability report (per person + total).
-3. Inventory report by status with cost vs points value.
-4. Inventory status change log report.
-5. Sales report by item/location/date.
-6. Cashflow report (points as rand vs expenses).
-7. Export functionality (CSV/Excel) for reports.
+1. Materials collected report by type, location, and date
+2. Points liability report by person and total
+3. Inventory report by status with cost vs points value
+4. Inventory status change log report
+5. Sales report by item, location, and date
+6. Cashflow report with points-as-rand vs expenses
+7. Export functionality for reports in CSV or Excel
 
-Deliverables
+### Deliverables
 
-- All required reports with filters and export.
+- All required reports with filters and export
 
-Dependencies
+### Dependencies
 
-- Phase 3 complete.
+- Phase 3 complete
 
 ---
 
@@ -133,69 +142,82 @@ Dependencies
 
 Goal: stabilize, secure, and prepare for pilot deployment.
 
-Tasks (in order)
+### Tasks
 
-1. Data integrity checks and reconciliation tooling.
-2. Performance tuning for low-end devices.
-3. Security review (RBAC enforcement, data visibility rules).
-4. Backup and disaster recovery procedures.
-5. Field testing with real-world scenarios and offline sync.
-6. Documentation and training materials for staff roles.
+1. Add data integrity checks and reconciliation tooling
+2. Tune performance for low-end devices
+3. Run a security review covering RBAC enforcement and data visibility rules
+4. Define backup and disaster recovery procedures
+5. Conduct field testing with real-world scenarios and offline sync
+6. Prepare documentation and training materials for staff roles
+7. Finalize the field deployment runbook covering the two-phone workflow, tablet catalog refresh, and end-of-day sync controls
 
-Deliverables
+### Deliverables
 
-- Pilot-ready build with documentation and operational readiness.
+- Pilot-ready build with documentation and operational readiness
 
-Dependencies
+### Dependencies
 
-- Phase 4 complete.
+- Phase 4 complete
 
 ---
 
-## Risk Register (Top Items)
+## Risk Register
 
-- Sync conflicts and merge edge cases.
-- Low-connectivity environments causing partial syncs.
-- Device storage constraints with large event logs.
-- Usability in field conditions (small screens, intermittent power).
+### Top Risks
 
-Mitigations
+- Sync conflicts and merge edge cases
+- Low-connectivity environments causing partial syncs
+- Device storage constraints with large event logs
+- Usability in field conditions such as small screens and intermittent power
 
-- Early prototype of sync and conflict flows (Phase 2).
-- Archive strategy for old events while retaining audit logs.
-- Regular field testing and usability checks.
+### Mitigations
+
+- Prototype sync and conflict flows early in Phase 2
+- Define an archive strategy for old events while retaining audit logs
+- Run regular field testing and usability checks
 
 ---
 
 ## Milestone Checklist
 
-- M1: Architecture + CI ready (end Week 1)
-- M2: Auth + event model + projections working (end Week 3)
-- M3: Offline PWA + sync + conflict flow (end Week 6)
-- M4: Core workflows complete (end Week 9)
-- M5: Reporting complete (end Week 11)
-- M6: Pilot-ready release (end Week 13)
+- `M1`: Architecture and CI ready by end of Week 1
+- `M2`: Auth, event model, and projections working by end of Week 3
+- `M3`: Offline PWA, sync, and conflict flow working by end of Week 6
+- `M4`: Core workflows complete by end of Week 9
+- `M5`: Reporting complete by end of Week 11
+- `M6`: Pilot-ready release by end of Week 13
 
 ---
 
-## Reality Check (March 8, 2026)
+## Reality Check (`2026-03-12`)
 
-| Area                                               | Status      | Notes                                                                                                                                                                                                                                                                        |
-| -------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Phase 0 foundation                                 | Done        | Repo/workspaces, lint/format/typecheck, architecture docs, CI quality gates.                                                                                                                                                                                                 |
-| Event model and RBAC                               | Done        | Domain events/types and auth permissions implemented.                                                                                                                                                                                                                        |
-| Event-first writes                                 | Done        | Event-first append-only writes are active across implemented workflows, including people/materials/items, intake, sales, inventory status/adjustment requests, procurement, and expenses.                                                                                    |
-| Sync protocol endpoints                            | Done        | `POST /sync/push`, `GET /sync/pull`, `GET /sync/status`, `GET /sync/conflicts`, `POST /sync/conflicts/:id/resolve`, `GET /sync/audit/report`, and `GET /sync/audit/event/:eventId` implemented.                                                                              |
-| Web client shell                                   | Done        | Auth-gated Mantine shell implemented with login/logout, Sync Now orchestration, sync status indicators, and manager conflict inbox/resolution panel.                                                                                                                         |
-| OPFS SQLite local store                            | Done        | Queue and sync cursor/last-sync state persist in OPFS-backed SQLite via web worker.                                                                                                                                                                                          |
-| Audit/immutability checks                          | Done        | Audit report diagnostics and append-only event immutability guards validated by automated tests.                                                                                                                                                                             |
-| Coverage gates                                     | Done        | Web/API/shared coverage commands added with enforced thresholds in Vitest/Jest configs for current test scope.                                                                                                                                                               |
-| Phase 3 Task 1 (Person Registry)                   | Done        | `PATCH /people/:personId` event-first update endpoint implemented; web registry create/search/edit flow uses offline queue + sync and masks ID/phone in interaction views.                                                                                                   |
-| Phase 3 Task 2 (Material Intake)                   | Done        | Web intake supports multi-line `intake.recorded` event creation, deterministic per-line/total points previews, client preflight validation, queue+sync submission, and ledger refresh after sync.                                                                            |
-| Phase 3 Task 3 (Points Ledger + Balance)           | Done        | Ledger balance/entries are available via API and web UI, ledger now auto-refreshes for selected person, source event IDs are visible, and negative-balance sales are blocked with `409 INSUFFICIENT_POINTS`.                                                                 |
-| Phase 3 Task 4 (Inventory Status + Requests)       | Done        | API endpoints added for inventory summary/batches and status change/adjustment requests; web inventory panel queues `inventory.status_changed` and `inventory.adjustment_requested` events offline, syncs, and refreshes inventory state.                                    |
-| Phase 3 Task 5 (Sales Checkout + Sold Status)      | Done        | `POST /sales` now supports optional `inventoryBatchId` with server-side FIFO batch allocation and deterministic `INSUFFICIENT_STOCK` errors; web sales panel queues `sale.recorded` events with batch-linked lines, syncs immediately, and refreshes ledger/inventory state. |
-| Phase 3 Task 6 (Procurement + Inventory Additions) | Done        | `POST /procurements` manager endpoint implemented with server-generated `inventoryBatchId` per line and computed `cashTotal`; web procurement panel queues `procurement.recorded` events offline, syncs immediately, and refreshes inventory state.                          |
-| Phase 3 Task 7 (Expenses)                          | Done        | `POST /expenses` manager endpoint implemented to append immutable `expense.recorded` events; web expense panel enqueues expense events offline-first, triggers immediate sync, and updates shell state with deterministic validation/error feedback.                         |
-| Reports/exports                                    | Not started | No report endpoints/UI yet.                                                                                                                                                                                                                                                  |
-| Hardening/pilot prep                               | Not started | Security review, backup/DR, and field testing not started.                                                                                                                                                                                                                   |
+| Area                                                        | Status      | Notes                                                                                                                                                                                                                                                                                           |
+| ----------------------------------------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Phase 0 foundation                                          | Done        | Repo, workspaces, lint, format, typecheck, architecture docs, and CI quality gates are in place.                                                                                                                                                                                                |
+| Event model and RBAC                                        | Done        | Domain events, shared types, and auth permissions are implemented.                                                                                                                                                                                                                              |
+| Event-first writes                                          | Done        | Append-only event-first writes are active across implemented workflows, including people, materials, items, intake, sales, inventory status changes, adjustment requests, procurement, and expenses.                                                                                            |
+| Sync protocol endpoints                                     | Done        | `POST /sync/push`, `GET /sync/pull`, `GET /sync/status`, `GET /sync/conflicts`, `POST /sync/conflicts/:id/resolve`, `GET /sync/audit/report`, and `GET /sync/audit/event/:eventId` are implemented.                                                                                             |
+| Web client shell                                            | Done        | Auth-gated Mantine shell, login/logout, Sync Now orchestration, sync status indicators, and the manager conflict inbox and resolution panel are implemented.                                                                                                                                    |
+| OPFS SQLite local store                                     | Done        | Queue state and sync cursor metadata persist in OPFS-backed SQLite via a web worker.                                                                                                                                                                                                            |
+| Audit and immutability checks                               | Done        | Audit report diagnostics and append-only event immutability guards are covered by automated tests.                                                                                                                                                                                              |
+| Coverage gates                                              | Done        | Web, API, and shared coverage commands exist with enforced Vitest and Jest thresholds for the current test scope.                                                                                                                                                                               |
+| Phase 3 Task 1: Person Registry                             | Done        | `PATCH /people/:personId` is implemented as an event-first update endpoint; the web registry supports create, search, edit, offline queueing, sync, and masked ID and phone display.                                                                                                            |
+| Phase 3 Task 2: Material Intake                             | Done        | Web intake supports multi-line `intake.recorded` event creation, deterministic line and total points previews, client preflight validation, queueing, sync submission, and ledger refresh after sync.                                                                                           |
+| Phase 3 Task 3: Points Ledger and Balance                   | Done        | Ledger balance and entries are available via API and web UI; the ledger auto-refreshes for the selected person, source event IDs are visible, and negative-balance sales are blocked with `409 INSUFFICIENT_POINTS`.                                                                            |
+| Phase 3 Task 4: Inventory Status and Requests               | Done        | API endpoints exist for inventory summary, batches, status changes, and adjustment requests; the web inventory panel queues `inventory.status_changed` and `inventory.adjustment_requested` events offline, syncs them, and refreshes inventory state.                                          |
+| Phase 3 Task 5: Sales Checkout and Sold Status              | Done        | `POST /sales` supports optional `inventoryBatchId` with server-side FIFO allocation and deterministic `INSUFFICIENT_STOCK` errors; the web sales panel queues `sale.recorded` events with batch-linked lines, syncs immediately, and refreshes ledger and inventory state.                      |
+| Phase 3 Task 6: Procurement and Inventory Additions         | Done        | `POST /procurements` is implemented with server-generated `inventoryBatchId` values per line and computed `cashTotal`; the web procurement panel queues `procurement.recorded` events offline, syncs immediately, and refreshes inventory state.                                                |
+| Phase 3 Task 7: Expenses                                    | Done        | `POST /expenses` appends immutable `expense.recorded` events; the web expense panel enqueues expense events offline-first, triggers immediate sync, and updates shell state with deterministic validation and error feedback.                                                                   |
+| Phase 4 Task 1: Materials Collected Report                  | Done        | Manager-only `GET /reports/materials-collected` and the matching web panel are implemented with filters for `fromDate`, `toDate`, `locationText`, and `materialTypeId`, plus daily grouping and default last-30-days behavior when dates are omitted.                                           |
+| Phase 4 Task 2: Points Liability Report                     | Done        | Manager-only `GET /reports/points-liability` and the matching web panel are implemented with positive-balance-only rows, optional name/surname search, filtered summary totals, and one-decimal balance formatting.                                                                             |
+| Phase 4 Task 3: Inventory Report                            | Done        | Manager-only `GET /reports/inventory-status` and the matching web panel are implemented with per-status cost totals, per-item detail rows, fixed status ordering, and zero-total summary statuses. Current implementation is cost-only; points valuation is deferred.                           |
+| Phase 4 Task 4: Inventory Status Change Log                 | Done        | Manager-only `GET /reports/inventory-status-log` and the matching web panel are implemented with default last-30-days behavior, `fromDate`/`toDate`/`fromStatus`/`toStatus` filters, applied-only movement rows, and best-effort batch-to-item resolution.                                      |
+| Phase 4 Task 5: Sales Report                                | Done        | Manager-only `GET /reports/sales` and the matching web panel are implemented with day-plus-item-plus-location grouping, date/location/item filters, filtered summary totals, and one-decimal points formatting.                                                                                 |
+| Phase 4 Task 6: Cashflow Report                             | Done        | Manager-only `GET /reports/cashflow` and the matching web panel are implemented with daily sales-as-rand vs expense totals, date/location filters, filtered summary totals, and expense-category breakdowns.                                                                                    |
+| Phase 4 Task 7: Report Exports                              | Done        | The web manager reports UI can export the currently loaded materials, points-liability, inventory-status, inventory-status-log, sales, and cashflow report data to CSV files.                                                                                                                   |
+| Phase 5 Task 1: Integrity Checks and Reconciliation Tooling | Done        | Manager-only reconciliation tooling is implemented with `GET /sync/reconciliation/report`, `POST /sync/reconciliation/issues/:issueId/repair`, web issue review, manager-confirmed repair notes, append-only corrective points and inventory adjustment events, and projection rebuild support. |
+| Phase 5 Task 2: Low-End Device Performance Tuning           | Done        | Manager report and reconciliation panels in the web shell now lazy-load on open instead of eager-loading on manager login, reducing startup and render work on low-end devices while keeping core operational data eager.                                                                       |
+| Reports and exports                                         | Done        | Phase 4 reporting now includes materials-collected, points-liability, sales, cashflow, inventory-status, inventory-status-log, and CSV export workflows across the implemented report panels.                                                                                                   |
+| Field deployment guidance                                   | Done        | Low-connectivity field layout is documented with a dedicated architecture guide and ADR covering the two transactional phones, read-only tablet, sync windows, and same-day points operating rule.                                                                                              |
+| Hardening and pilot prep                                    | In progress | Phase 5 Tasks 1 and 2 are complete. Security review, backup and disaster recovery, field testing, and launch documentation are still pending.                                                                                                                                                   |

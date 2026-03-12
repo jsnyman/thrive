@@ -15,8 +15,14 @@ import {
   Textarea,
   Title,
 } from "@mantine/core";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Event } from "../../../packages/shared/src/domain/events";
+import {
+  floorPointsToTenths,
+  formatPointValue,
+  multiplyPointValue,
+  sumPointValues,
+} from "../../../packages/shared/src/domain/points";
 import type { EventQueue } from "./offline/event-queue";
 import { createAuthClient, type AuthUser } from "./offline/auth-client";
 import {
@@ -29,6 +35,28 @@ import { createItemsClient, type ItemRecord } from "./offline/items-client";
 import { createLedgerClient, type LedgerBalance, type LedgerEntry } from "./offline/ledger-client";
 import { createMaterialsClient, type MaterialRecord } from "./offline/materials-client";
 import { createPeopleClient, type PersonRecord } from "./offline/people-client";
+import { downloadCsv, type CsvRow } from "./offline/report-export";
+import {
+  type CashflowReportResponse,
+  type CashflowReportRow,
+  type CashflowExpenseCategoryRow,
+  createReportsClient,
+  type InventoryStatusLogReportResponse,
+  type InventoryStatusLogReportRow,
+  type InventoryStatusReportRow,
+  type InventoryStatusReportSummaryRow,
+  type MaterialsCollectedReportResponse,
+  type MaterialsCollectedReportRow,
+  type PointsLiabilityReportResponse,
+  type PointsLiabilityReportRow,
+  type SalesReportResponse,
+  type SalesReportRow,
+} from "./offline/reports-client";
+import { createReconciliationClient } from "./offline/reconciliation-client";
+import type {
+  SyncReconciliationIssue,
+  SyncReconciliationReportResponse,
+} from "../../../packages/shared/src/domain/sync";
 import type { SyncStateStore } from "./offline/sync-state-store";
 import { useSync } from "./offline/use-sync";
 import "./app.css";
@@ -88,6 +116,14 @@ type ExpenseRecordedInput = {
 };
 
 type InventoryAdjustmentStatus = "spoiled" | "damaged" | "missing";
+type ManagerPanelKey =
+  | "reconciliation"
+  | "materialsReport"
+  | "pointsLiability"
+  | "inventoryStatusReport"
+  | "inventoryStatusLog"
+  | "salesReport"
+  | "cashflowReport";
 
 const inventoryStatuses: InventoryStatus[] = [
   "storage",
@@ -98,6 +134,104 @@ const inventoryStatuses: InventoryStatus[] = [
   "missing",
 ];
 const inventoryAdjustmentStatuses: InventoryAdjustmentStatus[] = ["spoiled", "damaged", "missing"];
+
+const createClosedManagerPanels = (): Record<ManagerPanelKey, boolean> => ({
+  reconciliation: false,
+  materialsReport: false,
+  pointsLiability: false,
+  inventoryStatusReport: false,
+  inventoryStatusLog: false,
+  salesReport: false,
+  cashflowReport: false,
+});
+
+const formatCurrencyValue = (value: number): string => value.toFixed(2);
+
+const buildMaterialsReportExportRows = (rows: MaterialsCollectedReportRow[]): CsvRow[] =>
+  rows.map((row) => ({
+    day: row.day,
+    materialTypeId: row.materialTypeId,
+    materialName: row.materialName,
+    locationText: row.locationText,
+    totalWeightKg: row.totalWeightKg,
+    totalPoints: row.totalPoints,
+  }));
+
+const buildPointsLiabilityExportRows = (rows: PointsLiabilityReportRow[]): CsvRow[] =>
+  rows.map((row) => ({
+    personId: row.personId,
+    name: row.name,
+    surname: row.surname,
+    balancePoints: row.balancePoints,
+  }));
+
+const buildInventoryStatusExportRows = (
+  summaryRows: InventoryStatusReportSummaryRow[],
+  detailRows: InventoryStatusReportRow[],
+): CsvRow[] => [
+  ...summaryRows.map((row) => ({
+    section: "summary",
+    status: row.status,
+    totalQuantity: row.totalQuantity,
+    totalCostValue: row.totalCostValue,
+  })),
+  ...detailRows.map((row) => ({
+    section: "detail",
+    status: row.status,
+    itemId: row.itemId,
+    itemName: row.itemName,
+    quantity: row.quantity,
+    unitCost: row.unitCost,
+    totalCostValue: row.totalCostValue,
+  })),
+];
+
+const buildInventoryStatusLogExportRows = (rows: InventoryStatusLogReportRow[]): CsvRow[] =>
+  rows.map((row) => ({
+    eventId: row.eventId,
+    eventType: row.eventType,
+    occurredAt: row.occurredAt,
+    inventoryBatchId: row.inventoryBatchId,
+    itemId: row.itemId,
+    itemName: row.itemName,
+    fromStatus: row.fromStatus,
+    toStatus: row.toStatus,
+    quantity: row.quantity,
+    reason: row.reason,
+    notes: row.notes,
+  }));
+
+const buildSalesReportExportRows = (rows: SalesReportRow[]): CsvRow[] =>
+  rows.map((row) => ({
+    day: row.day,
+    itemId: row.itemId,
+    itemName: row.itemName,
+    locationText: row.locationText,
+    totalQuantity: row.totalQuantity,
+    totalPoints: row.totalPoints,
+    saleCount: row.saleCount,
+  }));
+
+const buildCashflowExportRows = (
+  rows: CashflowReportRow[],
+  expenseCategories: CashflowExpenseCategoryRow[],
+): CsvRow[] => [
+  ...rows.map((row) => ({
+    section: "daily",
+    day: row.day,
+    salesPointsValue: row.salesPointsValue,
+    expenseCashTotal: row.expenseCashTotal,
+    netCashflow: row.netCashflow,
+    saleCount: row.saleCount,
+    expenseCount: row.expenseCount,
+  })),
+  ...expenseCategories.map((row) => ({
+    section: "expense_category",
+    category: row.category,
+    totalCashAmount: row.totalCashAmount,
+    expenseCount: row.expenseCount,
+  })),
+];
 
 const syncBadgeColor = (status: "idle" | "running" | "success" | "error"): string => {
   if (status === "running") {
@@ -200,9 +334,9 @@ const buildIntakeRecordedEvent = (
     materialTypeId: line.materialTypeId,
     weightKg: line.weightKg,
     pointsPerKg: line.pointsPerKg,
-    pointsAwarded: Math.floor(line.weightKg * line.pointsPerKg),
+    pointsAwarded: floorPointsToTenths(line.weightKg * line.pointsPerKg),
   }));
-  const totalPoints = lines.reduce((sum, line) => sum + line.pointsAwarded, 0);
+  const totalPoints = sumPointValues(lines.map((line) => line.pointsAwarded));
   return {
     eventId: crypto.randomUUID(),
     eventType: "intake.recorded",
@@ -254,9 +388,9 @@ const buildSaleRecordedEvent = (
     inventoryBatchId: line.inventoryBatchId,
     quantity: line.quantity,
     pointsPrice: line.pointsPrice,
-    lineTotalPoints: line.quantity * line.pointsPrice,
+    lineTotalPoints: multiplyPointValue(line.pointsPrice, line.quantity),
   }));
-  const totalPoints = lines.reduce((sum, line) => sum + line.lineTotalPoints, 0);
+  const totalPoints = sumPointValues(lines.map((line) => line.lineTotalPoints));
   return {
     eventId: crypto.randomUUID(),
     eventType: "sale.recorded",
@@ -394,6 +528,8 @@ export const App = ({ queue = null, syncStateStore = null }: AppProps): JSX.Elem
   const itemsClient = useMemo(() => createItemsClient(), []);
   const inventoryClient = useMemo(() => createInventoryClient(), []);
   const ledgerClient = useMemo(() => createLedgerClient(), []);
+  const reportsClient = useMemo(() => createReportsClient(), []);
+  const reconciliationClient = useMemo(() => createReconciliationClient(), []);
 
   const [sessionStatus, setSessionStatus] = useState<SessionStatus>("loading");
   const [sessionUser, setSessionUser] = useState<AuthUser | null>(null);
@@ -455,6 +591,103 @@ export const App = ({ queue = null, syncStateStore = null }: AppProps): JSX.Elem
   const [expenseReceiptRef, setExpenseReceiptRef] = useState<string>("");
   const [expensePending, setExpensePending] = useState<boolean>(false);
   const [expenseError, setExpenseError] = useState<string | null>(null);
+  const [materialsReportFromDate, setMaterialsReportFromDate] = useState<string>("");
+  const [materialsReportToDate, setMaterialsReportToDate] = useState<string>("");
+  const [materialsReportLocationText, setMaterialsReportLocationText] = useState<string>("");
+  const [materialsReportMaterialTypeId, setMaterialsReportMaterialTypeId] = useState<string | null>(
+    null,
+  );
+  const [materialsReportRows, setMaterialsReportRows] = useState<MaterialsCollectedReportRow[]>([]);
+  const [materialsReportAppliedFilters, setMaterialsReportAppliedFilters] = useState<
+    MaterialsCollectedReportResponse["appliedFilters"] | null
+  >(null);
+  const [materialsReportLoading, setMaterialsReportLoading] = useState<boolean>(false);
+  const [materialsReportError, setMaterialsReportError] = useState<string | null>(null);
+  const materialsReportRequestRef = useRef<number>(0);
+  const [pointsLiabilitySearch, setPointsLiabilitySearch] = useState<string>("");
+  const [pointsLiabilityRows, setPointsLiabilityRows] = useState<PointsLiabilityReportRow[]>([]);
+  const [pointsLiabilitySummary, setPointsLiabilitySummary] = useState<
+    PointsLiabilityReportResponse["summary"] | null
+  >(null);
+  const [pointsLiabilityAppliedFilters, setPointsLiabilityAppliedFilters] = useState<
+    PointsLiabilityReportResponse["appliedFilters"] | null
+  >(null);
+  const [pointsLiabilityLoading, setPointsLiabilityLoading] = useState<boolean>(false);
+  const [pointsLiabilityError, setPointsLiabilityError] = useState<string | null>(null);
+  const pointsLiabilityRequestRef = useRef<number>(0);
+  const [inventoryStatusReportSummary, setInventoryStatusReportSummary] = useState<
+    InventoryStatusReportSummaryRow[]
+  >([]);
+  const [inventoryStatusReportRows, setInventoryStatusReportRows] = useState<
+    InventoryStatusReportRow[]
+  >([]);
+  const [inventoryStatusReportLoading, setInventoryStatusReportLoading] = useState<boolean>(false);
+  const [inventoryStatusReportError, setInventoryStatusReportError] = useState<string | null>(null);
+  const inventoryStatusReportRequestRef = useRef<number>(0);
+  const [inventoryStatusLogFromDate, setInventoryStatusLogFromDate] = useState<string>("");
+  const [inventoryStatusLogToDate, setInventoryStatusLogToDate] = useState<string>("");
+  const [inventoryStatusLogFromStatus, setInventoryStatusLogFromStatus] =
+    useState<InventoryStatus | null>(null);
+  const [inventoryStatusLogToStatus, setInventoryStatusLogToStatus] =
+    useState<InventoryStatus | null>(null);
+  const [inventoryStatusLogRows, setInventoryStatusLogRows] = useState<
+    InventoryStatusLogReportRow[]
+  >([]);
+  const [inventoryStatusLogAppliedFilters, setInventoryStatusLogAppliedFilters] = useState<
+    InventoryStatusLogReportResponse["appliedFilters"] | null
+  >(null);
+  const [inventoryStatusLogLoading, setInventoryStatusLogLoading] = useState<boolean>(false);
+  const [inventoryStatusLogError, setInventoryStatusLogError] = useState<string | null>(null);
+  const inventoryStatusLogRequestRef = useRef<number>(0);
+  const [salesReportFromDate, setSalesReportFromDate] = useState<string>("");
+  const [salesReportToDate, setSalesReportToDate] = useState<string>("");
+  const [salesReportItemId, setSalesReportItemId] = useState<string | null>(null);
+  const [salesReportLocationText, setSalesReportLocationText] = useState<string>("");
+  const [salesReportRows, setSalesReportRows] = useState<SalesReportRow[]>([]);
+  const [salesReportSummary, setSalesReportSummary] = useState<
+    SalesReportResponse["summary"] | null
+  >(null);
+  const [salesReportAppliedFilters, setSalesReportAppliedFilters] = useState<
+    SalesReportResponse["appliedFilters"] | null
+  >(null);
+  const [salesReportLoading, setSalesReportLoading] = useState<boolean>(false);
+  const [salesReportError, setSalesReportError] = useState<string | null>(null);
+  const salesReportRequestRef = useRef<number>(0);
+  const [cashflowReportFromDate, setCashflowReportFromDate] = useState<string>("");
+  const [cashflowReportToDate, setCashflowReportToDate] = useState<string>("");
+  const [cashflowReportLocationText, setCashflowReportLocationText] = useState<string>("");
+  const [cashflowReportRows, setCashflowReportRows] = useState<CashflowReportRow[]>([]);
+  const [cashflowReportSummary, setCashflowReportSummary] = useState<
+    CashflowReportResponse["summary"] | null
+  >(null);
+  const [cashflowReportExpenseCategories, setCashflowReportExpenseCategories] = useState<
+    CashflowExpenseCategoryRow[]
+  >([]);
+  const [cashflowReportAppliedFilters, setCashflowReportAppliedFilters] = useState<
+    CashflowReportResponse["appliedFilters"] | null
+  >(null);
+  const [cashflowReportLoading, setCashflowReportLoading] = useState<boolean>(false);
+  const [cashflowReportError, setCashflowReportError] = useState<string | null>(null);
+  const cashflowReportRequestRef = useRef<number>(0);
+  const [reconciliationIssues, setReconciliationIssues] = useState<SyncReconciliationIssue[]>([]);
+  const [reconciliationSummary, setReconciliationSummary] = useState<
+    SyncReconciliationReportResponse["summary"] | null
+  >(null);
+  const [reconciliationNextCursor, setReconciliationNextCursor] = useState<string | null>(null);
+  const [reconciliationLoading, setReconciliationLoading] = useState<boolean>(false);
+  const [reconciliationLoadingMore, setReconciliationLoadingMore] = useState<boolean>(false);
+  const [reconciliationError, setReconciliationError] = useState<string | null>(null);
+  const [reconciliationSelectedIssueId, setReconciliationSelectedIssueId] = useState<string | null>(
+    null,
+  );
+  const [reconciliationRepairNotes, setReconciliationRepairNotes] = useState<string>("");
+  const [reconciliationRepairPending, setReconciliationRepairPending] = useState<boolean>(false);
+  const [reconciliationRepairError, setReconciliationRepairError] = useState<string | null>(null);
+  const reconciliationRequestRef = useRef<number>(0);
+  const [openManagerPanels, setOpenManagerPanels] =
+    useState<Record<ManagerPanelKey, boolean>>(createClosedManagerPanels);
+  const [loadedManagerPanels, setLoadedManagerPanels] =
+    useState<Record<ManagerPanelKey, boolean>>(createClosedManagerPanels);
 
   const [ledgerPersonId, setLedgerPersonId] = useState<string | null>(null);
   const [ledgerBalance, setLedgerBalance] = useState<LedgerBalance | null>(null);
@@ -495,6 +728,16 @@ export const App = ({ queue = null, syncStateStore = null }: AppProps): JSX.Elem
   const canRecordSales = sessionUser?.role === "shop_operator" || sessionUser?.role === "manager";
   const canRecordProcurement = sessionUser?.role === "manager";
   const canRecordExpenses = sessionUser?.role === "manager";
+  const canViewReports = sessionUser?.role === "manager";
+  const isManagerPanelOpen = (panel: ManagerPanelKey): boolean => openManagerPanels[panel];
+  const selectedReconciliationIssue = useMemo(
+    () =>
+      reconciliationSelectedIssueId === null
+        ? null
+        : (reconciliationIssues.find((issue) => issue.issueId === reconciliationSelectedIssueId) ??
+          null),
+    [reconciliationIssues, reconciliationSelectedIssueId],
+  );
 
   const intakeLinePreviews = useMemo(
     () =>
@@ -510,7 +753,7 @@ export const App = ({ queue = null, syncStateStore = null }: AppProps): JSX.Elem
         if (!Number.isFinite(weight) || weight <= 0) {
           return null;
         }
-        return Math.floor(weight * material.pointsPerKg);
+        return floorPointsToTenths(weight * material.pointsPerKg);
       }),
     [intakeLines, materials],
   );
@@ -521,7 +764,7 @@ export const App = ({ queue = null, syncStateStore = null }: AppProps): JSX.Elem
         if (previewPoints === null) {
           return sum;
         }
-        return sum + previewPoints;
+        return sumPointValues([sum, previewPoints]);
       }, 0),
     [intakeLinePreviews],
   );
@@ -540,7 +783,7 @@ export const App = ({ queue = null, syncStateStore = null }: AppProps): JSX.Elem
         if (!Number.isInteger(quantity) || quantity <= 0) {
           return sum;
         }
-        return sum + item.pointsPrice * quantity;
+        return sumPointValues([sum, multiplyPointValue(item.pointsPrice, quantity)]);
       }, 0),
     [items, saleLines],
   );
@@ -648,6 +891,243 @@ export const App = ({ queue = null, syncStateStore = null }: AppProps): JSX.Elem
     }
   };
 
+  const loadMaterialsCollectedReport = async (filters?: {
+    fromDate?: string | null;
+    toDate?: string | null;
+    locationText?: string | null;
+    materialTypeId?: string | null;
+  }): Promise<void> => {
+    materialsReportRequestRef.current += 1;
+    const requestId = materialsReportRequestRef.current;
+    setMaterialsReportLoading(true);
+    setMaterialsReportError(null);
+    try {
+      const report = await reportsClient.getMaterialsCollectedReport(filters);
+      if (materialsReportRequestRef.current !== requestId) {
+        return;
+      }
+      setMaterialsReportRows(report.rows);
+      setMaterialsReportAppliedFilters(report.appliedFilters);
+    } catch (error) {
+      if (materialsReportRequestRef.current !== requestId) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      setMaterialsReportError(message);
+    } finally {
+      if (materialsReportRequestRef.current === requestId) {
+        setMaterialsReportLoading(false);
+      }
+    }
+  };
+
+  const loadPointsLiabilityReport = async (filters?: { search?: string | null }): Promise<void> => {
+    pointsLiabilityRequestRef.current += 1;
+    const requestId = pointsLiabilityRequestRef.current;
+    setPointsLiabilityLoading(true);
+    setPointsLiabilityError(null);
+    try {
+      const report = await reportsClient.getPointsLiabilityReport(filters);
+      if (pointsLiabilityRequestRef.current !== requestId) {
+        return;
+      }
+      setPointsLiabilityRows(report.rows);
+      setPointsLiabilitySummary(report.summary);
+      setPointsLiabilityAppliedFilters(report.appliedFilters);
+    } catch (error) {
+      if (pointsLiabilityRequestRef.current !== requestId) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      setPointsLiabilityError(message);
+    } finally {
+      if (pointsLiabilityRequestRef.current === requestId) {
+        setPointsLiabilityLoading(false);
+      }
+    }
+  };
+
+  const loadInventoryStatusReport = async (): Promise<void> => {
+    inventoryStatusReportRequestRef.current += 1;
+    const requestId = inventoryStatusReportRequestRef.current;
+    setInventoryStatusReportLoading(true);
+    setInventoryStatusReportError(null);
+    try {
+      const report = await reportsClient.getInventoryStatusReport();
+      if (inventoryStatusReportRequestRef.current !== requestId) {
+        return;
+      }
+      setInventoryStatusReportSummary(report.summary);
+      setInventoryStatusReportRows(report.rows);
+    } catch (error) {
+      if (inventoryStatusReportRequestRef.current !== requestId) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      setInventoryStatusReportError(message);
+    } finally {
+      if (inventoryStatusReportRequestRef.current === requestId) {
+        setInventoryStatusReportLoading(false);
+      }
+    }
+  };
+
+  const loadInventoryStatusLogReport = async (filters?: {
+    fromDate?: string | null;
+    toDate?: string | null;
+    fromStatus?: InventoryStatus | null;
+    toStatus?: InventoryStatus | null;
+  }): Promise<void> => {
+    inventoryStatusLogRequestRef.current += 1;
+    const requestId = inventoryStatusLogRequestRef.current;
+    setInventoryStatusLogLoading(true);
+    setInventoryStatusLogError(null);
+    try {
+      const report = await reportsClient.getInventoryStatusLogReport(filters);
+      if (inventoryStatusLogRequestRef.current !== requestId) {
+        return;
+      }
+      setInventoryStatusLogRows(report.rows);
+      setInventoryStatusLogAppliedFilters(report.appliedFilters);
+      setInventoryStatusLogFromDate(report.appliedFilters.fromDate ?? "");
+      setInventoryStatusLogToDate(report.appliedFilters.toDate ?? "");
+    } catch (error) {
+      if (inventoryStatusLogRequestRef.current !== requestId) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      setInventoryStatusLogError(message);
+    } finally {
+      if (inventoryStatusLogRequestRef.current === requestId) {
+        setInventoryStatusLogLoading(false);
+      }
+    }
+  };
+
+  const loadSalesReport = async (filters?: {
+    fromDate?: string | null;
+    toDate?: string | null;
+    locationText?: string | null;
+    itemId?: string | null;
+  }): Promise<void> => {
+    salesReportRequestRef.current += 1;
+    const requestId = salesReportRequestRef.current;
+    setSalesReportLoading(true);
+    setSalesReportError(null);
+    try {
+      const report = await reportsClient.getSalesReport(filters);
+      if (salesReportRequestRef.current !== requestId) {
+        return;
+      }
+      setSalesReportRows(report.rows);
+      setSalesReportSummary(report.summary);
+      setSalesReportAppliedFilters(report.appliedFilters);
+      setSalesReportFromDate(report.appliedFilters.fromDate ?? "");
+      setSalesReportToDate(report.appliedFilters.toDate ?? "");
+    } catch (error) {
+      if (salesReportRequestRef.current !== requestId) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      setSalesReportError(message);
+    } finally {
+      if (salesReportRequestRef.current === requestId) {
+        setSalesReportLoading(false);
+      }
+    }
+  };
+
+  const loadCashflowReport = async (filters?: {
+    fromDate?: string | null;
+    toDate?: string | null;
+    locationText?: string | null;
+  }): Promise<void> => {
+    cashflowReportRequestRef.current += 1;
+    const requestId = cashflowReportRequestRef.current;
+    setCashflowReportLoading(true);
+    setCashflowReportError(null);
+    try {
+      const report = await reportsClient.getCashflowReport(filters);
+      if (cashflowReportRequestRef.current !== requestId) {
+        return;
+      }
+      setCashflowReportRows(report.rows);
+      setCashflowReportSummary(report.summary);
+      setCashflowReportExpenseCategories(report.expenseCategories);
+      setCashflowReportAppliedFilters(report.appliedFilters);
+      setCashflowReportFromDate(report.appliedFilters.fromDate ?? "");
+      setCashflowReportToDate(report.appliedFilters.toDate ?? "");
+    } catch (error) {
+      if (cashflowReportRequestRef.current !== requestId) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      setCashflowReportError(message);
+    } finally {
+      if (cashflowReportRequestRef.current === requestId) {
+        setCashflowReportLoading(false);
+      }
+    }
+  };
+
+  const loadReconciliationReport = async (append = false): Promise<void> => {
+    reconciliationRequestRef.current += 1;
+    const requestId = reconciliationRequestRef.current;
+    if (append) {
+      setReconciliationLoadingMore(true);
+    } else {
+      setReconciliationLoading(true);
+    }
+    setReconciliationError(null);
+    try {
+      const report = await reconciliationClient.getReport({
+        limit: 50,
+        cursor: append ? reconciliationNextCursor : null,
+      });
+      if (reconciliationRequestRef.current !== requestId) {
+        return;
+      }
+      setReconciliationSummary(report.summary);
+      setReconciliationNextCursor(report.nextCursor);
+      setReconciliationIssues((previous) =>
+        append ? [...previous, ...report.issues] : report.issues,
+      );
+    } catch (error) {
+      if (reconciliationRequestRef.current !== requestId) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      setReconciliationError(message);
+    } finally {
+      if (reconciliationRequestRef.current === requestId) {
+        if (append) {
+          setReconciliationLoadingMore(false);
+        } else {
+          setReconciliationLoading(false);
+        }
+      }
+    }
+  };
+
+  const toggleManagerPanel = async (
+    panel: ManagerPanelKey,
+    loadPanel?: () => Promise<void>,
+  ): Promise<void> => {
+    const nextOpen = !openManagerPanels[panel];
+    setOpenManagerPanels((previous) => ({
+      ...previous,
+      [panel]: nextOpen,
+    }));
+    if (!nextOpen || loadedManagerPanels[panel] || loadPanel === undefined) {
+      return;
+    }
+    setLoadedManagerPanels((previous) => ({
+      ...previous,
+      [panel]: true,
+    }));
+    await loadPanel();
+  };
+
   useEffect(() => {
     let cancelled = false;
     const loadSession = async (): Promise<void> => {
@@ -690,6 +1170,15 @@ export const App = ({ queue = null, syncStateStore = null }: AppProps): JSX.Elem
     void loadInventory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionStatus]);
+
+  useEffect(() => {
+    if (sessionStatus !== "authenticated" || !canViewReports) {
+      return;
+    }
+    setOpenManagerPanels(createClosedManagerPanels());
+    setLoadedManagerPanels(createClosedManagerPanels());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionStatus, canViewReports]);
 
   useEffect(() => {
     const firstPerson = people[0];
@@ -1240,6 +1729,124 @@ export const App = ({ queue = null, syncStateStore = null }: AppProps): JSX.Elem
     }
   };
 
+  const handleRunMaterialsReport = async (): Promise<void> => {
+    if (!canViewReports) {
+      setMaterialsReportError("You do not have permission to view reports");
+      return;
+    }
+    const fromDate = materialsReportFromDate.trim();
+    const toDate = materialsReportToDate.trim();
+    const locationText = materialsReportLocationText.trim();
+    await loadMaterialsCollectedReport({
+      fromDate: fromDate.length > 0 ? fromDate : null,
+      toDate: toDate.length > 0 ? toDate : null,
+      locationText: locationText.length > 0 ? locationText : null,
+      materialTypeId: materialsReportMaterialTypeId,
+    });
+  };
+
+  const handleRunPointsLiabilityReport = async (): Promise<void> => {
+    if (!canViewReports) {
+      setPointsLiabilityError("You do not have permission to view reports");
+      return;
+    }
+    const search = pointsLiabilitySearch.trim();
+    await loadPointsLiabilityReport({
+      search: search.length > 0 ? search : null,
+    });
+  };
+
+  const handleRunInventoryStatusReport = async (): Promise<void> => {
+    if (!canViewReports) {
+      setInventoryStatusReportError("You do not have permission to view reports");
+      return;
+    }
+    await loadInventoryStatusReport();
+  };
+
+  const handleRunInventoryStatusLogReport = async (): Promise<void> => {
+    if (!canViewReports) {
+      setInventoryStatusLogError("You do not have permission to view reports");
+      return;
+    }
+    const fromDate = inventoryStatusLogFromDate.trim();
+    const toDate = inventoryStatusLogToDate.trim();
+    await loadInventoryStatusLogReport({
+      fromDate: fromDate.length > 0 ? fromDate : null,
+      toDate: toDate.length > 0 ? toDate : null,
+      fromStatus: inventoryStatusLogFromStatus,
+      toStatus: inventoryStatusLogToStatus,
+    });
+  };
+
+  const handleRunSalesReport = async (): Promise<void> => {
+    if (!canViewReports) {
+      setSalesReportError("You do not have permission to view reports");
+      return;
+    }
+    const fromDate = salesReportFromDate.trim();
+    const toDate = salesReportToDate.trim();
+    const locationText = salesReportLocationText.trim();
+    await loadSalesReport({
+      fromDate: fromDate.length > 0 ? fromDate : null,
+      toDate: toDate.length > 0 ? toDate : null,
+      locationText: locationText.length > 0 ? locationText : null,
+      itemId: salesReportItemId,
+    });
+  };
+
+  const handleRunCashflowReport = async (): Promise<void> => {
+    if (!canViewReports) {
+      setCashflowReportError("You do not have permission to view reports");
+      return;
+    }
+    const fromDate = cashflowReportFromDate.trim();
+    const toDate = cashflowReportToDate.trim();
+    const locationText = cashflowReportLocationText.trim();
+    await loadCashflowReport({
+      fromDate: fromDate.length > 0 ? fromDate : null,
+      toDate: toDate.length > 0 ? toDate : null,
+      locationText: locationText.length > 0 ? locationText : null,
+    });
+  };
+
+  const handleLoadMoreReconciliationIssues = async (): Promise<void> => {
+    if (!canViewReports || reconciliationNextCursor === null) {
+      return;
+    }
+    await loadReconciliationReport(true);
+  };
+
+  const handleRepairReconciliationIssue = async (): Promise<void> => {
+    if (!canViewReports) {
+      setReconciliationRepairError("You do not have permission to repair reconciliation issues");
+      return;
+    }
+    if (reconciliationSelectedIssueId === null) {
+      setReconciliationRepairError("Select a repairable issue first");
+      return;
+    }
+    const notes = reconciliationRepairNotes.trim();
+    if (notes.length === 0) {
+      setReconciliationRepairError("Repair notes are required");
+      return;
+    }
+    setReconciliationRepairPending(true);
+    setReconciliationRepairError(null);
+    try {
+      await reconciliationClient.repairIssue(reconciliationSelectedIssueId, notes);
+      await loadReconciliationReport();
+      await sync.syncNow();
+      setReconciliationSelectedIssueId(null);
+      setReconciliationRepairNotes("");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setReconciliationRepairError(message);
+    } finally {
+      setReconciliationRepairPending(false);
+    }
+  };
+
   const handleInventoryStatusChange = async (): Promise<void> => {
     if (queue === null || sessionUser === null) {
       setStatusChangeError("Queue is unavailable");
@@ -1657,7 +2264,7 @@ export const App = ({ queue = null, syncStateStore = null }: AppProps): JSX.Elem
                           label={`Procurement Item ${String(index + 1)}`}
                           data={items.map((item) => ({
                             value: item.id,
-                            label: `${item.name} (${String(item.pointsPrice)} pts)`,
+                            label: `${item.name} (${formatPointValue(item.pointsPrice)} pts)`,
                           }))}
                           value={line.itemId}
                           onChange={(value) => {
@@ -1797,6 +2404,840 @@ export const App = ({ queue = null, syncStateStore = null }: AppProps): JSX.Elem
               </Card>
             ) : null}
 
+            {canViewReports ? (
+              <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                <Stack gap="sm">
+                  <Group justify="space-between">
+                    <Title order={4}>Integrity and Reconciliation</Title>
+                    <Button
+                      variant="default"
+                      onClick={() => {
+                        void toggleManagerPanel("reconciliation", async () => {
+                          await loadReconciliationReport();
+                        });
+                      }}
+                    >
+                      {isManagerPanelOpen("reconciliation")
+                        ? "Hide Integrity and Reconciliation"
+                        : "Open Integrity and Reconciliation"}
+                    </Button>
+                  </Group>
+                  {isManagerPanelOpen("reconciliation") && reconciliationSummary !== null ? (
+                    <SimpleGrid cols={{ base: 2, md: 4 }}>
+                      <Card withBorder radius="md" padding="sm">
+                        <Text size="sm">Total issues</Text>
+                        <Text size="lg" fw={700}>
+                          {String(reconciliationSummary.totalIssues)}
+                        </Text>
+                      </Card>
+                      <Card withBorder radius="md" padding="sm">
+                        <Text size="sm">Errors</Text>
+                        <Text size="lg" fw={700}>
+                          {String(reconciliationSummary.errorCount)}
+                        </Text>
+                      </Card>
+                      <Card withBorder radius="md" padding="sm">
+                        <Text size="sm">Warnings</Text>
+                        <Text size="lg" fw={700}>
+                          {String(reconciliationSummary.warningCount)}
+                        </Text>
+                      </Card>
+                      <Card withBorder radius="md" padding="sm">
+                        <Text size="sm">Repairable</Text>
+                        <Text size="lg" fw={700}>
+                          {String(reconciliationSummary.repairableCount)}
+                        </Text>
+                      </Card>
+                    </SimpleGrid>
+                  ) : null}
+                  {isManagerPanelOpen("reconciliation") ? (
+                    <Group>
+                      <Button
+                        onClick={() => {
+                          void loadReconciliationReport();
+                        }}
+                        loading={reconciliationLoading}
+                      >
+                        Refresh Integrity Report
+                      </Button>
+                      <Button
+                        variant="default"
+                        onClick={() => {
+                          void handleLoadMoreReconciliationIssues();
+                        }}
+                        loading={reconciliationLoadingMore}
+                        disabled={reconciliationNextCursor === null}
+                      >
+                        Load More
+                      </Button>
+                    </Group>
+                  ) : null}
+                  {isManagerPanelOpen("reconciliation") && reconciliationError !== null ? (
+                    <Text c="red">{reconciliationError}</Text>
+                  ) : null}
+                  {isManagerPanelOpen("reconciliation") ? (
+                    <Stack gap="xs">
+                      {reconciliationIssues.map((issue) => (
+                        <Card key={issue.issueId} withBorder radius="md" padding="sm">
+                          <Stack gap="xs">
+                            <Group justify="space-between">
+                              <Text fw={600}>{issue.code}</Text>
+                              <Badge color={issue.severity === "error" ? "red" : "yellow"}>
+                                {issue.severity}
+                              </Badge>
+                            </Group>
+                            <Text size="sm">{issue.detail}</Text>
+                            <Text
+                              size="xs"
+                              c="dimmed"
+                            >{`${issue.entityType}: ${issue.entityId}`}</Text>
+                            {issue.expected !== null && issue.expected !== undefined ? (
+                              <Text
+                                size="xs"
+                                c="dimmed"
+                              >{`Expected: ${JSON.stringify(issue.expected)}`}</Text>
+                            ) : null}
+                            {issue.actual !== null && issue.actual !== undefined ? (
+                              <Text
+                                size="xs"
+                                c="dimmed"
+                              >{`Actual: ${JSON.stringify(issue.actual)}`}</Text>
+                            ) : null}
+                            {issue.suggestedRepair !== null &&
+                            issue.suggestedRepair !== undefined ? (
+                              <Button
+                                variant={
+                                  reconciliationSelectedIssueId === issue.issueId
+                                    ? "filled"
+                                    : "light"
+                                }
+                                size="xs"
+                                onClick={() => {
+                                  setReconciliationSelectedIssueId(issue.issueId);
+                                  setReconciliationRepairError(null);
+                                }}
+                              >
+                                {issue.suggestedRepair.repairKind === "projection_rebuild"
+                                  ? "Rebuild Projections"
+                                  : "Apply Suggested Fix"}
+                              </Button>
+                            ) : null}
+                          </Stack>
+                        </Card>
+                      ))}
+                      {reconciliationIssues.length === 0 && !reconciliationLoading ? (
+                        <Text size="sm" c="dimmed">
+                          No reconciliation issues found.
+                        </Text>
+                      ) : null}
+                    </Stack>
+                  ) : null}
+                  {isManagerPanelOpen("reconciliation") &&
+                  selectedReconciliationIssue !== null &&
+                  selectedReconciliationIssue.suggestedRepair !== null ? (
+                    <Card withBorder radius="md" padding="sm">
+                      {(() => {
+                        const selectedRepair = selectedReconciliationIssue.suggestedRepair;
+                        if (selectedRepair === undefined || selectedRepair === null) {
+                          return null;
+                        }
+                        return (
+                          <Stack gap="xs">
+                            <Text fw={600}>Repair Confirmation</Text>
+                            <Text size="sm">{selectedRepair.reasonTemplate}</Text>
+                            <Textarea
+                              label="Manager Notes"
+                              value={reconciliationRepairNotes}
+                              onChange={(event) => {
+                                setReconciliationRepairNotes(event.currentTarget.value);
+                              }}
+                            />
+                            {reconciliationRepairError !== null ? (
+                              <Text c="red">{reconciliationRepairError}</Text>
+                            ) : null}
+                            <Button
+                              onClick={() => {
+                                void handleRepairReconciliationIssue();
+                              }}
+                              loading={reconciliationRepairPending}
+                            >
+                              {selectedRepair.repairKind === "projection_rebuild"
+                                ? "Confirm Rebuild"
+                                : "Confirm Repair"}
+                            </Button>
+                          </Stack>
+                        );
+                      })()}
+                    </Card>
+                  ) : null}
+                </Stack>
+              </Card>
+            ) : null}
+
+            {canViewReports ? (
+              <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                <Stack gap="sm">
+                  <Group justify="space-between">
+                    <Title order={4}>Materials Collected Report</Title>
+                    <Button
+                      variant="default"
+                      onClick={() => {
+                        void toggleManagerPanel("materialsReport", async () => {
+                          await loadMaterialsCollectedReport();
+                        });
+                      }}
+                    >
+                      {isManagerPanelOpen("materialsReport")
+                        ? "Hide Materials Collected Report"
+                        : "Open Materials Collected Report"}
+                    </Button>
+                  </Group>
+                  {isManagerPanelOpen("materialsReport") ? (
+                    <SimpleGrid cols={{ base: 1, md: 2, lg: 4 }}>
+                      <TextInput
+                        label="From Date"
+                        placeholder="YYYY-MM-DD"
+                        value={materialsReportFromDate}
+                        onChange={(event) => {
+                          setMaterialsReportFromDate(event.currentTarget.value);
+                        }}
+                      />
+                      <TextInput
+                        label="To Date"
+                        placeholder="YYYY-MM-DD"
+                        value={materialsReportToDate}
+                        onChange={(event) => {
+                          setMaterialsReportToDate(event.currentTarget.value);
+                        }}
+                      />
+                      <Select
+                        label="Material Type"
+                        data={materials.map((material) => ({
+                          value: material.id,
+                          label: material.name,
+                        }))}
+                        value={materialsReportMaterialTypeId}
+                        onChange={setMaterialsReportMaterialTypeId}
+                        searchable
+                        clearable
+                      />
+                      <TextInput
+                        label="Location"
+                        value={materialsReportLocationText}
+                        onChange={(event) => {
+                          setMaterialsReportLocationText(event.currentTarget.value);
+                        }}
+                      />
+                    </SimpleGrid>
+                  ) : null}
+                  {isManagerPanelOpen("materialsReport") ? (
+                    <Group>
+                      <Button
+                        onClick={() => {
+                          void handleRunMaterialsReport();
+                        }}
+                        loading={materialsReportLoading}
+                      >
+                        Run Report
+                      </Button>
+                      <Button
+                        variant="light"
+                        disabled={materialsReportRows.length === 0}
+                        onClick={() => {
+                          downloadCsv(
+                            "materials-collected-report.csv",
+                            buildMaterialsReportExportRows(materialsReportRows),
+                          );
+                        }}
+                      >
+                        Export CSV
+                      </Button>
+                      {materialsReportAppliedFilters !== null ? (
+                        <Text size="sm" c="dimmed">
+                          {`Applied: ${materialsReportAppliedFilters.fromDate ?? "-"} to ${materialsReportAppliedFilters.toDate ?? "-"}`}
+                        </Text>
+                      ) : null}
+                    </Group>
+                  ) : null}
+                  {isManagerPanelOpen("materialsReport") && materialsReportError !== null ? (
+                    <Text c="red">{materialsReportError}</Text>
+                  ) : null}
+                  {isManagerPanelOpen("materialsReport") ? (
+                    <Stack gap="xs">
+                      {materialsReportRows.map((row) => (
+                        <Card
+                          key={`${row.day}-${row.materialTypeId}-${row.locationText}`}
+                          withBorder
+                          radius="md"
+                          padding="sm"
+                        >
+                          <Text size="sm">{`${row.day} | ${row.materialName} | ${row.locationText}`}</Text>
+                          <Text
+                            size="xs"
+                            c="dimmed"
+                          >{`Weight: ${String(row.totalWeightKg)} kg | Points: ${formatPointValue(row.totalPoints)}`}</Text>
+                        </Card>
+                      ))}
+                      {materialsReportRows.length === 0 && !materialsReportLoading ? (
+                        <Text size="sm" c="dimmed">
+                          No materials report rows found.
+                        </Text>
+                      ) : null}
+                    </Stack>
+                  ) : null}
+                </Stack>
+              </Card>
+            ) : null}
+
+            {canViewReports ? (
+              <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                <Stack gap="sm">
+                  <Group justify="space-between">
+                    <Title order={4}>Points Liability Report</Title>
+                    <Button
+                      variant="default"
+                      onClick={() => {
+                        void toggleManagerPanel("pointsLiability", async () => {
+                          await loadPointsLiabilityReport();
+                        });
+                      }}
+                    >
+                      {isManagerPanelOpen("pointsLiability")
+                        ? "Hide Points Liability Report"
+                        : "Open Points Liability Report"}
+                    </Button>
+                  </Group>
+                  {isManagerPanelOpen("pointsLiability") ? (
+                    <Group align="end">
+                      <TextInput
+                        label="Person Search"
+                        value={pointsLiabilitySearch}
+                        onChange={(event) => {
+                          setPointsLiabilitySearch(event.currentTarget.value);
+                        }}
+                      />
+                      <Button
+                        onClick={() => {
+                          void handleRunPointsLiabilityReport();
+                        }}
+                        loading={pointsLiabilityLoading}
+                      >
+                        Run Report
+                      </Button>
+                      <Button
+                        variant="light"
+                        disabled={pointsLiabilityRows.length === 0}
+                        onClick={() => {
+                          downloadCsv(
+                            "points-liability-report.csv",
+                            buildPointsLiabilityExportRows(pointsLiabilityRows),
+                          );
+                        }}
+                      >
+                        Export CSV
+                      </Button>
+                    </Group>
+                  ) : null}
+                  {isManagerPanelOpen("pointsLiability") &&
+                  pointsLiabilityAppliedFilters?.search != null ? (
+                    <Text
+                      size="sm"
+                      c="dimmed"
+                    >{`Applied search: ${pointsLiabilityAppliedFilters.search}`}</Text>
+                  ) : null}
+                  {isManagerPanelOpen("pointsLiability") && pointsLiabilitySummary !== null ? (
+                    <Group>
+                      <Text size="sm">{`Total outstanding: ${formatPointValue(pointsLiabilitySummary.totalOutstandingPoints)}`}</Text>
+                      <Text size="sm">{`People with balances: ${String(pointsLiabilitySummary.personCount)}`}</Text>
+                    </Group>
+                  ) : null}
+                  {isManagerPanelOpen("pointsLiability") && pointsLiabilityError !== null ? (
+                    <Text c="red">{pointsLiabilityError}</Text>
+                  ) : null}
+                  {isManagerPanelOpen("pointsLiability") ? (
+                    <Stack gap="xs">
+                      {pointsLiabilityRows.map((row) => (
+                        <Card key={row.personId} withBorder radius="md" padding="sm">
+                          <Text size="sm">{`${row.name} ${row.surname}`}</Text>
+                          <Text
+                            size="xs"
+                            c="dimmed"
+                          >{`Balance: ${formatPointValue(row.balancePoints)}`}</Text>
+                        </Card>
+                      ))}
+                      {pointsLiabilityRows.length === 0 && !pointsLiabilityLoading ? (
+                        <Text size="sm" c="dimmed">
+                          No points liability rows found.
+                        </Text>
+                      ) : null}
+                    </Stack>
+                  ) : null}
+                </Stack>
+              </Card>
+            ) : null}
+
+            {canViewReports ? (
+              <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                <Stack gap="sm">
+                  <Group justify="space-between">
+                    <Title order={4}>Inventory Status Report</Title>
+                    <Button
+                      variant="default"
+                      onClick={() => {
+                        void toggleManagerPanel("inventoryStatusReport", async () => {
+                          await loadInventoryStatusReport();
+                        });
+                      }}
+                    >
+                      {isManagerPanelOpen("inventoryStatusReport")
+                        ? "Hide Inventory Status Report"
+                        : "Open Inventory Status Report"}
+                    </Button>
+                  </Group>
+                  {isManagerPanelOpen("inventoryStatusReport") ? (
+                    <Group>
+                      <Button
+                        onClick={() => {
+                          void handleRunInventoryStatusReport();
+                        }}
+                        loading={inventoryStatusReportLoading}
+                      >
+                        Run Report
+                      </Button>
+                      <Button
+                        variant="light"
+                        disabled={
+                          inventoryStatusReportSummary.length === 0 &&
+                          inventoryStatusReportRows.length === 0
+                        }
+                        onClick={() => {
+                          downloadCsv(
+                            "inventory-status-report.csv",
+                            buildInventoryStatusExportRows(
+                              inventoryStatusReportSummary,
+                              inventoryStatusReportRows,
+                            ),
+                          );
+                        }}
+                      >
+                        Export CSV
+                      </Button>
+                    </Group>
+                  ) : null}
+                  {isManagerPanelOpen("inventoryStatusReport") &&
+                  inventoryStatusReportError !== null ? (
+                    <Text c="red">{inventoryStatusReportError}</Text>
+                  ) : null}
+                  {isManagerPanelOpen("inventoryStatusReport") ? (
+                    <Stack gap="xs">
+                      {inventoryStatusReportSummary.map((row) => (
+                        <Card key={row.status} withBorder radius="md" padding="sm">
+                          <Text size="sm">{`${row.status}: Qty ${String(row.totalQuantity)} | Cost ${formatCurrencyValue(row.totalCostValue)}`}</Text>
+                        </Card>
+                      ))}
+                    </Stack>
+                  ) : null}
+                  {isManagerPanelOpen("inventoryStatusReport") ? <Divider /> : null}
+                  {isManagerPanelOpen("inventoryStatusReport") ? (
+                    <Stack gap="xs">
+                      {inventoryStatusReportRows.map((row) => (
+                        <Card
+                          key={`${row.status}-${row.itemId}-${row.unitCost}`}
+                          withBorder
+                          radius="md"
+                          padding="sm"
+                        >
+                          <Text size="sm">{`${row.status} | ${row.itemName}`}</Text>
+                          <Text
+                            size="xs"
+                            c="dimmed"
+                          >{`Qty: ${String(row.quantity)} | Unit cost: ${formatCurrencyValue(row.unitCost)} | Cost: ${formatCurrencyValue(row.totalCostValue)}`}</Text>
+                        </Card>
+                      ))}
+                      {inventoryStatusReportRows.length === 0 && !inventoryStatusReportLoading ? (
+                        <Text size="sm" c="dimmed">
+                          No inventory report rows found.
+                        </Text>
+                      ) : null}
+                    </Stack>
+                  ) : null}
+                </Stack>
+              </Card>
+            ) : null}
+
+            {canViewReports ? (
+              <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                <Stack gap="sm">
+                  <Group justify="space-between">
+                    <Title order={4}>Inventory Status Change Log</Title>
+                    <Button
+                      variant="default"
+                      onClick={() => {
+                        void toggleManagerPanel("inventoryStatusLog", async () => {
+                          await loadInventoryStatusLogReport();
+                        });
+                      }}
+                    >
+                      {isManagerPanelOpen("inventoryStatusLog")
+                        ? "Hide Inventory Status Change Log"
+                        : "Open Inventory Status Change Log"}
+                    </Button>
+                  </Group>
+                  {isManagerPanelOpen("inventoryStatusLog") ? (
+                    <SimpleGrid cols={{ base: 1, md: 2, lg: 4 }}>
+                      <TextInput
+                        label="Log From Date"
+                        placeholder="YYYY-MM-DD"
+                        value={inventoryStatusLogFromDate}
+                        onChange={(event) => {
+                          setInventoryStatusLogFromDate(event.currentTarget.value);
+                        }}
+                      />
+                      <TextInput
+                        label="Log To Date"
+                        placeholder="YYYY-MM-DD"
+                        value={inventoryStatusLogToDate}
+                        onChange={(event) => {
+                          setInventoryStatusLogToDate(event.currentTarget.value);
+                        }}
+                      />
+                      <Select
+                        label="From Status Filter"
+                        data={inventoryStatuses.map((status) => ({
+                          value: status,
+                          label: status,
+                        }))}
+                        value={inventoryStatusLogFromStatus}
+                        onChange={(value) => {
+                          setInventoryStatusLogFromStatus(value as InventoryStatus | null);
+                        }}
+                        clearable
+                      />
+                      <Select
+                        label="To Status Filter"
+                        data={inventoryStatuses.map((status) => ({
+                          value: status,
+                          label: status,
+                        }))}
+                        value={inventoryStatusLogToStatus}
+                        onChange={(value) => {
+                          setInventoryStatusLogToStatus(value as InventoryStatus | null);
+                        }}
+                        clearable
+                      />
+                    </SimpleGrid>
+                  ) : null}
+                  {isManagerPanelOpen("inventoryStatusLog") ? (
+                    <Group>
+                      <Button
+                        onClick={() => {
+                          void handleRunInventoryStatusLogReport();
+                        }}
+                        loading={inventoryStatusLogLoading}
+                      >
+                        Run Report
+                      </Button>
+                      <Button
+                        variant="light"
+                        disabled={inventoryStatusLogRows.length === 0}
+                        onClick={() => {
+                          downloadCsv(
+                            "inventory-status-log-report.csv",
+                            buildInventoryStatusLogExportRows(inventoryStatusLogRows),
+                          );
+                        }}
+                      >
+                        Export CSV
+                      </Button>
+                      {inventoryStatusLogAppliedFilters !== null ? (
+                        <Text size="sm" c="dimmed">
+                          {`Applied: ${inventoryStatusLogAppliedFilters.fromDate ?? "-"} to ${inventoryStatusLogAppliedFilters.toDate ?? "-"}`}
+                        </Text>
+                      ) : null}
+                    </Group>
+                  ) : null}
+                  {isManagerPanelOpen("inventoryStatusLog") && inventoryStatusLogError !== null ? (
+                    <Text c="red">{inventoryStatusLogError}</Text>
+                  ) : null}
+                  {isManagerPanelOpen("inventoryStatusLog") ? (
+                    <Stack gap="xs">
+                      {inventoryStatusLogRows.map((row) => (
+                        <Card key={row.eventId} withBorder radius="md" padding="sm">
+                          <Text size="sm">
+                            {`${row.occurredAt.slice(0, 16).replace("T", " ")} | ${row.inventoryBatchId} | ${row.itemName ?? "-"}`}
+                          </Text>
+                          <Text size="xs" c="dimmed">
+                            {`${row.fromStatus} -> ${row.toStatus} | Qty ${String(row.quantity)} | Reason: ${row.reason ?? "-"}`}
+                          </Text>
+                          {row.notes !== null ? (
+                            <Text size="xs" c="dimmed">{`Notes: ${row.notes}`}</Text>
+                          ) : null}
+                        </Card>
+                      ))}
+                      {inventoryStatusLogRows.length === 0 && !inventoryStatusLogLoading ? (
+                        <Text size="sm" c="dimmed">
+                          No inventory status changes found.
+                        </Text>
+                      ) : null}
+                    </Stack>
+                  ) : null}
+                </Stack>
+              </Card>
+            ) : null}
+
+            {canViewReports ? (
+              <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                <Stack gap="sm">
+                  <Group justify="space-between">
+                    <Title order={4}>Sales Report</Title>
+                    <Button
+                      variant="default"
+                      onClick={() => {
+                        void toggleManagerPanel("salesReport", async () => {
+                          await loadSalesReport();
+                        });
+                      }}
+                    >
+                      {isManagerPanelOpen("salesReport")
+                        ? "Hide Sales Report"
+                        : "Open Sales Report"}
+                    </Button>
+                  </Group>
+                  {isManagerPanelOpen("salesReport") ? (
+                    <SimpleGrid cols={{ base: 1, md: 2, lg: 4 }}>
+                      <TextInput
+                        label="Sales From Date"
+                        placeholder="YYYY-MM-DD"
+                        value={salesReportFromDate}
+                        onChange={(event) => {
+                          setSalesReportFromDate(event.currentTarget.value);
+                        }}
+                      />
+                      <TextInput
+                        label="Sales To Date"
+                        placeholder="YYYY-MM-DD"
+                        value={salesReportToDate}
+                        onChange={(event) => {
+                          setSalesReportToDate(event.currentTarget.value);
+                        }}
+                      />
+                      <Select
+                        label="Sales Item"
+                        data={items.map((item) => ({
+                          value: item.id,
+                          label: item.name,
+                        }))}
+                        value={salesReportItemId}
+                        onChange={setSalesReportItemId}
+                        searchable
+                        clearable
+                      />
+                      <TextInput
+                        label="Sales Location"
+                        value={salesReportLocationText}
+                        onChange={(event) => {
+                          setSalesReportLocationText(event.currentTarget.value);
+                        }}
+                      />
+                    </SimpleGrid>
+                  ) : null}
+                  {isManagerPanelOpen("salesReport") ? (
+                    <Group>
+                      <Button
+                        onClick={() => {
+                          void handleRunSalesReport();
+                        }}
+                        loading={salesReportLoading}
+                      >
+                        Run Report
+                      </Button>
+                      <Button
+                        variant="light"
+                        disabled={salesReportRows.length === 0}
+                        onClick={() => {
+                          downloadCsv(
+                            "sales-report.csv",
+                            buildSalesReportExportRows(salesReportRows),
+                          );
+                        }}
+                      >
+                        Export CSV
+                      </Button>
+                      {salesReportAppliedFilters !== null ? (
+                        <Text size="sm" c="dimmed">
+                          {`Applied: ${salesReportAppliedFilters.fromDate ?? "-"} to ${salesReportAppliedFilters.toDate ?? "-"}`}
+                        </Text>
+                      ) : null}
+                    </Group>
+                  ) : null}
+                  {isManagerPanelOpen("salesReport") && salesReportSummary !== null ? (
+                    <Group>
+                      <Text size="sm">{`Total quantity: ${String(salesReportSummary.totalQuantity)}`}</Text>
+                      <Text size="sm">{`Total points: ${formatPointValue(salesReportSummary.totalPoints)}`}</Text>
+                      <Text size="sm">{`Sale events: ${String(salesReportSummary.saleCount)}`}</Text>
+                    </Group>
+                  ) : null}
+                  {isManagerPanelOpen("salesReport") && salesReportError !== null ? (
+                    <Text c="red">{salesReportError}</Text>
+                  ) : null}
+                  {isManagerPanelOpen("salesReport") ? (
+                    <Stack gap="xs">
+                      {salesReportRows.map((row) => (
+                        <Card
+                          key={`${row.day}-${row.locationText}-${row.itemId}`}
+                          withBorder
+                          radius="md"
+                          padding="sm"
+                        >
+                          <Text size="sm">{`${row.day} | ${row.locationText} | ${row.itemName}`}</Text>
+                          <Text
+                            size="xs"
+                            c="dimmed"
+                          >{`Qty: ${String(row.totalQuantity)} | Points: ${formatPointValue(row.totalPoints)} | Sales: ${String(row.saleCount)}`}</Text>
+                        </Card>
+                      ))}
+                      {salesReportRows.length === 0 && !salesReportLoading ? (
+                        <Text size="sm" c="dimmed">
+                          No sales report rows found.
+                        </Text>
+                      ) : null}
+                    </Stack>
+                  ) : null}
+                </Stack>
+              </Card>
+            ) : null}
+
+            {canViewReports ? (
+              <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                <Stack gap="sm">
+                  <Group justify="space-between">
+                    <Title order={4}>Cashflow Report</Title>
+                    <Button
+                      variant="default"
+                      onClick={() => {
+                        void toggleManagerPanel("cashflowReport", async () => {
+                          await loadCashflowReport();
+                        });
+                      }}
+                    >
+                      {isManagerPanelOpen("cashflowReport")
+                        ? "Hide Cashflow Report"
+                        : "Open Cashflow Report"}
+                    </Button>
+                  </Group>
+                  {isManagerPanelOpen("cashflowReport") ? (
+                    <SimpleGrid cols={{ base: 1, md: 3 }}>
+                      <TextInput
+                        label="Cashflow From Date"
+                        placeholder="YYYY-MM-DD"
+                        value={cashflowReportFromDate}
+                        onChange={(event) => {
+                          setCashflowReportFromDate(event.currentTarget.value);
+                        }}
+                      />
+                      <TextInput
+                        label="Cashflow To Date"
+                        placeholder="YYYY-MM-DD"
+                        value={cashflowReportToDate}
+                        onChange={(event) => {
+                          setCashflowReportToDate(event.currentTarget.value);
+                        }}
+                      />
+                      <TextInput
+                        label="Cashflow Location"
+                        value={cashflowReportLocationText}
+                        onChange={(event) => {
+                          setCashflowReportLocationText(event.currentTarget.value);
+                        }}
+                      />
+                    </SimpleGrid>
+                  ) : null}
+                  {isManagerPanelOpen("cashflowReport") ? (
+                    <Group>
+                      <Button
+                        onClick={() => {
+                          void handleRunCashflowReport();
+                        }}
+                        loading={cashflowReportLoading}
+                      >
+                        Run Report
+                      </Button>
+                      <Button
+                        variant="light"
+                        disabled={
+                          cashflowReportRows.length === 0 &&
+                          cashflowReportExpenseCategories.length === 0
+                        }
+                        onClick={() => {
+                          downloadCsv(
+                            "cashflow-report.csv",
+                            buildCashflowExportRows(
+                              cashflowReportRows,
+                              cashflowReportExpenseCategories,
+                            ),
+                          );
+                        }}
+                      >
+                        Export CSV
+                      </Button>
+                      {cashflowReportAppliedFilters !== null ? (
+                        <Text size="sm" c="dimmed">
+                          {`Applied: ${cashflowReportAppliedFilters.fromDate ?? "-"} to ${cashflowReportAppliedFilters.toDate ?? "-"}`}
+                        </Text>
+                      ) : null}
+                    </Group>
+                  ) : null}
+                  {isManagerPanelOpen("cashflowReport") && cashflowReportSummary !== null ? (
+                    <Group>
+                      <Text size="sm">{`Sales value: ${formatPointValue(cashflowReportSummary.totalSalesPointsValue)}`}</Text>
+                      <Text size="sm">{`Expenses: ${formatCurrencyValue(cashflowReportSummary.totalExpenseCash)}`}</Text>
+                      <Text size="sm">{`Net: ${formatCurrencyValue(cashflowReportSummary.netCashflow)}`}</Text>
+                      <Text size="sm">{`Sales: ${String(cashflowReportSummary.saleCount)}`}</Text>
+                      <Text size="sm">{`Expenses count: ${String(cashflowReportSummary.expenseCount)}`}</Text>
+                    </Group>
+                  ) : null}
+                  {isManagerPanelOpen("cashflowReport") && cashflowReportError !== null ? (
+                    <Text c="red">{cashflowReportError}</Text>
+                  ) : null}
+                  {isManagerPanelOpen("cashflowReport") ? (
+                    <Stack gap="xs">
+                      {cashflowReportRows.map((row) => (
+                        <Card key={row.day} withBorder radius="md" padding="sm">
+                          <Text size="sm">{row.day}</Text>
+                          <Text size="xs" c="dimmed">
+                            {`Sales: ${formatPointValue(row.salesPointsValue)} | Expenses: ${formatCurrencyValue(row.expenseCashTotal)} | Net: ${formatCurrencyValue(row.netCashflow)} | Sale events: ${String(row.saleCount)} | Expense events: ${String(row.expenseCount)}`}
+                          </Text>
+                        </Card>
+                      ))}
+                      {cashflowReportRows.length === 0 && !cashflowReportLoading ? (
+                        <Text size="sm" c="dimmed">
+                          No cashflow report rows found.
+                        </Text>
+                      ) : null}
+                    </Stack>
+                  ) : null}
+                  {isManagerPanelOpen("cashflowReport") ? <Divider /> : null}
+                  {isManagerPanelOpen("cashflowReport") ? (
+                    <Stack gap="xs">
+                      {cashflowReportExpenseCategories.map((row) => (
+                        <Card key={row.category} withBorder radius="md" padding="sm">
+                          <Text size="sm">{row.category}</Text>
+                          <Text size="xs" c="dimmed">
+                            {`Expense total: ${formatCurrencyValue(row.totalCashAmount)} | Expense events: ${String(row.expenseCount)}`}
+                          </Text>
+                        </Card>
+                      ))}
+                      {cashflowReportExpenseCategories.length === 0 && !cashflowReportLoading ? (
+                        <Text size="sm" c="dimmed">
+                          No expense categories found.
+                        </Text>
+                      ) : null}
+                    </Stack>
+                  ) : null}
+                </Stack>
+              </Card>
+            ) : null}
+
             <SimpleGrid cols={{ base: 1, lg: 2 }}>
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
@@ -1819,7 +3260,7 @@ export const App = ({ queue = null, syncStateStore = null }: AppProps): JSX.Elem
                           label={`Material ${String(index + 1)}`}
                           data={materials.map((material) => ({
                             value: material.id,
-                            label: `${material.name} (${String(material.pointsPerKg)} pts/kg)`,
+                            label: `${material.name} (${formatPointValue(material.pointsPerKg)} pts/kg)`,
                           }))}
                           value={line.materialTypeId}
                           onChange={(nextValue) => {
@@ -1857,7 +3298,7 @@ export const App = ({ queue = null, syncStateStore = null }: AppProps): JSX.Elem
                           }}
                         />
                         <Text size="sm" c="dimmed">
-                          {`Line ${String(index + 1)} points: ${intakeLinePreviews[index] ?? "-"}`}
+                          {`Line ${String(index + 1)} points: ${intakeLinePreviews[index] === null || intakeLinePreviews[index] === undefined ? "-" : formatPointValue(intakeLinePreviews[index])}`}
                         </Text>
                         <Button
                           variant="default"
@@ -1886,7 +3327,7 @@ export const App = ({ queue = null, syncStateStore = null }: AppProps): JSX.Elem
                     Add Line
                   </Button>
                   <Text size="sm" c="dimmed">
-                    {`Total preview points: ${String(intakeTotalPreviewPoints)}`}
+                    {`Total preview points: ${formatPointValue(intakeTotalPreviewPoints)}`}
                   </Text>
                   {intakeError !== null ? <Text c="red">{intakeError}</Text> : null}
                   <Button
@@ -1928,12 +3369,12 @@ export const App = ({ queue = null, syncStateStore = null }: AppProps): JSX.Elem
                   </Group>
                   {ledgerError !== null ? <Text c="red">{ledgerError}</Text> : null}
                   <Text size="sm" c="dimmed">
-                    {`Balance: ${ledgerBalance === null ? "-" : String(ledgerBalance.balancePoints)}`}
+                    {`Balance: ${ledgerBalance === null ? "-" : formatPointValue(ledgerBalance.balancePoints)}`}
                   </Text>
                   <Stack gap="xs">
                     {ledgerEntries.map((entry) => (
                       <Card key={entry.id} withBorder radius="md" padding="sm">
-                        <Text size="sm">{`${entry.sourceEventType} | ${entry.deltaPoints > 0 ? "+" : ""}${String(entry.deltaPoints)}`}</Text>
+                        <Text size="sm">{`${entry.sourceEventType} | ${entry.deltaPoints > 0 ? "+" : ""}${formatPointValue(entry.deltaPoints)}`}</Text>
                         <Text size="xs" c="dimmed">{`Source: ${entry.sourceEventId}`}</Text>
                         <Text size="xs" c="dimmed">
                           {entry.occurredAt}
@@ -1975,7 +3416,7 @@ export const App = ({ queue = null, syncStateStore = null }: AppProps): JSX.Elem
                           label={`Item ${String(index + 1)}`}
                           data={items.map((item) => ({
                             value: item.id,
-                            label: `${item.name} (${String(item.pointsPrice)} pts)`,
+                            label: `${item.name} (${formatPointValue(item.pointsPrice)} pts)`,
                           }))}
                           value={line.itemId}
                           onChange={(value) => {
@@ -2062,7 +3503,7 @@ export const App = ({ queue = null, syncStateStore = null }: AppProps): JSX.Elem
                   Add Sale Line
                 </Button>
                 <Text size="sm" c="dimmed">
-                  {`Sale total preview points: ${String(saleTotalPreviewPoints)}`}
+                  {`Sale total preview points: ${formatPointValue(saleTotalPreviewPoints)}`}
                 </Text>
                 {saleError !== null ? <Text c="red">{saleError}</Text> : null}
                 <Button

@@ -101,7 +101,7 @@ describe("projectEventToReadModels", () => {
       payload: {
         materialTypeId: "mat-1",
         name: "PET",
-        pointsPerKg: 3,
+        pointsPerKg: 3.2,
       },
     };
     const updated: Event = {
@@ -111,7 +111,7 @@ describe("projectEventToReadModels", () => {
         materialTypeId: "mat-1",
         updates: {
           name: "PET Updated",
-          pointsPerKg: 4,
+          pointsPerKg: 4.1,
         },
       },
     };
@@ -132,7 +132,7 @@ describe("projectEventToReadModels", () => {
       payload: {
         itemId: "item-1",
         name: "Soap",
-        pointsPrice: 10,
+        pointsPrice: 10.5,
         costPrice: 4,
         sku: "SKU-1",
       },
@@ -143,7 +143,7 @@ describe("projectEventToReadModels", () => {
       payload: {
         itemId: "item-1",
         updates: {
-          pointsPrice: 12,
+          pointsPrice: 12.4,
           costPrice: null,
           sku: null,
         },
@@ -155,6 +155,18 @@ describe("projectEventToReadModels", () => {
 
     expect(harness.itemUpsert).toHaveBeenCalledTimes(1);
     expect(harness.itemUpdate).toHaveBeenCalledTimes(1);
+    const itemUpsertCall = harness.itemUpsert.mock.calls[0]?.[0] as {
+      create: {
+        pointsPrice: string;
+      };
+    };
+    const itemUpdateCall = harness.itemUpdate.mock.calls[0]?.[0] as {
+      data: {
+        pointsPrice: string;
+      };
+    };
+    expect(itemUpsertCall.create.pointsPrice).toBe("10.5");
+    expect(itemUpdateCall.data.pointsPrice).toBe("12.4");
   });
 
   test("ignores non-projected event types", async () => {
@@ -169,11 +181,11 @@ describe("projectEventToReadModels", () => {
             itemId: "item-1",
             inventoryBatchId: "batch-1",
             quantity: 1,
-            pointsPrice: 10,
-            lineTotalPoints: 10,
+            pointsPrice: 10.5,
+            lineTotalPoints: 10.5,
           },
         ],
-        totalPoints: 10,
+        totalPoints: 10.5,
         locationText: null,
       },
     };

@@ -7,6 +7,7 @@ const projectionSqlStatements = [
   "REFRESH MATERIALIZED VIEW mv_points_ledger_entries",
   "REFRESH MATERIALIZED VIEW mv_points_balances",
   "REFRESH MATERIALIZED VIEW mv_inventory_status_summary",
+  "REFRESH MATERIALIZED VIEW mv_materials_collected_daily",
   `
     with latest as (
       select recorded_at, event_id

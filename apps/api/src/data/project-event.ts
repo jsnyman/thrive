@@ -83,7 +83,7 @@ export const projectEventToReadModels = async (
         where: { id: event.payload.itemId },
         update: {
           name: event.payload.name,
-          pointsPrice: event.payload.pointsPrice,
+          pointsPrice: event.payload.pointsPrice.toString(),
           costPrice:
             event.payload.costPrice === undefined || event.payload.costPrice === null
               ? null
@@ -93,7 +93,7 @@ export const projectEventToReadModels = async (
         create: {
           id: event.payload.itemId,
           name: event.payload.name,
-          pointsPrice: event.payload.pointsPrice,
+          pointsPrice: event.payload.pointsPrice.toString(),
           costPrice:
             event.payload.costPrice === undefined || event.payload.costPrice === null
               ? null
@@ -109,7 +109,7 @@ export const projectEventToReadModels = async (
         data: {
           ...(event.payload.updates.name !== undefined && { name: event.payload.updates.name }),
           ...(event.payload.updates.pointsPrice !== undefined && {
-            pointsPrice: event.payload.updates.pointsPrice,
+            pointsPrice: event.payload.updates.pointsPrice.toString(),
           }),
           ...(event.payload.updates.costPrice !== undefined && {
             costPrice:

@@ -1,0 +1,3 @@
+ALTER TABLE "Item"
+ALTER COLUMN "pointsPrice" TYPE DECIMAL(10, 1)
+USING "pointsPrice"::DECIMAL(10, 1);

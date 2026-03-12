@@ -1,8 +1,10 @@
 import supertest = require("supertest");
 import type { Event } from "../../../../packages/shared/src/domain/events";
+import { normalizePointValue, sumPointValues } from "../../../../packages/shared/src/domain/points";
 import type {
   SyncAuditIssue,
   SyncConflictRecord,
+  SyncReconciliationIssue,
   SyncResolveConflictRequest,
 } from "../../../../packages/shared/src/domain/sync";
 import { createPasscodeHash, type AuthConfig, type StaffUserRecord } from "../auth";
@@ -54,6 +56,76 @@ type LedgerEntryRecord = {
   sourceEventId: string;
 };
 
+type MaterialsCollectedReportRow = {
+  day: string;
+  materialTypeId: string;
+  materialName: string;
+  locationText: string;
+  totalWeightKg: number;
+  totalPoints: number;
+};
+
+type PointsLiabilityReportRow = {
+  personId: string;
+  name: string;
+  surname: string;
+  balancePoints: number;
+};
+
+type InventoryStatusReportSummaryRow = {
+  status: InventoryStatus;
+  totalQuantity: number;
+  totalCostValue: number;
+};
+
+type InventoryStatusReportRow = {
+  status: InventoryStatus;
+  itemId: string;
+  itemName: string;
+  quantity: number;
+  unitCost: number;
+  totalCostValue: number;
+};
+
+type InventoryStatusLogReportRow = {
+  eventId: string;
+  eventType: "inventory.status_changed" | "inventory.adjustment_applied";
+  occurredAt: string;
+  inventoryBatchId: string;
+  itemId: string | null;
+  itemName: string | null;
+  fromStatus: InventoryStatus;
+  toStatus: InventoryStatus;
+  quantity: number;
+  reason: string | null;
+  notes: string | null;
+};
+
+type SalesReportRow = {
+  day: string;
+  itemId: string;
+  itemName: string;
+  locationText: string;
+  totalQuantity: number;
+  totalPoints: number;
+  saleCount: number;
+};
+
+type CashflowReportRow = {
+  day: string;
+  salesPointsValue: number;
+  expenseCashTotal: number;
+  netCashflow: number;
+  saleCount: number;
+  expenseCount: number;
+};
+
+type CashflowExpenseCategoryRow = {
+  category: string;
+  totalCashAmount: number;
+  expenseCount: number;
+};
+
 const managerPasscode = "1234";
 const collectorPasscode = "9999";
 const operatorPasscode = "3333";
@@ -103,14 +175,14 @@ const createDependencies = (options?: {
     {
       id: "mat-1",
       name: "PET",
-      pointsPerKg: 3,
+      pointsPerKg: 3.2,
     },
   ];
   const items: ItemRecord[] = [
     {
       id: "item-1",
       name: "Soap",
-      pointsPrice: 10,
+      pointsPrice: 10.5,
     },
   ];
   const inventoryBatches: InventoryBatchRecord[] = options?.inventoryBatches?.map((batch) => ({
@@ -150,6 +222,39 @@ const createDependencies = (options?: {
       conflictId: "conflict-open",
     },
   ];
+  const reconciliationIssues: SyncReconciliationIssue[] = [
+    {
+      issueId: "POINTS_BALANCE_MISMATCH:person-a",
+      code: "POINTS_BALANCE_MISMATCH",
+      severity: "error",
+      entityType: "person",
+      entityId: "person-a",
+      detail: "Projected balance does not match event-log balance.",
+      detectedAt: "2026-03-05T11:45:00.000Z",
+      expected: { balancePoints: 33.3 },
+      actual: { balancePoints: 30.3 },
+      suggestedRepair: {
+        repairKind: "points_adjustment",
+        deltaPoints: 3,
+        reasonTemplate: "Reconciliation correction for points balance mismatch",
+      },
+    },
+    {
+      issueId: "PROJECTION_CURSOR_DRIFT:default",
+      code: "PROJECTION_CURSOR_DRIFT",
+      severity: "warning",
+      entityType: "projection",
+      entityId: "default",
+      detail: "Projection freshness cursor is behind the latest event cursor.",
+      detectedAt: "2026-03-05T11:40:00.000Z",
+      expected: { latestCursor: "cursor-2" },
+      actual: { projectionCursor: "cursor-1" },
+      suggestedRepair: {
+        repairKind: "projection_rebuild",
+        reasonTemplate: "Rebuild projections for cursor drift reconciliation",
+      },
+    },
+  ];
   const conflicts: SyncConflictRecord[] = [
     {
       conflictId: "conflict-open",
@@ -186,7 +291,7 @@ const createDependencies = (options?: {
     {
       id: "event-1",
       personId: "person-a",
-      deltaPoints: 50,
+      deltaPoints: 50.4,
       occurredAt: "2026-03-04T10:00:00.000Z",
       sourceEventType: "intake.recorded",
       sourceEventId: "event-1",
@@ -194,10 +299,162 @@ const createDependencies = (options?: {
     {
       id: "event-2",
       personId: "person-a",
-      deltaPoints: -20,
+      deltaPoints: -20.1,
       occurredAt: "2026-03-04T11:00:00.000Z",
       sourceEventType: "sale.recorded",
       sourceEventId: "event-2",
+    },
+  ];
+  const materialsReportRows: MaterialsCollectedReportRow[] = [
+    {
+      day: "2026-03-04",
+      materialTypeId: "mat-1",
+      materialName: "PET",
+      locationText: "Village A",
+      totalWeightKg: 2.9,
+      totalPoints: 8.7,
+    },
+    {
+      day: "2026-02-20",
+      materialTypeId: "mat-1",
+      materialName: "PET",
+      locationText: "Village B",
+      totalWeightKg: 1.2,
+      totalPoints: 3,
+    },
+  ];
+  const pointsLiabilityReportRows: PointsLiabilityReportRow[] = [
+    {
+      personId: "person-a",
+      name: "Alice",
+      surname: "Zulu",
+      balancePoints: 30.3,
+    },
+    {
+      personId: "person-b",
+      name: "Jane",
+      surname: "Doe",
+      balancePoints: 8.4,
+    },
+    {
+      personId: "person-c",
+      name: "Zero",
+      surname: "Balance",
+      balancePoints: 0,
+    },
+  ];
+  const inventoryStatusReport = {
+    summary: [
+      { status: "storage" as const, totalQuantity: 6, totalCostValue: 25.5 },
+      { status: "shop" as const, totalQuantity: 3, totalCostValue: 12.75 },
+      { status: "sold" as const, totalQuantity: 1, totalCostValue: 4.25 },
+      { status: "spoiled" as const, totalQuantity: 0, totalCostValue: 0 },
+      { status: "damaged" as const, totalQuantity: 0, totalCostValue: 0 },
+      { status: "missing" as const, totalQuantity: 0, totalCostValue: 0 },
+    ] satisfies InventoryStatusReportSummaryRow[],
+    rows: [
+      {
+        status: "storage" as const,
+        itemId: "item-1",
+        itemName: "Soap",
+        quantity: 6,
+        unitCost: 4.25,
+        totalCostValue: 25.5,
+      },
+      {
+        status: "shop" as const,
+        itemId: "item-1",
+        itemName: "Soap",
+        quantity: 3,
+        unitCost: 4.25,
+        totalCostValue: 12.75,
+      },
+      {
+        status: "sold" as const,
+        itemId: "item-1",
+        itemName: "Soap",
+        quantity: 1,
+        unitCost: 4.25,
+        totalCostValue: 4.25,
+      },
+    ] satisfies InventoryStatusReportRow[],
+  };
+  const inventoryStatusLogReportRows: InventoryStatusLogReportRow[] = [
+    {
+      eventId: "evt-log-2",
+      eventType: "inventory.adjustment_applied",
+      occurredAt: "2026-03-04T11:00:00.000Z",
+      inventoryBatchId: "batch-unknown",
+      itemId: null,
+      itemName: null,
+      fromStatus: "shop",
+      toStatus: "damaged",
+      quantity: 1,
+      reason: "broken",
+      notes: "corner tear",
+    },
+    {
+      eventId: "evt-log-1",
+      eventType: "inventory.status_changed",
+      occurredAt: "2026-03-04T10:00:00.000Z",
+      inventoryBatchId: "batch-1",
+      itemId: "item-1",
+      itemName: "Soap",
+      fromStatus: "storage",
+      toStatus: "shop",
+      quantity: 4,
+      reason: "Move to shop",
+      notes: null,
+    },
+  ];
+  const salesReportRows: SalesReportRow[] = [
+    {
+      day: "2026-03-04",
+      itemId: "item-1",
+      itemName: "Soap",
+      locationText: "Village A",
+      totalQuantity: 5,
+      totalPoints: 52.5,
+      saleCount: 2,
+    },
+    {
+      day: "2026-03-05",
+      itemId: "item-1",
+      itemName: "Soap",
+      locationText: "Unknown",
+      totalQuantity: 1,
+      totalPoints: 10.5,
+      saleCount: 1,
+    },
+  ];
+  const cashflowReportRows: CashflowReportRow[] = [
+    {
+      day: "2026-03-04",
+      salesPointsValue: 52.5,
+      expenseCashTotal: 18.5,
+      netCashflow: 34,
+      saleCount: 2,
+      expenseCount: 2,
+    },
+    {
+      day: "2026-03-05",
+      salesPointsValue: 10.5,
+      expenseCashTotal: 5.25,
+      netCashflow: 5.25,
+      saleCount: 1,
+      expenseCount: 1,
+    },
+  ];
+  const cashflowExpenseCategories: CashflowExpenseCategoryRow[] = [
+    {
+      category: "Fuel",
+      totalCashAmount: 18.5,
+      expenseCount: 2,
+    },
+    {
+      category: "Supplies",
+      totalCashAmount: 5.25,
+      expenseCount: 1,
     },
   ];
 
@@ -267,7 +524,7 @@ const createDependencies = (options?: {
       ledger.push({
         id: event.eventId,
         personId: event.payload.personId,
-        deltaPoints: event.payload.totalPoints * -1,
+        deltaPoints: normalizePointValue(event.payload.totalPoints * -1),
         occurredAt: event.occurredAt,
         sourceEventType: "sale.recorded",
         sourceEventId: event.eventId,
@@ -449,10 +706,62 @@ const createDependencies = (options?: {
         linkedResolutionEventIds: [],
       };
     },
+    listSyncReconciliationReport: async (limit, cursor, code, repairableOnly) => {
+      const filtered = reconciliationIssues
+        .filter((issue) => (code === null ? true : issue.code === code))
+        .filter((issue) => (repairableOnly ? issue.suggestedRepair !== null : true));
+      const startIndex = cursor === null ? 0 : Number.parseInt(cursor, 10);
+      const normalized = Number.isFinite(startIndex) ? startIndex : 0;
+      const page = filtered.slice(normalized, normalized + limit);
+      const nextCursor =
+        normalized + limit >= filtered.length ? null : String(normalized + page.length);
+      return {
+        generatedAt: baseNow.toISOString(),
+        summary: {
+          totalIssues: filtered.length,
+          errorCount: filtered.filter((issue) => issue.severity === "error").length,
+          warningCount: filtered.filter((issue) => issue.severity === "warning").length,
+          repairableCount: filtered.filter((issue) => issue.suggestedRepair !== null).length,
+        },
+        issues: page,
+        nextCursor,
+      };
+    },
+    repairSyncReconciliationIssue: async (issueId, notes) => {
+      if (notes.trim().length === 0) {
+        return { ok: false as const, error: "BAD_REQUEST" as const };
+      }
+      const issue = reconciliationIssues.find((entry) => entry.issueId === issueId);
+      if (issue === undefined || issue.suggestedRepair === null) {
+        return { ok: false as const, error: "NOT_FOUND" as const };
+      }
+      const repair = issue.suggestedRepair;
+      if (repair === undefined || repair === null) {
+        return { ok: false as const, error: "NOT_FOUND" as const };
+      }
+      if (repair.repairKind === "projection_rebuild") {
+        return {
+          ok: true as const,
+          value: {
+            issueId,
+            repairKind: "projection_rebuild" as const,
+            rebuiltAt: baseNow.toISOString(),
+          },
+        };
+      }
+      return {
+        ok: true as const,
+        value: {
+          issueId,
+          repairKind: repair.repairKind,
+          repairEventId: "reconciliation-repair-event",
+        },
+      };
+    },
     getLedgerBalance: async (personId) => {
       const total = ledger
         .filter((entry) => entry.personId === personId)
-        .reduce((sum, entry) => sum + entry.deltaPoints, 0);
+        .reduce((sum, entry) => sumPointValues([sum, entry.deltaPoints]), 0);
       return {
         personId,
         balancePoints: total,
@@ -462,7 +771,115 @@ const createDependencies = (options?: {
     getLivePointsBalance: async (personId) =>
       ledger
         .filter((entry) => entry.personId === personId)
-        .reduce((sum, entry) => sum + entry.deltaPoints, 0),
+        .reduce((sum, entry) => sumPointValues([sum, entry.deltaPoints]), 0),
+    listMaterialsCollectedReport: async (filters) =>
+      materialsReportRows.filter((row) => {
+        const inFrom = filters.fromDate === null || row.day >= filters.fromDate;
+        const inTo = filters.toDate === null || row.day <= filters.toDate;
+        const inMaterial =
+          filters.materialTypeId === null || row.materialTypeId === filters.materialTypeId;
+        const inLocation =
+          filters.locationText === null ||
+          row.locationText.toLowerCase().includes(filters.locationText.toLowerCase());
+        return inFrom && inTo && inMaterial && inLocation;
+      }),
+    listPointsLiabilityReport: async (filters) => {
+      const rows = pointsLiabilityReportRows
+        .filter((row) => row.balancePoints > 0)
+        .filter((row) => {
+          if (filters.search === null) {
+            return true;
+          }
+          const query = filters.search.toLowerCase();
+          return (
+            row.name.toLowerCase().includes(query) || row.surname.toLowerCase().includes(query)
+          );
+        })
+        .sort((left, right) => {
+          if (left.balancePoints !== right.balancePoints) {
+            return right.balancePoints - left.balancePoints;
+          }
+          if (left.surname !== right.surname) {
+            return left.surname.localeCompare(right.surname);
+          }
+          if (left.name !== right.name) {
+            return left.name.localeCompare(right.name);
+          }
+          return left.personId.localeCompare(right.personId);
+        });
+      return {
+        rows,
+        summary: {
+          totalOutstandingPoints: rows.reduce(
+            (sum, row) => sumPointValues([sum, row.balancePoints]),
+            0,
+          ),
+          personCount: rows.length,
+        },
+      };
+    },
+    listCashflowReport: async (filters) => {
+      const rows = cashflowReportRows.filter((row) => {
+        const inFrom = filters.fromDate === null || row.day >= filters.fromDate;
+        const inTo = filters.toDate === null || row.day <= filters.toDate;
+        if (filters.locationText === null) {
+          return inFrom && inTo;
+        }
+        return inFrom && inTo && filters.locationText.toLowerCase().includes("village");
+      });
+      const expenseCategories =
+        filters.locationText === null
+          ? cashflowExpenseCategories
+          : cashflowExpenseCategories.filter((row) => row.category === "Fuel");
+      return {
+        rows,
+        summary: {
+          totalSalesPointsValue: rows.reduce(
+            (sum, row) => sumPointValues([sum, row.salesPointsValue]),
+            0,
+          ),
+          totalExpenseCash: rows.reduce((sum, row) => sum + row.expenseCashTotal, 0),
+          netCashflow: Number(
+            (
+              rows.reduce((sum, row) => sumPointValues([sum, row.salesPointsValue]), 0) -
+              rows.reduce((sum, row) => sum + row.expenseCashTotal, 0)
+            ).toFixed(2),
+          ),
+          saleCount: rows.reduce((sum, row) => sum + row.saleCount, 0),
+          expenseCount: rows.reduce((sum, row) => sum + row.expenseCount, 0),
+        },
+        expenseCategories,
+      };
+    },
+    listInventoryStatusReport: async () => inventoryStatusReport,
+    listInventoryStatusLogReport: async (filters) =>
+      inventoryStatusLogReportRows.filter((row) => {
+        const occurredDate = row.occurredAt.slice(0, 10);
+        const inFrom = filters.fromDate === null || occurredDate >= filters.fromDate;
+        const inTo = filters.toDate === null || occurredDate <= filters.toDate;
+        const inFromStatus = filters.fromStatus === null || row.fromStatus === filters.fromStatus;
+        const inToStatus = filters.toStatus === null || row.toStatus === filters.toStatus;
+        return inFrom && inTo && inFromStatus && inToStatus;
+      }),
+    listSalesReport: async (filters) => {
+      const rows = salesReportRows.filter((row) => {
+        const inFrom = filters.fromDate === null || row.day >= filters.fromDate;
+        const inTo = filters.toDate === null || row.day <= filters.toDate;
+        const inLocation =
+          filters.locationText === null ||
+          row.locationText.toLowerCase().includes(filters.locationText.toLowerCase());
+        const inItem = filters.itemId === null || row.itemId === filters.itemId;
+        return inFrom && inTo && inLocation && inItem;
+      });
+      return {
+        rows,
+        summary: {
+          totalQuantity: rows.reduce((sum, row) => sum + row.totalQuantity, 0),
+          totalPoints: rows.reduce((sum, row) => sumPointValues([sum, row.totalPoints]), 0),
+          saleCount: rows.reduce((sum, row) => sum + row.saleCount, 0),
+        },
+      };
+    },
     pullEvents: async (cursor, limit) => {
       const startIndex = cursor === null ? 0 : Number.parseInt(cursor, 10);
       const normalizedStart = Number.isFinite(startIndex) ? startIndex : 0;
@@ -602,13 +1019,13 @@ describe("core HTTP endpoints", () => {
     const denied = await supertest(server)
       .post("/materials")
       .set("authorization", `Bearer ${collectorToken}`)
-      .send({ name: "PET", pointsPerKg: 2 });
+      .send({ name: "PET", pointsPerKg: 2.3 });
     expect(denied.status).toBe(403);
 
     const allowed = await supertest(server)
       .post("/materials")
       .set("authorization", `Bearer ${managerToken}`)
-      .send({ name: "PET", pointsPerKg: 2 });
+      .send({ name: "PET", pointsPerKg: 2.3 });
     expect(allowed.status).toBe(201);
     expect(allowed.body.material.name).toBe("PET");
   });
@@ -621,18 +1038,18 @@ describe("core HTTP endpoints", () => {
     const denied = await supertest(server)
       .post("/items")
       .set("authorization", `Bearer ${operatorToken}`)
-      .send({ name: "Soap", pointsPrice: 15 });
+      .send({ name: "Soap", pointsPrice: 15.4 });
     expect(denied.status).toBe(403);
 
     const allowed = await supertest(server)
       .post("/items")
       .set("authorization", `Bearer ${managerToken}`)
-      .send({ name: "Soap", pointsPrice: 15 });
+      .send({ name: "Soap", pointsPrice: 15.4 });
     expect(allowed.status).toBe(201);
     expect(allowed.body.item.name).toBe("Soap");
   });
 
-  test("POST /intakes calculates floored points and credits ledger", async () => {
+  test("POST /intakes calculates floored tenths points and credits ledger", async () => {
     const server = createApiServer(createDependencies());
     const token = await loginAndGetToken(server, "collector", collectorPasscode);
 
@@ -645,13 +1062,13 @@ describe("core HTTP endpoints", () => {
       });
 
     expect(intake.status).toBe(201);
-    expect(intake.body.totalPoints).toBe(8);
+    expect(intake.body.totalPoints).toBe(9.2);
 
     const balance = await supertest(server)
       .get("/ledger/person-a/balance")
       .set("authorization", `Bearer ${token}`);
     expect(balance.status).toBe(200);
-    expect(balance.body.balance.balancePoints).toBe(38);
+    expect(balance.body.balance.balancePoints).toBe(39.5);
   });
 
   test("POST /sales blocks insufficient points", async () => {
@@ -679,14 +1096,14 @@ describe("core HTTP endpoints", () => {
 
     expect(response.status).toBe(409);
     expect(response.body.error).toBe("INSUFFICIENT_POINTS");
-    expect(response.body.balancePoints).toBe(30);
-    expect(response.body.requestedPoints).toBe(90);
+    expect(response.body.balancePoints).toBe(30.3);
+    expect(response.body.requestedPoints).toBe(94.5);
 
     const balance = await supertest(server)
       .get("/ledger/person-a/balance")
       .set("authorization", `Bearer ${token}`);
     expect(balance.status).toBe(200);
-    expect(balance.body.balance.balancePoints).toBe(30);
+    expect(balance.body.balance.balancePoints).toBe(30.3);
   });
 
   test("POST /sales allocates FIFO batches when inventoryBatchId is omitted", async () => {
@@ -738,7 +1155,7 @@ describe("core HTTP endpoints", () => {
       });
 
     expect(response.status).toBe(201);
-    expect(response.body.totalPoints).toBe(70);
+    expect(response.body.totalPoints).toBe(73.5);
 
     const summary = await supertest(server)
       .get("/inventory/status-summary")
@@ -978,6 +1395,470 @@ describe("core HTTP endpoints", () => {
       (entry: InventoryStatusSummaryRecord) => entry.status === "storage",
     );
     expect(storage?.totalQuantity).toBe(10);
+  });
+
+  test("GET /reports/materials-collected requires manager role", async () => {
+    const server = createApiServer(createDependencies());
+    const operatorToken = await loginAndGetToken(server, "operator", operatorPasscode);
+    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+
+    const unauthorized = await supertest(server).get("/reports/materials-collected");
+    expect(unauthorized.status).toBe(401);
+
+    const forbidden = await supertest(server)
+      .get("/reports/materials-collected")
+      .set("authorization", `Bearer ${operatorToken}`);
+    expect(forbidden.status).toBe(403);
+
+    const allowed = await supertest(server)
+      .get("/reports/materials-collected")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(allowed.status).toBe(200);
+    expect(Array.isArray(allowed.body.rows)).toBe(true);
+  });
+
+  test("GET /reports/materials-collected validates date filters and range", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+
+    const invalidFromDate = await supertest(server)
+      .get("/reports/materials-collected?fromDate=2026-99-01")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(invalidFromDate.status).toBe(400);
+
+    const invalidRange = await supertest(server)
+      .get("/reports/materials-collected?fromDate=2026-03-10&toDate=2026-03-01")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(invalidRange.status).toBe(400);
+  });
+
+  test("GET /reports/materials-collected returns grouped rows with applied filters", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+
+    const filtered = await supertest(server)
+      .get(
+        "/reports/materials-collected?fromDate=2026-03-01&toDate=2026-03-31&locationText=village%20a&materialTypeId=mat-1",
+      )
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(filtered.status).toBe(200);
+    expect(filtered.body.appliedFilters).toEqual({
+      fromDate: "2026-03-01",
+      toDate: "2026-03-31",
+      locationText: "village a",
+      materialTypeId: "mat-1",
+    });
+    expect(filtered.body.rows).toEqual([
+      {
+        day: "2026-03-04",
+        materialTypeId: "mat-1",
+        materialName: "PET",
+        locationText: "Village A",
+        totalWeightKg: 2.9,
+        totalPoints: 8.7,
+      },
+    ]);
+
+    const defaultRange = await supertest(server)
+      .get("/reports/materials-collected")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(defaultRange.status).toBe(200);
+    expect(defaultRange.body.appliedFilters.fromDate).toBe("2026-02-04");
+    expect(defaultRange.body.appliedFilters.toDate).toBe("2026-03-05");
+    expect(defaultRange.body.rows).toHaveLength(2);
+  });
+
+  test("GET /reports/points-liability requires manager role", async () => {
+    const server = createApiServer(createDependencies());
+    const operatorToken = await loginAndGetToken(server, "operator", operatorPasscode);
+    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+
+    const unauthorized = await supertest(server).get("/reports/points-liability");
+    expect(unauthorized.status).toBe(401);
+
+    const forbidden = await supertest(server)
+      .get("/reports/points-liability")
+      .set("authorization", `Bearer ${operatorToken}`);
+    expect(forbidden.status).toBe(403);
+
+    const allowed = await supertest(server)
+      .get("/reports/points-liability")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(allowed.status).toBe(200);
+    expect(Array.isArray(allowed.body.rows)).toBe(true);
+  });
+
+  test("GET /reports/points-liability returns positive balances and filtered summary", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+
+    const defaultReport = await supertest(server)
+      .get("/reports/points-liability")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(defaultReport.status).toBe(200);
+    expect(defaultReport.body.appliedFilters).toEqual({ search: null });
+    expect(defaultReport.body.rows).toEqual([
+      {
+        personId: "person-a",
+        name: "Alice",
+        surname: "Zulu",
+        balancePoints: 30.3,
+      },
+      {
+        personId: "person-b",
+        name: "Jane",
+        surname: "Doe",
+        balancePoints: 8.4,
+      },
+    ]);
+    expect(defaultReport.body.summary).toEqual({
+      totalOutstandingPoints: 38.7,
+      personCount: 2,
+    });
+
+    const filtered = await supertest(server)
+      .get("/reports/points-liability?search=doe")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(filtered.status).toBe(200);
+    expect(filtered.body.appliedFilters).toEqual({ search: "doe" });
+    expect(filtered.body.rows).toEqual([
+      {
+        personId: "person-b",
+        name: "Jane",
+        surname: "Doe",
+        balancePoints: 8.4,
+      },
+    ]);
+    expect(filtered.body.summary).toEqual({
+      totalOutstandingPoints: 8.4,
+      personCount: 1,
+    });
+  });
+
+  test("GET /reports/inventory-status requires manager role", async () => {
+    const server = createApiServer(createDependencies());
+    const operatorToken = await loginAndGetToken(server, "operator", operatorPasscode);
+    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+
+    const unauthorized = await supertest(server).get("/reports/inventory-status");
+    expect(unauthorized.status).toBe(401);
+
+    const forbidden = await supertest(server)
+      .get("/reports/inventory-status")
+      .set("authorization", `Bearer ${operatorToken}`);
+    expect(forbidden.status).toBe(403);
+
+    const allowed = await supertest(server)
+      .get("/reports/inventory-status")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(allowed.status).toBe(200);
+    expect(Array.isArray(allowed.body.summary)).toBe(true);
+    expect(Array.isArray(allowed.body.rows)).toBe(true);
+  });
+
+  test("GET /reports/inventory-status returns zero summary statuses and positive detail rows", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+
+    const response = await supertest(server)
+      .get("/reports/inventory-status")
+      .set("authorization", `Bearer ${managerToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.summary).toEqual([
+      { status: "storage", totalQuantity: 6, totalCostValue: 25.5 },
+      { status: "shop", totalQuantity: 3, totalCostValue: 12.75 },
+      { status: "sold", totalQuantity: 1, totalCostValue: 4.25 },
+      { status: "spoiled", totalQuantity: 0, totalCostValue: 0 },
+      { status: "damaged", totalQuantity: 0, totalCostValue: 0 },
+      { status: "missing", totalQuantity: 0, totalCostValue: 0 },
+    ]);
+    expect(response.body.rows).toEqual([
+      {
+        status: "storage",
+        itemId: "item-1",
+        itemName: "Soap",
+        quantity: 6,
+        unitCost: 4.25,
+        totalCostValue: 25.5,
+      },
+      {
+        status: "shop",
+        itemId: "item-1",
+        itemName: "Soap",
+        quantity: 3,
+        unitCost: 4.25,
+        totalCostValue: 12.75,
+      },
+      {
+        status: "sold",
+        itemId: "item-1",
+        itemName: "Soap",
+        quantity: 1,
+        unitCost: 4.25,
+        totalCostValue: 4.25,
+      },
+    ]);
+  });
+
+  test("GET /reports/inventory-status-log requires manager role", async () => {
+    const server = createApiServer(createDependencies());
+    const operatorToken = await loginAndGetToken(server, "operator", operatorPasscode);
+    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+
+    const unauthorized = await supertest(server).get("/reports/inventory-status-log");
+    expect(unauthorized.status).toBe(401);
+
+    const forbidden = await supertest(server)
+      .get("/reports/inventory-status-log")
+      .set("authorization", `Bearer ${operatorToken}`);
+    expect(forbidden.status).toBe(403);
+
+    const allowed = await supertest(server)
+      .get("/reports/inventory-status-log")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(allowed.status).toBe(200);
+    expect(Array.isArray(allowed.body.rows)).toBe(true);
+  });
+
+  test("GET /reports/inventory-status-log validates filters and applies default date range", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+
+    const invalidDate = await supertest(server)
+      .get("/reports/inventory-status-log?fromDate=2026-99-01")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(invalidDate.status).toBe(400);
+
+    const invalidStatus = await supertest(server)
+      .get("/reports/inventory-status-log?fromStatus=nope")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(invalidStatus.status).toBe(400);
+
+    const invalidRange = await supertest(server)
+      .get("/reports/inventory-status-log?fromDate=2026-03-10&toDate=2026-03-01")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(invalidRange.status).toBe(400);
+
+    const defaultRange = await supertest(server)
+      .get("/reports/inventory-status-log")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(defaultRange.status).toBe(200);
+    expect(defaultRange.body.appliedFilters).toEqual({
+      fromDate: "2026-02-04",
+      toDate: "2026-03-05",
+      fromStatus: null,
+      toStatus: null,
+    });
+  });
+
+  test("GET /reports/inventory-status-log returns applied rows with resolved batch context", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+
+    const response = await supertest(server)
+      .get(
+        "/reports/inventory-status-log?fromDate=2026-03-04&toDate=2026-03-04&fromStatus=storage&toStatus=shop",
+      )
+      .set("authorization", `Bearer ${managerToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.appliedFilters).toEqual({
+      fromDate: "2026-03-04",
+      toDate: "2026-03-04",
+      fromStatus: "storage",
+      toStatus: "shop",
+    });
+    expect(response.body.rows).toEqual([
+      {
+        eventId: "evt-log-1",
+        eventType: "inventory.status_changed",
+        occurredAt: "2026-03-04T10:00:00.000Z",
+        inventoryBatchId: "batch-1",
+        itemId: "item-1",
+        itemName: "Soap",
+        fromStatus: "storage",
+        toStatus: "shop",
+        quantity: 4,
+        reason: "Move to shop",
+        notes: null,
+      },
+    ]);
+  });
+
+  test("GET /reports/sales requires manager role", async () => {
+    const server = createApiServer(createDependencies());
+    const operatorToken = await loginAndGetToken(server, "operator", operatorPasscode);
+    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+
+    const unauthorized = await supertest(server).get("/reports/sales");
+    expect(unauthorized.status).toBe(401);
+
+    const forbidden = await supertest(server)
+      .get("/reports/sales")
+      .set("authorization", `Bearer ${operatorToken}`);
+    expect(forbidden.status).toBe(403);
+
+    const allowed = await supertest(server)
+      .get("/reports/sales")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(allowed.status).toBe(200);
+    expect(Array.isArray(allowed.body.rows)).toBe(true);
+  });
+
+  test("GET /reports/sales validates filters and applies default date range", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+
+    const invalidDate = await supertest(server)
+      .get("/reports/sales?fromDate=2026-99-01")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(invalidDate.status).toBe(400);
+
+    const invalidRange = await supertest(server)
+      .get("/reports/sales?fromDate=2026-03-10&toDate=2026-03-01")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(invalidRange.status).toBe(400);
+
+    const defaultRange = await supertest(server)
+      .get("/reports/sales")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(defaultRange.status).toBe(200);
+    expect(defaultRange.body.appliedFilters).toEqual({
+      fromDate: "2026-02-04",
+      toDate: "2026-03-05",
+      locationText: null,
+      itemId: null,
+    });
+  });
+
+  test("GET /reports/sales returns grouped rows with filtered summary", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+
+    const response = await supertest(server)
+      .get(
+        "/reports/sales?fromDate=2026-03-01&toDate=2026-03-05&locationText=village%20a&itemId=item-1",
+      )
+      .set("authorization", `Bearer ${managerToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.appliedFilters).toEqual({
+      fromDate: "2026-03-01",
+      toDate: "2026-03-05",
+      locationText: "village a",
+      itemId: "item-1",
+    });
+    expect(response.body.rows).toEqual([
+      {
+        day: "2026-03-04",
+        itemId: "item-1",
+        itemName: "Soap",
+        locationText: "Village A",
+        totalQuantity: 5,
+        totalPoints: 52.5,
+        saleCount: 2,
+      },
+    ]);
+    expect(response.body.summary).toEqual({
+      totalQuantity: 5,
+      totalPoints: 52.5,
+      saleCount: 2,
+    });
+  });
+
+  test("GET /reports/cashflow requires manager role", async () => {
+    const server = createApiServer(createDependencies());
+    const operatorToken = await loginAndGetToken(server, "operator", operatorPasscode);
+    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+
+    const unauthorized = await supertest(server).get("/reports/cashflow");
+    expect(unauthorized.status).toBe(401);
+
+    const forbidden = await supertest(server)
+      .get("/reports/cashflow")
+      .set("authorization", `Bearer ${operatorToken}`);
+    expect(forbidden.status).toBe(403);
+
+    const allowed = await supertest(server)
+      .get("/reports/cashflow")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(allowed.status).toBe(200);
+    expect(Array.isArray(allowed.body.rows)).toBe(true);
+    expect(Array.isArray(allowed.body.expenseCategories)).toBe(true);
+  });
+
+  test("GET /reports/cashflow validates filters and applies default date range", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+
+    const invalidDate = await supertest(server)
+      .get("/reports/cashflow?fromDate=2026-99-01")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(invalidDate.status).toBe(400);
+
+    const invalidRange = await supertest(server)
+      .get("/reports/cashflow?fromDate=2026-03-10&toDate=2026-03-01")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(invalidRange.status).toBe(400);
+
+    const defaultRange = await supertest(server)
+      .get("/reports/cashflow")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(defaultRange.status).toBe(200);
+    expect(defaultRange.body.appliedFilters).toEqual({
+      fromDate: "2026-02-04",
+      toDate: "2026-03-05",
+      locationText: null,
+    });
+  });
+
+  test("GET /reports/cashflow returns filtered rows, summary, and expense categories", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+
+    const response = await supertest(server)
+      .get("/reports/cashflow?fromDate=2026-03-01&toDate=2026-03-05&locationText=village%20a")
+      .set("authorization", `Bearer ${managerToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.appliedFilters).toEqual({
+      fromDate: "2026-03-01",
+      toDate: "2026-03-05",
+      locationText: "village a",
+    });
+    expect(response.body.rows).toEqual([
+      {
+        day: "2026-03-04",
+        salesPointsValue: 52.5,
+        expenseCashTotal: 18.5,
+        netCashflow: 34,
+        saleCount: 2,
+        expenseCount: 2,
+      },
+      {
+        day: "2026-03-05",
+        salesPointsValue: 10.5,
+        expenseCashTotal: 5.25,
+        netCashflow: 5.25,
+        saleCount: 1,
+        expenseCount: 1,
+      },
+    ]);
+    expect(response.body.summary).toEqual({
+      totalSalesPointsValue: 63,
+      totalExpenseCash: 23.75,
+      netCashflow: 39.25,
+      saleCount: 3,
+      expenseCount: 3,
+    });
+    expect(response.body.expenseCategories).toEqual([
+      {
+        category: "Fuel",
+        totalCashAmount: 18.5,
+        expenseCount: 2,
+      },
+    ]);
   });
 
   test("POST /inventory/status-changes enforces underflow and applies valid moves", async () => {
@@ -1234,6 +2115,62 @@ describe("core HTTP endpoints", () => {
     expect(allowed.status).toBe(200);
     expect(allowed.body.totalIssues).toBe(1);
     expect(Array.isArray(allowed.body.issues)).toBe(true);
+  });
+
+  test("GET /sync/reconciliation/report requires manager role and validates filters", async () => {
+    const server = createApiServer(createDependencies());
+    const collectorToken = await loginAndGetToken(server, "collector", collectorPasscode);
+    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+
+    const unauthorized = await supertest(server).get("/sync/reconciliation/report?limit=10");
+    expect(unauthorized.status).toBe(401);
+
+    const denied = await supertest(server)
+      .get("/sync/reconciliation/report?limit=10")
+      .set("authorization", `Bearer ${collectorToken}`);
+    expect(denied.status).toBe(403);
+
+    const badCode = await supertest(server)
+      .get("/sync/reconciliation/report?code=NOPE")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(badCode.status).toBe(400);
+
+    const badRepairableOnly = await supertest(server)
+      .get("/sync/reconciliation/report?repairableOnly=maybe")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(badRepairableOnly.status).toBe(400);
+
+    const allowed = await supertest(server)
+      .get("/sync/reconciliation/report?limit=1&code=POINTS_BALANCE_MISMATCH&repairableOnly=true")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(allowed.status).toBe(200);
+    expect(allowed.body.summary.totalIssues).toBe(1);
+    expect(allowed.body.issues[0]?.issueId).toBe("POINTS_BALANCE_MISMATCH:person-a");
+  });
+
+  test("POST /sync/reconciliation/issues/:issueId/repair validates request and returns repair result", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+
+    const missingNotes = await supertest(server)
+      .post("/sync/reconciliation/issues/POINTS_BALANCE_MISMATCH:person-a/repair")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({});
+    expect(missingNotes.status).toBe(400);
+
+    const notFound = await supertest(server)
+      .post("/sync/reconciliation/issues/POINTS_BALANCE_MISMATCH:missing/repair")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({ notes: "checked ledger" });
+    expect(notFound.status).toBe(404);
+
+    const success = await supertest(server)
+      .post("/sync/reconciliation/issues/POINTS_BALANCE_MISMATCH:person-a/repair")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({ notes: "checked ledger" });
+    expect(success.status).toBe(200);
+    expect(success.body.repairKind).toBe("points_adjustment");
+    expect(success.body.repairEventId).toBe("reconciliation-repair-event");
   });
 
   test("GET /sync/audit/event/:eventId returns 404 for unknown event", async () => {

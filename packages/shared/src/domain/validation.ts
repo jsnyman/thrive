@@ -1,4 +1,17 @@
-import type { Event, EventEnvelope, EventPayloadMap, EventType, EventSchemaVersion } from "./events";
+import type {
+  Event,
+  EventEnvelope,
+  EventPayloadMap,
+  EventType,
+  EventSchemaVersion,
+} from "./events";
+import {
+  floorPointsToTenths,
+  isTenthsPointValue,
+  multiplyPointValue,
+  sumPointValues,
+  toPointTenths,
+} from "./points";
 import type { InventoryAdjustmentStatus, InventoryStatus, StaffRole } from "./types";
 
 type ValidationIssue = { path: string; message: string };
@@ -29,7 +42,11 @@ const addIssue = (issues: ValidationIssue[], path: string, message: string) => {
   issues.push({ path, message });
 };
 
-const expectRecord = (value: unknown, path: string, issues: ValidationIssue[]): value is Record<string, unknown> => {
+const expectRecord = (
+  value: unknown,
+  path: string,
+  issues: ValidationIssue[],
+): value is Record<string, unknown> => {
   if (!isRecord(value)) {
     addIssue(issues, path, "Expected object");
     return false;
@@ -87,7 +104,27 @@ const expectNumber = (
   return true;
 };
 
-const expectIsoDateTime = (value: unknown, path: string, issues: ValidationIssue[]): value is string => {
+const expectTenthsPointNumber = (
+  value: unknown,
+  path: string,
+  issues: ValidationIssue[],
+  options?: { min?: number },
+): value is number => {
+  if (!expectNumber(value, path, issues, options)) {
+    return false;
+  }
+  if (!isTenthsPointValue(value)) {
+    addIssue(issues, path, "Expected point value with at most one decimal place");
+    return false;
+  }
+  return true;
+};
+
+const expectIsoDateTime = (
+  value: unknown,
+  path: string,
+  issues: ValidationIssue[],
+): value is string => {
   if (!isIsoDateTime(value)) {
     addIssue(issues, path, "Expected ISO date-time string");
     return false;
@@ -95,7 +132,11 @@ const expectIsoDateTime = (value: unknown, path: string, issues: ValidationIssue
   return true;
 };
 
-const expectArray = (value: unknown, path: string, issues: ValidationIssue[]): value is unknown[] => {
+const expectArray = (
+  value: unknown,
+  path: string,
+  issues: ValidationIssue[],
+): value is unknown[] => {
   if (!Array.isArray(value)) {
     addIssue(issues, path, "Expected array");
     return false;
@@ -112,7 +153,11 @@ const INVENTORY_STATUSES: InventoryStatus[] = [
   "missing",
 ];
 
-const INVENTORY_ADJUSTMENT_STATUSES: InventoryAdjustmentStatus[] = ["spoiled", "damaged", "missing"];
+const INVENTORY_ADJUSTMENT_STATUSES: InventoryAdjustmentStatus[] = [
+  "spoiled",
+  "damaged",
+  "missing",
+];
 
 const STAFF_ROLES: StaffRole[] = ["collector", "shop_operator", "manager"];
 
@@ -216,7 +261,7 @@ const validateMaterialTypeCreatedPayload = (
   }
   expectString(payload.materialTypeId, `${path}.materialTypeId`, issues);
   expectString(payload.name, `${path}.name`, issues);
-  expectNumber(payload.pointsPerKg, `${path}.pointsPerKg`, issues, { min: 0 });
+  expectTenthsPointNumber(payload.pointsPerKg, `${path}.pointsPerKg`, issues, { min: 0 });
   return true;
 };
 
@@ -241,7 +286,7 @@ const validateMaterialTypeUpdatedPayload = (
     expectString(updates.name, `${path}.updates.name`, issues);
   }
   if ("pointsPerKg" in updates) {
-    expectNumber(updates.pointsPerKg, `${path}.updates.pointsPerKg`, issues, { min: 0 });
+    expectTenthsPointNumber(updates.pointsPerKg, `${path}.updates.pointsPerKg`, issues, { min: 0 });
   }
   return true;
 };
@@ -256,7 +301,7 @@ const validateItemCreatedPayload = (
   }
   expectString(payload.itemId, `${path}.itemId`, issues);
   expectString(payload.name, `${path}.name`, issues);
-  expectNumber(payload.pointsPrice, `${path}.pointsPrice`, issues, { integer: true, min: 0 });
+  expectTenthsPointNumber(payload.pointsPrice, `${path}.pointsPrice`, issues, { min: 0 });
   if (payload.costPrice !== undefined && payload.costPrice !== null) {
     expectNumber(payload.costPrice, `${path}.costPrice`, issues, { min: 0 });
   }
@@ -285,7 +330,7 @@ const validateItemUpdatedPayload = (
     expectString(updates.name, `${path}.updates.name`, issues);
   }
   if ("pointsPrice" in updates) {
-    expectNumber(updates.pointsPrice, `${path}.updates.pointsPrice`, issues, { integer: true, min: 0 });
+    expectTenthsPointNumber(updates.pointsPrice, `${path}.updates.pointsPrice`, issues, { min: 0 });
   }
   if ("costPrice" in updates) {
     if (updates.costPrice !== undefined && updates.costPrice !== null) {
@@ -323,7 +368,11 @@ const validateStaffUserRoleChangedPayload = (
     return false;
   }
   expectString(payload.userId, `${path}.userId`, issues);
-  if (payload.fromRole !== undefined && payload.fromRole !== null && !isStaffRole(payload.fromRole)) {
+  if (
+    payload.fromRole !== undefined &&
+    payload.fromRole !== null &&
+    !isStaffRole(payload.fromRole)
+  ) {
     addIssue(issues, `${path}.fromRole`, "Expected staff role");
   }
   if (!isStaffRole(payload.toRole)) {
@@ -348,7 +397,7 @@ const validateIntakeRecordedPayload = (
     if (payload.lines.length === 0) {
       addIssue(issues, `${path}.lines`, "Expected at least one intake line");
     }
-    let computedTotal = 0;
+    const computedPoints: number[] = [];
     payload.lines.forEach((line, index) => {
       const linePath = `${path}.lines[${index}]`;
       if (!expectRecord(line, linePath, issues)) {
@@ -359,27 +408,34 @@ const validateIntakeRecordedPayload = (
       if (isNumber(line.weightKg) && line.weightKg <= 0) {
         addIssue(issues, `${linePath}.weightKg`, "Expected weight > 0");
       }
-      expectNumber(line.pointsPerKg, `${linePath}.pointsPerKg`, issues, { min: 0 });
-      expectNumber(line.pointsAwarded, `${linePath}.pointsAwarded`, issues, { integer: true, min: 0 });
-      if (isNumber(line.weightKg) && isNumber(line.pointsPerKg) && isInteger(line.pointsAwarded)) {
-        const expected = Math.floor(line.weightKg * line.pointsPerKg);
+      expectTenthsPointNumber(line.pointsPerKg, `${linePath}.pointsPerKg`, issues, { min: 0 });
+      expectTenthsPointNumber(line.pointsAwarded, `${linePath}.pointsAwarded`, issues, { min: 0 });
+      if (isNumber(line.weightKg) && isNumber(line.pointsPerKg) && isNumber(line.pointsAwarded)) {
+        const expected = floorPointsToTenths(line.weightKg * line.pointsPerKg);
         if (line.pointsAwarded !== expected) {
           addIssue(
             issues,
             `${linePath}.pointsAwarded`,
-            `Expected pointsAwarded to equal floor(weightKg * pointsPerKg) = ${expected}`,
+            `Expected pointsAwarded to equal floor-to-tenths(weightKg * pointsPerKg) = ${expected}`,
           );
         }
       }
-      if (isInteger(line.pointsAwarded)) {
-        computedTotal += line.pointsAwarded;
+      if (isNumber(line.pointsAwarded) && isTenthsPointValue(line.pointsAwarded)) {
+        computedPoints.push(line.pointsAwarded);
       }
     });
-    if (isInteger(payload.totalPoints) && computedTotal !== payload.totalPoints) {
-      addIssue(issues, `${path}.totalPoints`, `Expected totalPoints to equal sum of lines = ${computedTotal}`);
+    if (isNumber(payload.totalPoints) && isTenthsPointValue(payload.totalPoints)) {
+      const computedTotal = sumPointValues(computedPoints);
+      if (payload.totalPoints !== computedTotal) {
+        addIssue(
+          issues,
+          `${path}.totalPoints`,
+          `Expected totalPoints to equal sum of lines = ${computedTotal}`,
+        );
+      }
     }
   }
-  expectNumber(payload.totalPoints, `${path}.totalPoints`, issues, { integer: true, min: 0 });
+  expectTenthsPointNumber(payload.totalPoints, `${path}.totalPoints`, issues, { min: 0 });
   return true;
 };
 
@@ -396,7 +452,7 @@ const validateSaleRecordedPayload = (
     if (payload.lines.length === 0) {
       addIssue(issues, `${path}.lines`, "Expected at least one sale line");
     }
-    let computedTotal = 0;
+    const computedPoints: number[] = [];
     payload.lines.forEach((line, index) => {
       const linePath = `${path}.lines[${index}]`;
       if (!expectRecord(line, linePath, issues)) {
@@ -408,10 +464,16 @@ const validateSaleRecordedPayload = (
       if (isInteger(line.quantity) && line.quantity <= 0) {
         addIssue(issues, `${linePath}.quantity`, "Expected quantity > 0");
       }
-      expectNumber(line.pointsPrice, `${linePath}.pointsPrice`, issues, { integer: true, min: 0 });
-      expectNumber(line.lineTotalPoints, `${linePath}.lineTotalPoints`, issues, { integer: true, min: 0 });
-      if (isInteger(line.quantity) && isInteger(line.pointsPrice) && isInteger(line.lineTotalPoints)) {
-        const expected = line.quantity * line.pointsPrice;
+      expectTenthsPointNumber(line.pointsPrice, `${linePath}.pointsPrice`, issues, { min: 0 });
+      expectTenthsPointNumber(line.lineTotalPoints, `${linePath}.lineTotalPoints`, issues, {
+        min: 0,
+      });
+      if (
+        isInteger(line.quantity) &&
+        isNumber(line.pointsPrice) &&
+        isNumber(line.lineTotalPoints)
+      ) {
+        const expected = multiplyPointValue(line.pointsPrice, line.quantity);
         if (line.lineTotalPoints !== expected) {
           addIssue(
             issues,
@@ -420,15 +482,22 @@ const validateSaleRecordedPayload = (
           );
         }
       }
-      if (isInteger(line.lineTotalPoints)) {
-        computedTotal += line.lineTotalPoints;
+      if (isNumber(line.lineTotalPoints) && isTenthsPointValue(line.lineTotalPoints)) {
+        computedPoints.push(line.lineTotalPoints);
       }
     });
-    if (isInteger(payload.totalPoints) && computedTotal !== payload.totalPoints) {
-      addIssue(issues, `${path}.totalPoints`, `Expected totalPoints to equal sum of lines = ${computedTotal}`);
+    if (isNumber(payload.totalPoints) && isTenthsPointValue(payload.totalPoints)) {
+      const computedTotal = sumPointValues(computedPoints);
+      if (payload.totalPoints !== computedTotal) {
+        addIssue(
+          issues,
+          `${path}.totalPoints`,
+          `Expected totalPoints to equal sum of lines = ${computedTotal}`,
+        );
+      }
     }
   }
-  expectNumber(payload.totalPoints, `${path}.totalPoints`, issues, { integer: true, min: 0 });
+  expectTenthsPointNumber(payload.totalPoints, `${path}.totalPoints`, issues, { min: 0 });
   return true;
 };
 
@@ -478,7 +547,11 @@ const validateProcurementRecordedPayload = (
       }
     });
     if (isNumber(payload.cashTotal) && computedTotal !== payload.cashTotal) {
-      addIssue(issues, `${path}.cashTotal`, `Expected cashTotal to equal sum of lines = ${computedTotal}`);
+      addIssue(
+        issues,
+        `${path}.cashTotal`,
+        `Expected cashTotal to equal sum of lines = ${computedTotal}`,
+      );
     }
   }
   return true;
@@ -584,8 +657,8 @@ const validatePointsAdjustmentRequestedPayload = (
     return false;
   }
   expectString(payload.personId, `${path}.personId`, issues);
-  expectNumber(payload.deltaPoints, `${path}.deltaPoints`, issues, { integer: true });
-  if (isInteger(payload.deltaPoints) && payload.deltaPoints === 0) {
+  expectTenthsPointNumber(payload.deltaPoints, `${path}.deltaPoints`, issues);
+  if (isNumber(payload.deltaPoints) && toPointTenths(payload.deltaPoints) === 0) {
     addIssue(issues, `${path}.deltaPoints`, "Expected deltaPoints to be non-zero");
   }
   expectString(payload.reason, `${path}.reason`, issues);
@@ -603,8 +676,8 @@ const validatePointsAdjustmentAppliedPayload = (
   }
   expectNullableString(payload.requestEventId, `${path}.requestEventId`, issues);
   expectString(payload.personId, `${path}.personId`, issues);
-  expectNumber(payload.deltaPoints, `${path}.deltaPoints`, issues, { integer: true });
-  if (isInteger(payload.deltaPoints) && payload.deltaPoints === 0) {
+  expectTenthsPointNumber(payload.deltaPoints, `${path}.deltaPoints`, issues);
+  if (isNumber(payload.deltaPoints) && toPointTenths(payload.deltaPoints) === 0) {
     addIssue(issues, `${path}.deltaPoints`, "Expected deltaPoints to be non-zero");
   }
   expectString(payload.reason, `${path}.reason`, issues);
@@ -654,7 +727,11 @@ const validateConflictResolvedPayload = (
     return false;
   }
   expectString(payload.conflictId, `${path}.conflictId`, issues);
-  if (payload.resolution !== "accepted" && payload.resolution !== "rejected" && payload.resolution !== "merged") {
+  if (
+    payload.resolution !== "accepted" &&
+    payload.resolution !== "rejected" &&
+    payload.resolution !== "merged"
+  ) {
     addIssue(issues, `${path}.resolution`, "Expected resolution of accepted, rejected, or merged");
   }
   expectNullableString(payload.resolvedEventId, `${path}.resolvedEventId`, issues);
@@ -758,7 +835,9 @@ export const validateEventEnvelope = (value: unknown): ValidationResult<EventEnv
   expectString(value.actorUserId, "event.actorUserId", issues);
   expectString(value.deviceId, "event.deviceId", issues);
   expectNullableString(value.locationText, "event.locationText", issues, { allowEmpty: true });
-  const schemaVersion: EventSchemaVersion | undefined = value.schemaVersion as EventSchemaVersion | undefined;
+  const schemaVersion: EventSchemaVersion | undefined = value.schemaVersion as
+    | EventSchemaVersion
+    | undefined;
   if (schemaVersion !== 1) {
     addIssue(issues, "event.schemaVersion", "Expected schemaVersion to be 1");
   }
@@ -791,6 +870,7 @@ export const validateEvent = (value: unknown): ValidationResult<Event> => {
   return ok(envelopeResult.value as Event);
 };
 
-export const isEventEnvelope = (value: unknown): value is EventEnvelope => validateEventEnvelope(value).ok;
+export const isEventEnvelope = (value: unknown): value is EventEnvelope =>
+  validateEventEnvelope(value).ok;
 
 export const isEvent = (value: unknown): value is Event => validateEvent(value).ok;

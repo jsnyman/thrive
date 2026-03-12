@@ -62,12 +62,33 @@ export const startApiServer = async (): Promise<ReturnType<typeof createApiServe
       createCoreRepository(getPrismaClient()).listSyncAuditReport(limit, cursor),
     getSyncAuditEvent: async (eventId) =>
       createCoreRepository(getPrismaClient()).getSyncAuditEvent(eventId),
+    listSyncReconciliationReport: async (limit, cursor, code, repairableOnly) =>
+      createCoreRepository(getPrismaClient()).listSyncReconciliationReport(
+        limit,
+        cursor,
+        code,
+        repairableOnly,
+      ),
+    repairSyncReconciliationIssue: async (issueId, notes, actor) =>
+      createCoreRepository(getPrismaClient()).repairSyncReconciliationIssue(issueId, notes, actor),
     getLedgerBalance: async (personId) =>
       createCoreRepository(getPrismaClient()).getLedgerBalance(personId),
     listLedgerEntries: async (personId) =>
       createCoreRepository(getPrismaClient()).listLedgerEntries(personId),
     getLivePointsBalance: async (personId) =>
       createCoreRepository(getPrismaClient()).getLivePointsBalance(personId),
+    listMaterialsCollectedReport: async (filters) =>
+      createCoreRepository(getPrismaClient()).listMaterialsCollectedReport(filters),
+    listCashflowReport: async (filters) =>
+      createCoreRepository(getPrismaClient()).listCashflowReport(filters),
+    listSalesReport: async (filters) =>
+      createCoreRepository(getPrismaClient()).listSalesReport(filters),
+    listPointsLiabilityReport: async (filters) =>
+      createCoreRepository(getPrismaClient()).listPointsLiabilityReport(filters),
+    listInventoryStatusReport: async () =>
+      createCoreRepository(getPrismaClient()).listInventoryStatusReport(),
+    listInventoryStatusLogReport: async (filters) =>
+      createCoreRepository(getPrismaClient()).listInventoryStatusLogReport(filters),
     pullEvents: async (cursor, limit) =>
       createCoreRepository(getPrismaClient()).pullEvents(cursor, limit),
     getSyncStatus: async () => createCoreRepository(getPrismaClient()).getSyncStatus(),

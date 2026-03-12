@@ -51,7 +51,7 @@ insert into event (
   'device_a7',
   'Village A - Community Hall',
   1,
-  '{"personId":"person_456","lines":[{"materialTypeId":"mat_plastic","weightKg":4.2,"pointsPerKg":3,"pointsAwarded":12}],"totalPoints":12}'::jsonb
+  '{"personId":"person_456","lines":[{"materialTypeId":"mat_plastic","weightKg":4.2,"pointsPerKg":3.2,"pointsAwarded":13.4}],"totalPoints":13.4}'::jsonb
 );
 
 -- Filter by event type
@@ -63,3 +63,5 @@ select * from event where payload @> '{"personId":"person_456"}';
 -- Filter by time window
 select * from event where occurred_at >= now() - interval '7 days' order by occurred_at;
 ```
+
+Point-valued payload fields remain JSON numbers. Intake lines are derived as `floor(weightKg * pointsPerKg, 0.1)` and totals are stored with exactly one decimal place of precision.

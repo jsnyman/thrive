@@ -116,7 +116,7 @@ describe("sync merge policy", () => {
       payload: {
         itemId: "item-1",
         name: "Soap",
-        pointsPrice: 10,
+        pointsPrice: 10.5,
       },
     });
     const intake = buildEvent({
@@ -125,7 +125,7 @@ describe("sync merge policy", () => {
       payload: {
         personId: "person-1",
         lines: [],
-        totalPoints: 5,
+        totalPoints: 5.3,
       },
     });
     const state = createMergeState([
@@ -144,11 +144,11 @@ describe("sync merge policy", () => {
             itemId: "item-1",
             inventoryBatchId: null,
             quantity: 1,
-            pointsPrice: 10,
-            lineTotalPoints: 10,
+            pointsPrice: 10.5,
+            lineTotalPoints: 10.5,
           },
         ],
-        totalPoints: 10,
+        totalPoints: 10.5,
       },
     });
 
@@ -167,7 +167,7 @@ describe("sync merge policy", () => {
       payload: {
         itemId: "item-1",
         name: "Soap",
-        pointsPrice: 10,
+        pointsPrice: 10.5,
       },
     });
     const procurement = buildEvent({
@@ -232,7 +232,7 @@ describe("sync merge policy", () => {
       payload: {
         requestEventId: "missing-request",
         personId: "person-1",
-        deltaPoints: 5,
+        deltaPoints: 5.2,
         reason: "manual",
       },
     });

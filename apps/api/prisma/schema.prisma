@@ -62,7 +62,7 @@ model MaterialType {
 model Item {
   id          String   @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
   name        String
-  pointsPrice Int
+  pointsPrice Decimal  @db.Decimal(10, 1)
   costPrice   Decimal? @db.Decimal(12, 2)
   sku         String?
   createdAt   DateTime @default(now()) @db.Timestamptz(6)

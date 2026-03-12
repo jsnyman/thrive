@@ -105,3 +105,71 @@ export type SyncAuditEventResponse = {
   linkedConflictIds: string[];
   linkedResolutionEventIds: string[];
 };
+
+export type SyncReconciliationIssueCode =
+  | "POINTS_BALANCE_MISMATCH"
+  | "INVENTORY_STATUS_SUMMARY_MISMATCH"
+  | "INVENTORY_BATCH_NEGATIVE_QUANTITY"
+  | "PROJECTION_CURSOR_DRIFT";
+
+export type SyncReconciliationIssueSeverity = "error" | "warning";
+
+export type SyncReconciliationRepair =
+  | {
+      repairKind: "points_adjustment";
+      deltaPoints: number;
+      reasonTemplate: string;
+    }
+  | {
+      repairKind: "inventory_adjustment";
+      inventoryBatchId: string;
+      fromStatus: "storage" | "shop" | "sold" | "spoiled" | "damaged" | "missing";
+      toStatus: "storage" | "shop" | "sold" | "spoiled" | "damaged" | "missing";
+      quantity: number;
+      reasonTemplate: string;
+    }
+  | {
+      repairKind: "projection_rebuild";
+      reasonTemplate: string;
+    };
+
+export type SyncReconciliationIssue = {
+  issueId: string;
+  code: SyncReconciliationIssueCode;
+  severity: SyncReconciliationIssueSeverity;
+  entityType: "person" | "inventory_batch" | "inventory_status_summary" | "projection";
+  entityId: string;
+  detail: string;
+  detectedAt: string;
+  expected?: Record<string, number | string | null> | null;
+  actual?: Record<string, number | string | null> | null;
+  suggestedRepair?: SyncReconciliationRepair | null;
+};
+
+export type SyncReconciliationReportResponse = {
+  generatedAt: string;
+  summary: {
+    totalIssues: number;
+    errorCount: number;
+    warningCount: number;
+    repairableCount: number;
+  };
+  issues: SyncReconciliationIssue[];
+  nextCursor: SyncCursor | null;
+};
+
+export type SyncRepairReconciliationIssueRequest = {
+  notes: string;
+};
+
+export type SyncRepairReconciliationIssueResponse =
+  | {
+      issueId: string;
+      repairKind: "points_adjustment" | "inventory_adjustment";
+      repairEventId: string;
+    }
+  | {
+      issueId: string;
+      repairKind: "projection_rebuild";
+      rebuiltAt: string;
+    };

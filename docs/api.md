@@ -5,11 +5,11 @@ This document lists the current HTTP API endpoints available in `apps/api`.
 ## Runtime and Auth
 
 - Runtime: Node HTTP server in `apps/api/src/http/server.ts`
-- Auth token: Bearer token returned by `POST /auth/login`
-- Required env vars:
-  - `AUTH_SECRET` (required)
-  - `AUTH_TOKEN_TTL_SECONDS` (optional, default `3600`)
-  - `API_PORT` (optional, default `3001`)
+- Auth token: bearer token returned by `POST /auth/login`
+- Required environment variables:
+  - `AUTH_SECRET` required
+  - `AUTH_TOKEN_TTL_SECONDS` optional, default `3600`
+  - `API_PORT` optional, default `3001`
 
 ## Auth Endpoints
 
@@ -39,8 +39,8 @@ Success `200`:
 
 Errors:
 
-- `400` malformed request body
-- `401` invalid credentials
+- `400`: malformed request body
+- `401`: invalid credentials
 
 ### `GET /auth/me`
 
@@ -60,8 +60,8 @@ Success `200`:
 
 Errors:
 
-- `401` unauthorized
-- `403` forbidden (only if route required action is tightened beyond `person.update`)
+- `401`: unauthorized
+- `403`: forbidden, only if the route action is tightened beyond `person.update`
 
 ## Core Endpoints
 
@@ -69,11 +69,15 @@ All endpoints below require `Authorization: Bearer <token>`.
 
 ### People
 
+Endpoints:
+
 - `GET /people?search=<query>`
 - `POST /people`
 - `PATCH /people/:personId`
 
-`POST /people` body:
+#### `POST /people`
+
+Request body:
 
 ```json
 {
@@ -86,7 +90,9 @@ All endpoints below require `Authorization: Bearer <token>`.
 }
 ```
 
-`PATCH /people/:personId` body:
+#### `PATCH /people/:personId`
+
+Request body:
 
 ```json
 {
@@ -102,38 +108,47 @@ All endpoints below require `Authorization: Bearer <token>`.
 }
 ```
 
-`PATCH /people/:personId` notes:
+Notes:
 
-- Requires `person.update` permission.
-- Appends immutable `person.profile_updated` event (no event mutation/delete).
-- Rejects empty updates or unknown update fields with `400`.
-- Returns `404` when person does not exist.
+- Requires `person.update` permission
+- Appends immutable `person.profile_updated` event
+- Does not mutate or delete existing events
+- Rejects empty updates or unknown fields with `400`
+- Returns `404` when the person does not exist
 
 ### Materials
 
-- `GET /materials`
-- `POST /materials` (manager only)
+Endpoints:
 
-`POST /materials` body:
+- `GET /materials`
+- `POST /materials` for managers only
+
+#### `POST /materials`
+
+Request body:
 
 ```json
 {
   "name": "PET",
-  "pointsPerKg": 2
+  "pointsPerKg": 2.3
 }
 ```
 
 ### Items
 
-- `GET /items`
-- `POST /items` (manager only)
+Endpoints:
 
-`POST /items` body:
+- `GET /items`
+- `POST /items` for managers only
+
+#### `POST /items`
+
+Request body:
 
 ```json
 {
   "name": "Soap",
-  "pointsPrice": 15,
+  "pointsPrice": 15.4,
   "costPrice": 8.5,
   "sku": "SOAP-001"
 }
@@ -141,12 +156,16 @@ All endpoints below require `Authorization: Bearer <token>`.
 
 ### Inventory
 
-- `GET /inventory/status-summary` (shop operator and manager)
-- `GET /inventory/batches` (shop operator and manager)
-- `POST /inventory/status-changes` (shop operator and manager)
-- `POST /inventory/adjustments/requests` (collector, shop operator, manager)
+Endpoints:
 
-`GET /inventory/status-summary` success `200`:
+- `GET /inventory/status-summary` for shop operators and managers
+- `GET /inventory/batches` for shop operators and managers
+- `POST /inventory/status-changes` for shop operators and managers
+- `POST /inventory/adjustments/requests` for collectors, shop operators, and managers
+
+#### `GET /inventory/status-summary`
+
+Success `200`:
 
 ```json
 {
@@ -157,7 +176,9 @@ All endpoints below require `Authorization: Bearer <token>`.
 }
 ```
 
-`GET /inventory/batches` success `200`:
+#### `GET /inventory/batches`
+
+Success `200`:
 
 ```json
 {
@@ -178,7 +199,9 @@ All endpoints below require `Authorization: Bearer <token>`.
 }
 ```
 
-`POST /inventory/status-changes` body:
+#### `POST /inventory/status-changes`
+
+Request body:
 
 ```json
 {
@@ -201,7 +224,9 @@ Underflow response `409`:
 }
 ```
 
-`POST /inventory/adjustments/requests` body:
+#### `POST /inventory/adjustments/requests`
+
+Request body:
 
 ```json
 {
@@ -215,21 +240,27 @@ Underflow response `409`:
 
 ### Ledger
 
+Endpoints:
+
 - `GET /ledger/:personId/balance`
 - `GET /ledger/:personId/entries`
 
-`GET /ledger/:personId/balance` success `200`:
+#### `GET /ledger/:personId/balance`
+
+Success `200`:
 
 ```json
 {
   "balance": {
     "personId": "uuid",
-    "balancePoints": 38
+    "balancePoints": 38.7
   }
 }
 ```
 
-`GET /ledger/:personId/entries` success `200`:
+#### `GET /ledger/:personId/entries`
+
+Success `200`:
 
 ```json
 {
@@ -237,7 +268,7 @@ Underflow response `409`:
     {
       "id": "uuid",
       "personId": "uuid",
-      "deltaPoints": 8,
+      "deltaPoints": 8.7,
       "occurredAt": "2026-03-08T08:05:00.000Z",
       "sourceEventType": "intake.recorded",
       "sourceEventId": "uuid"
@@ -248,9 +279,13 @@ Underflow response `409`:
 
 ### Intake
 
-- `POST /intakes` (collector and manager)
+Endpoints:
 
-`POST /intakes` body:
+- `POST /intakes` for collectors and managers
+
+#### `POST /intakes`
+
+Request body:
 
 ```json
 {
@@ -262,9 +297,13 @@ Underflow response `409`:
 
 ### Sales
 
-- `POST /sales` (shop operator and manager)
+Endpoints:
 
-`POST /sales` body:
+- `POST /sales` for shop operators and managers
+
+#### `POST /sales`
+
+Request body:
 
 ```json
 {
@@ -274,17 +313,23 @@ Underflow response `409`:
 }
 ```
 
-`inventoryBatchId` is optional on each line. If omitted, the server allocates from available `shop` inventory batches for that item using FIFO order and can split one requested quantity across multiple batches.
+Notes:
 
-If balance would become negative, API returns `409` with `INSUFFICIENT_POINTS`.
-
-If stock is insufficient, API returns `409` with `INSUFFICIENT_STOCK` and includes `itemId`, `requiredQuantity`, and `availableQuantity`.
+- `inventoryBatchId` is optional on each line
+- If omitted, the server allocates from available `shop` inventory batches for that item using FIFO order
+- A single requested quantity can be split across multiple batches
+- If balance would become negative, the API returns `409` with `INSUFFICIENT_POINTS`; point totals and balances are returned as numeric values with one decimal place
+- If stock is insufficient, the API returns `409` with `INSUFFICIENT_STOCK` and includes `itemId`, `requiredQuantity`, and `availableQuantity`
 
 ### Procurement
 
-- `POST /procurements` (manager only)
+Endpoints:
 
-`POST /procurements` body:
+- `POST /procurements` for managers only
+
+#### `POST /procurements`
+
+Request body:
 
 ```json
 {
@@ -295,21 +340,27 @@ If stock is insufficient, API returns `409` with `INSUFFICIENT_STOCK` and includ
 }
 ```
 
-`POST /procurements` notes:
+Notes:
 
-- Request lines do not include `inventoryBatchId`; server generates batch IDs.
-- `cashTotal` is computed as sum of `lineTotalCost` (`quantity * unitCost`) across lines.
-- Success `201` response returns `eventId`, `cashTotal`, and generated line details.
-- Errors:
-  - `400 BAD_REQUEST` invalid payload
-  - `404 ITEM_NOT_FOUND` unknown `itemId`
-  - `401/403` auth/permission failures
+- Request lines do not include `inventoryBatchId`; the server generates batch IDs
+- `cashTotal` is computed as the sum of `lineTotalCost`, which is `quantity * unitCost`, across lines
+- Success `201` returns `eventId`, `cashTotal`, and generated line details
+
+Errors:
+
+- `400 BAD_REQUEST`: invalid payload
+- `404 ITEM_NOT_FOUND`: unknown `itemId`
+- `401/403`: authentication or permission failures
 
 ### Expenses
 
-- `POST /expenses` (manager only)
+Endpoints:
 
-`POST /expenses` body:
+- `POST /expenses` for managers only
+
+#### `POST /expenses`
+
+Request body:
 
 ```json
 {
@@ -321,25 +372,345 @@ If stock is insufficient, API returns `409` with `INSUFFICIENT_STOCK` and includ
 }
 ```
 
-`POST /expenses` notes:
+Notes:
 
-- Appends immutable `expense.recorded` event on success.
-- Success `201` response returns `eventId` and normalized `expense` payload.
-- Errors:
-  - `400 BAD_REQUEST` invalid payload
-  - `401/403` auth/permission failures
+- Appends immutable `expense.recorded` on success
+- Success `201` returns `eventId` and a normalized `expense` payload
+
+Errors:
+
+- `400 BAD_REQUEST`: invalid payload
+- `401/403`: authentication or permission failures
+
+### Reports
+
+Endpoints:
+
+- `GET /reports/materials-collected` for managers only, requires `reports.view`
+- `GET /reports/points-liability` for managers only, requires `reports.view`
+- `GET /reports/sales` for managers only, requires `reports.view`
+- `GET /reports/cashflow` for managers only, requires `reports.view`
+- `GET /reports/inventory-status` for managers only, requires `reports.view`
+- `GET /reports/inventory-status-log` for managers only, requires `reports.view`
+
+Query params:
+
+- `fromDate` optional, format `YYYY-MM-DD`, inclusive lower bound
+- `toDate` optional, format `YYYY-MM-DD`, inclusive upper bound
+- `locationText` optional, case-insensitive substring filter
+- `materialTypeId` optional, exact filter
+
+If both `fromDate` and `toDate` are omitted, the API applies a default last-30-days range based on server time.
+
+Success `200`:
+
+```json
+{
+  "rows": [
+    {
+      "day": "2026-03-08",
+      "materialTypeId": "mat-1",
+      "materialName": "PET",
+      "locationText": "Village A",
+      "totalWeightKg": 12.5,
+      "totalPoints": 28.7
+    }
+  ],
+  "appliedFilters": {
+    "fromDate": "2026-02-08",
+    "toDate": "2026-03-09",
+    "locationText": null,
+    "materialTypeId": null
+  }
+}
+```
+
+Errors:
+
+- `400 BAD_REQUEST`: invalid date format or `fromDate > toDate`
+- `401/403`: authentication or permission failures
+
+#### `GET /reports/points-liability`
+
+Query params:
+
+- `search` optional, case-insensitive substring filter against person name or surname
+
+Success `200`:
+
+```json
+{
+  "rows": [
+    {
+      "personId": "person-1",
+      "name": "Jane",
+      "surname": "Doe",
+      "balancePoints": 38.7
+    }
+  ],
+  "summary": {
+    "totalOutstandingPoints": 38.7,
+    "personCount": 1
+  },
+  "appliedFilters": {
+    "search": null
+  }
+}
+```
+
+Notes:
+
+- Only people with positive balances are included
+- `summary.totalOutstandingPoints` is the total for the filtered rows currently returned
+- Rows are ordered by highest balance first, then surname, then name, then person ID
+
+Errors:
+
+- `401/403`: authentication or permission failures
+
+#### `GET /reports/sales`
+
+Query params:
+
+- `fromDate` optional, format `YYYY-MM-DD`, inclusive lower bound
+- `toDate` optional, format `YYYY-MM-DD`, inclusive upper bound
+- `locationText` optional, case-insensitive substring filter
+- `itemId` optional, exact item filter
+
+If both `fromDate` and `toDate` are omitted, the API applies a default last-30-days range based on server time.
+
+Success `200`:
+
+```json
+{
+  "rows": [
+    {
+      "day": "2026-03-08",
+      "itemId": "item-1",
+      "itemName": "Soap",
+      "locationText": "Village A",
+      "totalQuantity": 5,
+      "totalPoints": 52.5,
+      "saleCount": 2
+    }
+  ],
+  "summary": {
+    "totalQuantity": 5,
+    "totalPoints": 52.5,
+    "saleCount": 2
+  },
+  "appliedFilters": {
+    "fromDate": "2026-02-08",
+    "toDate": "2026-03-09",
+    "locationText": null,
+    "itemId": null
+  }
+}
+```
+
+Notes:
+
+- Rows are grouped by sale day, item, and event location
+- `totalPoints` is summed from sale-line `lineTotalPoints`
+- `saleCount` is the number of distinct `sale.recorded` events represented in each row
+- Rows are ordered by `day desc`, then `locationText asc`, then `itemName asc`, then `itemId asc`
+- When a sale event has no location text, the report returns `"Unknown"` for grouping and display
+
+Errors:
+
+- `400 BAD_REQUEST`: invalid date format or `fromDate > toDate`
+- `401/403`: authentication or permission failures
+
+#### `GET /reports/cashflow`
+
+Query params:
+
+- `fromDate` optional, format `YYYY-MM-DD`, inclusive lower bound
+- `toDate` optional, format `YYYY-MM-DD`, inclusive upper bound
+- `locationText` optional, case-insensitive substring filter
+
+If both `fromDate` and `toDate` are omitted, the API applies a default last-30-days range based on server time.
+
+Success `200`:
+
+```json
+{
+  "rows": [
+    {
+      "day": "2026-03-08",
+      "salesPointsValue": 52.5,
+      "expenseCashTotal": 18.5,
+      "netCashflow": 34.0,
+      "saleCount": 2,
+      "expenseCount": 1
+    }
+  ],
+  "summary": {
+    "totalSalesPointsValue": 52.5,
+    "totalExpenseCash": 18.5,
+    "netCashflow": 34.0,
+    "saleCount": 2,
+    "expenseCount": 1
+  },
+  "expenseCategories": [
+    {
+      "category": "Fuel",
+      "totalCashAmount": 18.5,
+      "expenseCount": 1
+    }
+  ],
+  "appliedFilters": {
+    "fromDate": "2026-02-08",
+    "toDate": "2026-03-09",
+    "locationText": null
+  }
+}
+```
+
+Notes:
+
+- Rows are grouped by event day and include days with sales only, expenses only, or both
+- Sales inflow comes from `sale.recorded.payload.totalPoints` as points-as-rand
+- Expense outflow comes only from `expense.recorded.payload.cashAmount`
+- Procurement is excluded from this report
+- `netCashflow` is `salesPointsValue - expenseCashTotal`
+- `expenseCategories` are computed from the filtered expense events and ordered by highest total first
+
+Errors:
+
+- `400 BAD_REQUEST`: invalid date format or `fromDate > toDate`
+- `401/403`: authentication or permission failures
+
+#### `GET /reports/inventory-status`
+
+Success `200`:
+
+```json
+{
+  "summary": [
+    {
+      "status": "storage",
+      "totalQuantity": 10,
+      "totalCostValue": 42.5
+    },
+    {
+      "status": "shop",
+      "totalQuantity": 4,
+      "totalCostValue": 17
+    },
+    {
+      "status": "sold",
+      "totalQuantity": 0,
+      "totalCostValue": 0
+    },
+    {
+      "status": "spoiled",
+      "totalQuantity": 0,
+      "totalCostValue": 0
+    },
+    {
+      "status": "damaged",
+      "totalQuantity": 0,
+      "totalCostValue": 0
+    },
+    {
+      "status": "missing",
+      "totalQuantity": 0,
+      "totalCostValue": 0
+    }
+  ],
+  "rows": [
+    {
+      "status": "storage",
+      "itemId": "item-1",
+      "itemName": "Soap",
+      "quantity": 10,
+      "unitCost": 4.25,
+      "totalCostValue": 42.5
+    }
+  ]
+}
+```
+
+Notes:
+
+- Summary always includes all six inventory statuses, even when totals are zero
+- Detail rows include only item and status combinations with positive current quantity
+- Values are cost-based only for now; points valuation is not included in this report
+- Rows are ordered by status, then item name, then item ID
+
+Errors:
+
+- `401/403`: authentication or permission failures
+
+#### `GET /reports/inventory-status-log`
+
+Query params:
+
+- `fromDate` optional, format `YYYY-MM-DD`, inclusive lower bound on event date
+- `toDate` optional, format `YYYY-MM-DD`, inclusive upper bound on event date
+- `fromStatus` optional, one of `storage|shop|sold|spoiled|damaged|missing`
+- `toStatus` optional, one of `storage|shop|sold|spoiled|damaged|missing`
+
+If both `fromDate` and `toDate` are omitted, the API applies a default last-30-days range based on server time.
+
+Success `200`:
+
+```json
+{
+  "rows": [
+    {
+      "eventId": "evt-1",
+      "eventType": "inventory.status_changed",
+      "occurredAt": "2026-03-08T10:00:00.000Z",
+      "inventoryBatchId": "batch-1",
+      "itemId": "item-1",
+      "itemName": "Soap",
+      "fromStatus": "storage",
+      "toStatus": "shop",
+      "quantity": 4,
+      "reason": "Move to shop",
+      "notes": null
+    }
+  ],
+  "appliedFilters": {
+    "fromDate": "2026-02-08",
+    "toDate": "2026-03-09",
+    "fromStatus": null,
+    "toStatus": null
+  }
+}
+```
+
+Notes:
+
+- Includes only applied inventory movement events: `inventory.status_changed` and `inventory.adjustment_applied`
+- Excludes pending `inventory.adjustment_requested` events
+- Rows are ordered by `occurredAt desc`, then `eventId desc`
+- `itemId` and `itemName` are best-effort resolved from the current batch mapping and may be `null`
+
+Errors:
+
+- `400 BAD_REQUEST`: invalid date format, invalid status value, or `fromDate > toDate`
+- `401/403`: authentication or permission failures
 
 ### Sync
+
+Endpoints:
 
 - `POST /sync/push`
 - `GET /sync/pull?cursor=<cursor>&limit=<n>`
 - `GET /sync/status`
-- `GET /sync/conflicts?status=open|all&limit=<n>&cursor=<cursor>` (manager only)
-- `POST /sync/conflicts/:conflictId/resolve` (manager only)
-- `GET /sync/audit/report?limit=<n>&cursor=<cursor>` (manager only)
-- `GET /sync/audit/event/:eventId` (manager only)
+- `GET /sync/conflicts?status=open|all&limit=<n>&cursor=<cursor>` for managers only
+- `POST /sync/conflicts/:conflictId/resolve` for managers only
+- `GET /sync/audit/report?limit=<n>&cursor=<cursor>` for managers only
+- `GET /sync/audit/event/:eventId` for managers only
+- `GET /sync/reconciliation/report?limit=<n>&cursor=<cursor>&code=<issueCode>&repairableOnly=true|false` for managers only
+- `POST /sync/reconciliation/issues/:issueId/repair` for managers only
 
-`POST /sync/push` body:
+#### `POST /sync/push`
+
+Request body:
 
 ```json
 {
@@ -362,11 +733,17 @@ If stock is insufficient, API returns `409` with `INSUFFICIENT_STOCK` and includ
 }
 ```
 
-`GET /sync/status` returns current event cursor and projection freshness cursor.
+#### `GET /sync/status`
 
-`GET /sync/conflicts` returns unresolved (or all) conflict records sourced from `conflict.detected` and latest matching `conflict.resolved` events.
+Returns the current event cursor and projection freshness cursor.
 
-`POST /sync/conflicts/:conflictId/resolve` body:
+#### `GET /sync/conflicts`
+
+Returns unresolved, or all, conflict records sourced from `conflict.detected` and the latest matching `conflict.resolved` events.
+
+#### `POST /sync/conflicts/:conflictId/resolve`
+
+Request body:
 
 ```json
 {
@@ -379,13 +756,115 @@ If stock is insufficient, API returns `409` with `INSUFFICIENT_STOCK` and includ
 
 Resolve errors:
 
-- `400` malformed body
-- `404` conflict not found (`CONFLICT_NOT_FOUND`)
-- `409` already resolved (`ALREADY_RESOLVED`)
+- `400`: malformed body
+- `404`: conflict not found with code `CONFLICT_NOT_FOUND`
+- `409`: conflict already resolved with code `ALREADY_RESOLVED`
 
-`GET /sync/audit/report` returns integrity issues derived from `event` and `projection_freshness` (missing references, duplicate conflict IDs/resolutions, projection cursor anomalies).
+#### `GET /sync/audit/report`
 
-`GET /sync/audit/event/:eventId` returns the event envelope plus linked conflict/resolution metadata for audit traceability.
+Returns integrity issues derived from `event` and `projection_freshness`, including missing references, duplicate conflict IDs and resolutions, and projection cursor anomalies.
+
+#### `GET /sync/audit/event/:eventId`
+
+Returns the event envelope plus linked conflict and resolution metadata for audit traceability.
+
+#### `GET /sync/reconciliation/report`
+
+Returns reconciliation issues derived by comparing projection state with event-log replay.
+
+Query params:
+
+- `limit` optional, default `50`, max `200`
+- `cursor` optional, cursor for pagination
+- `code` optional, exact issue-code filter
+- `repairableOnly` optional boolean filter
+
+Success `200`:
+
+```json
+{
+  "generatedAt": "2026-03-12T12:00:00.000Z",
+  "summary": {
+    "totalIssues": 3,
+    "errorCount": 2,
+    "warningCount": 1,
+    "repairableCount": 3
+  },
+  "issues": [
+    {
+      "issueId": "POINTS_BALANCE_MISMATCH:person-1",
+      "code": "POINTS_BALANCE_MISMATCH",
+      "severity": "error",
+      "entityType": "person",
+      "entityId": "person-1",
+      "detail": "Projected balance does not match event-log balance.",
+      "detectedAt": "2026-03-12T12:00:00.000Z",
+      "expected": { "balancePoints": 38.7 },
+      "actual": { "balancePoints": 35.7 },
+      "suggestedRepair": {
+        "repairKind": "points_adjustment",
+        "deltaPoints": 3.0,
+        "reasonTemplate": "Reconciliation correction for points balance mismatch"
+      }
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+Notes:
+
+- Current issue codes are `POINTS_BALANCE_MISMATCH`, `INVENTORY_STATUS_SUMMARY_MISMATCH`, `INVENTORY_BATCH_NEGATIVE_QUANTITY`, and `PROJECTION_CURSOR_DRIFT`
+- Suggested repairs are append-only corrective adjustment events or a projection rebuild
+- The report is the source of truth; issue state is recomputed on each request
+
+Errors:
+
+- `400 BAD_REQUEST`: invalid `code` or `repairableOnly`
+- `401/403`: authentication or permission failures
+
+#### `POST /sync/reconciliation/issues/:issueId/repair`
+
+Request body:
+
+```json
+{
+  "notes": "Verified against intake and sale history"
+}
+```
+
+Success `200` for adjustment repairs:
+
+```json
+{
+  "issueId": "POINTS_BALANCE_MISMATCH:person-1",
+  "repairKind": "points_adjustment",
+  "repairEventId": "uuid"
+}
+```
+
+Success `200` for rebuild repairs:
+
+```json
+{
+  "issueId": "PROJECTION_CURSOR_DRIFT:default",
+  "repairKind": "projection_rebuild",
+  "rebuiltAt": "2026-03-12T12:01:00.000Z"
+}
+```
+
+Notes:
+
+- Repair requests are manager-confirmed and require non-empty `notes`
+- The server recomputes the targeted issue before applying the repair
+- Business-data repairs append immutable `points.adjustment_applied` or `inventory.adjustment_applied` events
+- Projection repairs reuse the existing projection refresh path
+
+Errors:
+
+- `400 BAD_REQUEST`: malformed body
+- `404 NOT_FOUND`: issue no longer exists or is no longer repairable
+- `409 CONFLICT`: repair could not be safely applied against current state
 
 ## Operational Commands
 
@@ -395,7 +874,7 @@ Resolve errors:
 
 ### Seed Staff Users
 
-Default seed set is used when `STAFF_SEED_JSON` is not provided:
+Default seed set, used when `STAFF_SEED_JSON` is not provided:
 
 - `manager / 1234 / manager`
 - `collector / 1234 / collector`
@@ -420,12 +899,16 @@ Current views:
 - `mv_points_ledger_entries`
 - `mv_points_balances`
 - `mv_inventory_status_summary`
-- `projection_freshness` table tracks refresh timestamp and latest projected cursor.
+- `mv_materials_collected_daily`
+- `projection_freshness` table, which tracks refresh timestamp and latest projected cursor
+
+Point-valued request and response fields remain JSON numbers. The API normalizes them to one decimal place where applicable, for example `5.3`, `20.0`, and `33299.2`.
 
 ## Web Behavior Notes
 
-- Current web person-registry interaction views mask ID number and phone by default (`****`-style partial masking).
+- Current web person-registry interaction views mask ID number and phone by default using partial `****`-style masking
+- Report export is currently implemented in the web app as client-side CSV downloads from the loaded report data; there is no separate HTTP export endpoint yet
 
-Refresh order is implemented by:
+Refresh order is implemented in:
 
 - `apps/api/src/projections/refresh.ts`

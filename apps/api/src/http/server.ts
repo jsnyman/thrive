@@ -2,9 +2,21 @@ import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { URL } from "node:url";
 import type { Event } from "../../../../packages/shared/src/domain/events";
+import {
+  comparePointValues,
+  floorPointsToTenths,
+  isTenthsPointValue,
+  multiplyPointValue,
+  normalizePointValue,
+  sumPointValues,
+} from "../../../../packages/shared/src/domain/points";
 import type {
   SyncAuditEventResponse,
   SyncAuditReportResponse,
+  SyncReconciliationIssueCode,
+  SyncReconciliationReportResponse,
+  SyncRepairReconciliationIssueRequest,
+  SyncRepairReconciliationIssueResponse,
   SyncConflictsResponse,
   SyncResolveConflictRequest,
   SyncResolveConflictResponse,
@@ -168,6 +180,141 @@ type LedgerEntryRecord = {
   sourceEventId: string;
 };
 
+type MaterialsCollectedReportFilter = {
+  fromDate: string | null;
+  toDate: string | null;
+  locationText: string | null;
+  materialTypeId: string | null;
+};
+
+type MaterialsCollectedReportRow = {
+  day: string;
+  materialTypeId: string;
+  materialName: string;
+  locationText: string;
+  totalWeightKg: number;
+  totalPoints: number;
+};
+
+type SalesReportFilter = {
+  fromDate: string | null;
+  toDate: string | null;
+  locationText: string | null;
+  itemId: string | null;
+};
+
+type SalesReportRow = {
+  day: string;
+  itemId: string;
+  itemName: string;
+  locationText: string;
+  totalQuantity: number;
+  totalPoints: number;
+  saleCount: number;
+};
+
+type SalesReportResult = {
+  rows: SalesReportRow[];
+  summary: {
+    totalQuantity: number;
+    totalPoints: number;
+    saleCount: number;
+  };
+};
+
+type CashflowReportFilter = {
+  fromDate: string | null;
+  toDate: string | null;
+  locationText: string | null;
+};
+
+type CashflowReportRow = {
+  day: string;
+  salesPointsValue: number;
+  expenseCashTotal: number;
+  netCashflow: number;
+  saleCount: number;
+  expenseCount: number;
+};
+
+type CashflowExpenseCategoryRow = {
+  category: string;
+  totalCashAmount: number;
+  expenseCount: number;
+};
+
+type CashflowReportResult = {
+  rows: CashflowReportRow[];
+  summary: {
+    totalSalesPointsValue: number;
+    totalExpenseCash: number;
+    netCashflow: number;
+    saleCount: number;
+    expenseCount: number;
+  };
+  expenseCategories: CashflowExpenseCategoryRow[];
+};
+
+type PointsLiabilityReportFilter = {
+  search: string | null;
+};
+
+type PointsLiabilityReportRow = {
+  personId: string;
+  name: string;
+  surname: string;
+  balancePoints: number;
+};
+
+type PointsLiabilityReportResult = {
+  rows: PointsLiabilityReportRow[];
+  summary: {
+    totalOutstandingPoints: number;
+    personCount: number;
+  };
+};
+
+type InventoryStatusLogReportFilter = {
+  fromDate: string | null;
+  toDate: string | null;
+  fromStatus: InventoryStatus | null;
+  toStatus: InventoryStatus | null;
+};
+
+type InventoryStatusReportSummaryRow = {
+  status: InventoryStatus;
+  totalQuantity: number;
+  totalCostValue: number;
+};
+
+type InventoryStatusReportRow = {
+  status: InventoryStatus;
+  itemId: string;
+  itemName: string;
+  quantity: number;
+  unitCost: number;
+  totalCostValue: number;
+};
+
+type InventoryStatusReportResult = {
+  summary: InventoryStatusReportSummaryRow[];
+  rows: InventoryStatusReportRow[];
+};
+
+type InventoryStatusLogReportRow = {
+  eventId: string;
+  eventType: "inventory.status_changed" | "inventory.adjustment_applied";
+  occurredAt: string;
+  inventoryBatchId: string;
+  itemId: string | null;
+  itemName: string | null;
+  fromStatus: InventoryStatus;
+  toStatus: InventoryStatus;
+  quantity: number;
+  reason: string | null;
+  notes: string | null;
+};
+
 type AppendEventResult = {
   status: "accepted" | "duplicate" | "rejected";
   reason?: string;
@@ -209,9 +356,35 @@ type ApiServerDependencies = {
     cursor: SyncCursor | null,
   ) => Promise<SyncAuditReportResponse>;
   getSyncAuditEvent: (eventId: string) => Promise<SyncAuditEventResponse | null>;
+  listSyncReconciliationReport: (
+    limit: number,
+    cursor: SyncCursor | null,
+    code: SyncReconciliationIssueCode | null,
+    repairableOnly: boolean,
+  ) => Promise<SyncReconciliationReportResponse>;
+  repairSyncReconciliationIssue: (
+    issueId: string,
+    notes: string,
+    actor: StaffIdentity,
+  ) => Promise<
+    | { ok: true; value: SyncRepairReconciliationIssueResponse }
+    | { ok: false; error: "NOT_FOUND" | "CONFLICT" | "BAD_REQUEST" }
+  >;
   getLedgerBalance: (personId: string) => Promise<LedgerBalanceRecord>;
   listLedgerEntries: (personId: string) => Promise<LedgerEntryRecord[]>;
   getLivePointsBalance: (personId: string) => Promise<number>;
+  listMaterialsCollectedReport: (
+    filters: MaterialsCollectedReportFilter,
+  ) => Promise<MaterialsCollectedReportRow[]>;
+  listCashflowReport: (filters: CashflowReportFilter) => Promise<CashflowReportResult>;
+  listSalesReport: (filters: SalesReportFilter) => Promise<SalesReportResult>;
+  listPointsLiabilityReport: (
+    filters: PointsLiabilityReportFilter,
+  ) => Promise<PointsLiabilityReportResult>;
+  listInventoryStatusReport: () => Promise<InventoryStatusReportResult>;
+  listInventoryStatusLogReport: (
+    filters: InventoryStatusLogReportFilter,
+  ) => Promise<InventoryStatusLogReportRow[]>;
   pullEvents: (cursor: SyncCursor | null, limit: number) => Promise<SyncPullResponse>;
   getSyncStatus: () => Promise<SyncStatusResponse>;
   meRequiredAction?: PermissionAction;
@@ -302,6 +475,16 @@ const parseNullableString = (value: unknown): string | null | undefined => {
     return undefined;
   }
   return value;
+};
+
+const parseTenthsPointNumber = (value: unknown): number | null => {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return null;
+  }
+  if (!isTenthsPointValue(value)) {
+    return null;
+  }
+  return normalizePointValue(value);
 };
 
 const parsePersonCreateRequest = (body: unknown): PersonCreateInput | null => {
@@ -434,7 +617,8 @@ const parseMaterialCreateRequest = (body: unknown): MaterialCreateInput | null =
   if (typeof name !== "string" || name.trim().length === 0) {
     return null;
   }
-  if (typeof pointsPerKg !== "number" || !Number.isFinite(pointsPerKg) || pointsPerKg < 0) {
+  const normalizedPointsPerKg = parseTenthsPointNumber(pointsPerKg);
+  if (normalizedPointsPerKg === null) {
     return null;
   }
   if (locationText === undefined && record["locationText"] !== undefined) {
@@ -442,7 +626,7 @@ const parseMaterialCreateRequest = (body: unknown): MaterialCreateInput | null =
   }
   return {
     name,
-    pointsPerKg,
+    pointsPerKg: normalizedPointsPerKg,
     locationText: locationText ?? null,
   };
 };
@@ -453,15 +637,11 @@ const parseItemCreateRequest = (body: unknown): ItemCreateInput | null => {
   }
   const record = body as Record<string, unknown>;
   const name = record["name"];
-  const pointsPriceRaw = record["pointsPrice"];
+  const normalizedPointsPrice = parseTenthsPointNumber(record["pointsPrice"]);
   if (typeof name !== "string" || name.trim().length === 0) {
     return null;
   }
-  if (
-    typeof pointsPriceRaw !== "number" ||
-    !Number.isInteger(pointsPriceRaw) ||
-    pointsPriceRaw < 0
-  ) {
+  if (normalizedPointsPrice === null) {
     return null;
   }
   const costPriceRaw = record["costPrice"];
@@ -480,7 +660,7 @@ const parseItemCreateRequest = (body: unknown): ItemCreateInput | null => {
   }
   return {
     name,
-    pointsPrice: pointsPriceRaw,
+    pointsPrice: normalizedPointsPrice,
     costPrice: (costPriceRaw as number | null | undefined) ?? null,
     sku: (skuRaw as string | null | undefined) ?? null,
     locationText: locationText ?? null,
@@ -816,6 +996,238 @@ const parseSyncAuditLimit = (value: string | null): number => {
   return parsed;
 };
 
+const parseSyncReconciliationIssueCode = (
+  value: string | null,
+): SyncReconciliationIssueCode | null => {
+  if (
+    value === "POINTS_BALANCE_MISMATCH" ||
+    value === "INVENTORY_STATUS_SUMMARY_MISMATCH" ||
+    value === "INVENTORY_BATCH_NEGATIVE_QUANTITY" ||
+    value === "PROJECTION_CURSOR_DRIFT"
+  ) {
+    return value;
+  }
+  return null;
+};
+
+const parseBooleanQueryParam = (value: string | null): boolean | null => {
+  if (value === null) {
+    return false;
+  }
+  if (value === "true") {
+    return true;
+  }
+  if (value === "false") {
+    return false;
+  }
+  return null;
+};
+
+const isIsoDateOnly = (value: string): boolean => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime())) {
+    return false;
+  }
+  return parsed.toISOString().slice(0, 10) === value;
+};
+
+const toDateOnlyString = (value: Date): string => value.toISOString().slice(0, 10);
+
+const parseMaterialsCollectedReportFilter = (
+  parsedUrl: URL,
+  now: Date,
+): MaterialsCollectedReportFilter | null => {
+  const fromDateRaw = parsedUrl.searchParams.get("fromDate");
+  const toDateRaw = parsedUrl.searchParams.get("toDate");
+  const locationTextRaw = parsedUrl.searchParams.get("locationText");
+  const materialTypeIdRaw = parsedUrl.searchParams.get("materialTypeId");
+
+  const fromDate =
+    fromDateRaw !== null && fromDateRaw.trim().length > 0 ? fromDateRaw.trim() : null;
+  const toDate = toDateRaw !== null && toDateRaw.trim().length > 0 ? toDateRaw.trim() : null;
+  const locationText =
+    locationTextRaw !== null && locationTextRaw.trim().length > 0 ? locationTextRaw.trim() : null;
+  const materialTypeId =
+    materialTypeIdRaw !== null && materialTypeIdRaw.trim().length > 0
+      ? materialTypeIdRaw.trim()
+      : null;
+
+  if (fromDate !== null && !isIsoDateOnly(fromDate)) {
+    return null;
+  }
+  if (toDate !== null && !isIsoDateOnly(toDate)) {
+    return null;
+  }
+  if (materialTypeId !== null && materialTypeId.length === 0) {
+    return null;
+  }
+
+  const hasDateRange = fromDate !== null || toDate !== null;
+  const normalizedFromDate = hasDateRange
+    ? fromDate
+    : toDateOnlyString(new Date(now.getTime() - 29 * 86400000));
+  const normalizedToDate = hasDateRange ? toDate : toDateOnlyString(now);
+
+  if (
+    normalizedFromDate !== null &&
+    normalizedToDate !== null &&
+    normalizedFromDate > normalizedToDate
+  ) {
+    return null;
+  }
+
+  return {
+    fromDate: normalizedFromDate,
+    toDate: normalizedToDate,
+    locationText,
+    materialTypeId,
+  };
+};
+
+const parsePointsLiabilityReportFilter = (parsedUrl: URL): PointsLiabilityReportFilter => {
+  const searchRaw = parsedUrl.searchParams.get("search");
+  const search = searchRaw !== null && searchRaw.trim().length > 0 ? searchRaw.trim() : null;
+  return {
+    search,
+  };
+};
+
+const parseSalesReportFilter = (parsedUrl: URL, now: Date): SalesReportFilter | null => {
+  const fromDateRaw = parsedUrl.searchParams.get("fromDate");
+  const toDateRaw = parsedUrl.searchParams.get("toDate");
+  const locationTextRaw = parsedUrl.searchParams.get("locationText");
+  const itemIdRaw = parsedUrl.searchParams.get("itemId");
+
+  const fromDate =
+    fromDateRaw !== null && fromDateRaw.trim().length > 0 ? fromDateRaw.trim() : null;
+  const toDate = toDateRaw !== null && toDateRaw.trim().length > 0 ? toDateRaw.trim() : null;
+  const locationText =
+    locationTextRaw !== null && locationTextRaw.trim().length > 0 ? locationTextRaw.trim() : null;
+  const itemId = itemIdRaw !== null && itemIdRaw.trim().length > 0 ? itemIdRaw.trim() : null;
+
+  if (fromDate !== null && !isIsoDateOnly(fromDate)) {
+    return null;
+  }
+  if (toDate !== null && !isIsoDateOnly(toDate)) {
+    return null;
+  }
+
+  const hasDateRange = fromDate !== null || toDate !== null;
+  const normalizedFromDate = hasDateRange
+    ? fromDate
+    : toDateOnlyString(new Date(now.getTime() - 29 * 86400000));
+  const normalizedToDate = hasDateRange ? toDate : toDateOnlyString(now);
+
+  if (
+    normalizedFromDate !== null &&
+    normalizedToDate !== null &&
+    normalizedFromDate > normalizedToDate
+  ) {
+    return null;
+  }
+
+  return {
+    fromDate: normalizedFromDate,
+    toDate: normalizedToDate,
+    locationText,
+    itemId,
+  };
+};
+
+const parseCashflowReportFilter = (parsedUrl: URL, now: Date): CashflowReportFilter | null => {
+  const fromDateRaw = parsedUrl.searchParams.get("fromDate");
+  const toDateRaw = parsedUrl.searchParams.get("toDate");
+  const locationTextRaw = parsedUrl.searchParams.get("locationText");
+
+  const fromDate =
+    fromDateRaw !== null && fromDateRaw.trim().length > 0 ? fromDateRaw.trim() : null;
+  const toDate = toDateRaw !== null && toDateRaw.trim().length > 0 ? toDateRaw.trim() : null;
+  const locationText =
+    locationTextRaw !== null && locationTextRaw.trim().length > 0 ? locationTextRaw.trim() : null;
+
+  if (fromDate !== null && !isIsoDateOnly(fromDate)) {
+    return null;
+  }
+  if (toDate !== null && !isIsoDateOnly(toDate)) {
+    return null;
+  }
+
+  const hasDateRange = fromDate !== null || toDate !== null;
+  const normalizedFromDate = hasDateRange
+    ? fromDate
+    : toDateOnlyString(new Date(now.getTime() - 29 * 86400000));
+  const normalizedToDate = hasDateRange ? toDate : toDateOnlyString(now);
+
+  if (
+    normalizedFromDate !== null &&
+    normalizedToDate !== null &&
+    normalizedFromDate > normalizedToDate
+  ) {
+    return null;
+  }
+
+  return {
+    fromDate: normalizedFromDate,
+    toDate: normalizedToDate,
+    locationText,
+  };
+};
+
+const parseInventoryStatusLogReportFilter = (
+  parsedUrl: URL,
+  now: Date,
+): InventoryStatusLogReportFilter | null => {
+  const fromDateRaw = parsedUrl.searchParams.get("fromDate");
+  const toDateRaw = parsedUrl.searchParams.get("toDate");
+  const fromStatusRaw = parsedUrl.searchParams.get("fromStatus");
+  const toStatusRaw = parsedUrl.searchParams.get("toStatus");
+
+  const fromDate =
+    fromDateRaw !== null && fromDateRaw.trim().length > 0 ? fromDateRaw.trim() : null;
+  const toDate = toDateRaw !== null && toDateRaw.trim().length > 0 ? toDateRaw.trim() : null;
+  const fromStatus =
+    fromStatusRaw !== null && fromStatusRaw.trim().length > 0 ? fromStatusRaw.trim() : null;
+  const toStatus =
+    toStatusRaw !== null && toStatusRaw.trim().length > 0 ? toStatusRaw.trim() : null;
+
+  if (fromDate !== null && !isIsoDateOnly(fromDate)) {
+    return null;
+  }
+  if (toDate !== null && !isIsoDateOnly(toDate)) {
+    return null;
+  }
+  if (fromStatus !== null && !isInventoryStatus(fromStatus)) {
+    return null;
+  }
+  if (toStatus !== null && !isInventoryStatus(toStatus)) {
+    return null;
+  }
+
+  const hasDateRange = fromDate !== null || toDate !== null;
+  const normalizedFromDate = hasDateRange
+    ? fromDate
+    : toDateOnlyString(new Date(now.getTime() - 29 * 86400000));
+  const normalizedToDate = hasDateRange ? toDate : toDateOnlyString(now);
+
+  if (
+    normalizedFromDate !== null &&
+    normalizedToDate !== null &&
+    normalizedFromDate > normalizedToDate
+  ) {
+    return null;
+  }
+
+  return {
+    fromDate: normalizedFromDate,
+    toDate: normalizedToDate,
+    fromStatus,
+    toStatus,
+  };
+};
+
 const parseResolveConflictRequest = (body: unknown): SyncResolveConflictRequest | null => {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return null;
@@ -853,6 +1265,21 @@ const parseResolveConflictRequest = (body: unknown): SyncResolveConflictRequest 
     notes,
     resolvedEventId: (resolvedEventId as string | null | undefined) ?? null,
     relatedEventIds: (relatedEventIds as string[] | null | undefined) ?? null,
+  };
+};
+
+const parseRepairReconciliationIssueRequest = (
+  body: unknown,
+): SyncRepairReconciliationIssueRequest | null => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+  const record = body as Record<string, unknown>;
+  if (typeof record["notes"] !== "string" || record["notes"].trim().length === 0) {
+    return null;
+  }
+  return {
+    notes: record["notes"],
   };
 };
 
@@ -1372,8 +1799,8 @@ const handleIntakeCreate = async (
       sendJson(res, 404, { error: "MATERIAL_NOT_FOUND" });
       return;
     }
-    const pointsAwarded = Math.floor(line.weightKg * material.pointsPerKg);
-    totalPoints += pointsAwarded;
+    const pointsAwarded = floorPointsToTenths(line.weightKg * material.pointsPerKg);
+    totalPoints = sumPointValues([totalPoints, pointsAwarded]);
     lines.push({
       materialTypeId: line.materialTypeId,
       weightKg: line.weightKg,
@@ -1461,8 +1888,8 @@ const buildSaleAllocatedLines = async (
           },
         };
       }
-      const lineTotalPoints = item.pointsPrice * line.quantity;
-      totalPoints += lineTotalPoints;
+      const lineTotalPoints = multiplyPointValue(item.pointsPrice, line.quantity);
+      totalPoints = sumPointValues([totalPoints, lineTotalPoints]);
       allocatedLines.push({
         itemId: line.itemId,
         inventoryBatchId: line.inventoryBatchId,
@@ -1496,8 +1923,8 @@ const buildSaleAllocatedLines = async (
       if (alloc <= 0) {
         continue;
       }
-      const lineTotalPoints = item.pointsPrice * alloc;
-      totalPoints += lineTotalPoints;
+      const lineTotalPoints = multiplyPointValue(item.pointsPrice, alloc);
+      totalPoints = sumPointValues([totalPoints, lineTotalPoints]);
       allocatedLines.push({
         itemId: line.itemId,
         inventoryBatchId: batch.inventoryBatchId,
@@ -1546,11 +1973,11 @@ const handleSaleCreate = async (
   const totalPoints = allocation.totalPoints;
 
   const currentBalance = await dependencies.getLivePointsBalance(request.personId);
-  if (currentBalance - totalPoints < 0) {
+  if (comparePointValues(currentBalance, totalPoints) < 0) {
     sendJson(res, 409, {
       error: "INSUFFICIENT_POINTS",
-      balancePoints: currentBalance,
-      requestedPoints: totalPoints,
+      balancePoints: normalizePointValue(currentBalance),
+      requestedPoints: normalizePointValue(totalPoints),
     });
     return;
   }
@@ -1879,6 +2306,202 @@ const handleSyncAuditEvent = async (
   sendJson(res, 200, result);
 };
 
+const handleSyncReconciliationReport = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "audit.view");
+  if (actor === null) {
+    return;
+  }
+  const parsedUrl = new URL(req.url ?? "/", "http://localhost");
+  const limit = parseSyncAuditLimit(parsedUrl.searchParams.get("limit"));
+  const cursor = parsedUrl.searchParams.get("cursor");
+  const codeRaw = parsedUrl.searchParams.get("code");
+  const repairableOnlyRaw = parseBooleanQueryParam(parsedUrl.searchParams.get("repairableOnly"));
+  if (repairableOnlyRaw === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  if (codeRaw !== null && parseSyncReconciliationIssueCode(codeRaw) === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const report = await dependencies.listSyncReconciliationReport(
+    limit,
+    cursor,
+    parseSyncReconciliationIssueCode(codeRaw),
+    repairableOnlyRaw,
+  );
+  sendJson(res, 200, report);
+};
+
+const handleSyncReconciliationIssueRepair = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+  issueId: string,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "audit.view");
+  if (actor === null) {
+    return;
+  }
+  const bodyResult = await readJsonBody(req);
+  if (!bodyResult.ok) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const request = parseRepairReconciliationIssueRequest(bodyResult.value);
+  if (request === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const result = await dependencies.repairSyncReconciliationIssue(issueId, request.notes, actor);
+  if (!result.ok) {
+    if (result.error === "NOT_FOUND") {
+      sendJson(res, 404, { error: "NOT_FOUND" });
+      return;
+    }
+    if (result.error === "CONFLICT") {
+      sendJson(res, 409, { error: "CONFLICT" });
+      return;
+    }
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  sendJson(res, 200, result.value);
+};
+
+const handleMaterialsCollectedReport = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "reports.view");
+  if (actor === null) {
+    return;
+  }
+  const parsedUrl = new URL(req.url ?? "/", "http://localhost");
+  const filters = parseMaterialsCollectedReportFilter(
+    parsedUrl,
+    dependencies.now?.() ?? new Date(),
+  );
+  if (filters === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const rows = await dependencies.listMaterialsCollectedReport(filters);
+  sendJson(res, 200, {
+    rows,
+    appliedFilters: filters,
+  });
+};
+
+const handlePointsLiabilityReport = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "reports.view");
+  if (actor === null) {
+    return;
+  }
+  const parsedUrl = new URL(req.url ?? "/", "http://localhost");
+  const filters = parsePointsLiabilityReportFilter(parsedUrl);
+  const report = await dependencies.listPointsLiabilityReport(filters);
+  sendJson(res, 200, {
+    rows: report.rows,
+    summary: report.summary,
+    appliedFilters: filters,
+  });
+};
+
+const handleSalesReport = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "reports.view");
+  if (actor === null) {
+    return;
+  }
+  const parsedUrl = new URL(req.url ?? "/", "http://localhost");
+  const filters = parseSalesReportFilter(parsedUrl, dependencies.now?.() ?? new Date());
+  if (filters === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const report = await dependencies.listSalesReport(filters);
+  sendJson(res, 200, {
+    rows: report.rows,
+    summary: report.summary,
+    appliedFilters: filters,
+  });
+};
+
+const handleCashflowReport = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "reports.view");
+  if (actor === null) {
+    return;
+  }
+  const parsedUrl = new URL(req.url ?? "/", "http://localhost");
+  const filters = parseCashflowReportFilter(parsedUrl, dependencies.now?.() ?? new Date());
+  if (filters === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const report = await dependencies.listCashflowReport(filters);
+  sendJson(res, 200, {
+    rows: report.rows,
+    summary: report.summary,
+    expenseCategories: report.expenseCategories,
+    appliedFilters: filters,
+  });
+};
+
+const handleInventoryStatusReport = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "reports.view");
+  if (actor === null) {
+    return;
+  }
+  const report = await dependencies.listInventoryStatusReport();
+  sendJson(res, 200, report);
+};
+
+const handleInventoryStatusLogReport = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "reports.view");
+  if (actor === null) {
+    return;
+  }
+  const parsedUrl = new URL(req.url ?? "/", "http://localhost");
+  const filters = parseInventoryStatusLogReportFilter(
+    parsedUrl,
+    dependencies.now?.() ?? new Date(),
+  );
+  if (filters === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const rows = await dependencies.listInventoryStatusLogReport(filters);
+  sendJson(res, 200, {
+    rows,
+    appliedFilters: filters,
+  });
+};
+
 const routeRequest = async (
   req: IncomingMessage,
   res: ServerResponse,
@@ -1944,6 +2567,35 @@ const routeRequest = async (
 
   if (method === "GET" && pathname === "/inventory/batches") {
     await handleInventoryBatches(req, res, dependencies);
+    return;
+  }
+  if (method === "GET" && pathname === "/reports/materials-collected") {
+    await handleMaterialsCollectedReport(req, res, dependencies);
+    return;
+  }
+
+  if (method === "GET" && pathname === "/reports/points-liability") {
+    await handlePointsLiabilityReport(req, res, dependencies);
+    return;
+  }
+
+  if (method === "GET" && pathname === "/reports/sales") {
+    await handleSalesReport(req, res, dependencies);
+    return;
+  }
+
+  if (method === "GET" && pathname === "/reports/cashflow") {
+    await handleCashflowReport(req, res, dependencies);
+    return;
+  }
+
+  if (method === "GET" && pathname === "/reports/inventory-status") {
+    await handleInventoryStatusReport(req, res, dependencies);
+    return;
+  }
+
+  if (method === "GET" && pathname === "/reports/inventory-status-log") {
+    await handleInventoryStatusLogReport(req, res, dependencies);
     return;
   }
 
@@ -2028,11 +2680,27 @@ const routeRequest = async (
     return;
   }
 
+  if (method === "GET" && pathname === "/sync/reconciliation/report") {
+    await handleSyncReconciliationReport(req, res, dependencies);
+    return;
+  }
+
   const auditEventMatch = pathname.match(/^\/sync\/audit\/event\/([^/]+)$/);
   if (method === "GET" && auditEventMatch !== null) {
     const eventId = auditEventMatch[1];
     if (eventId !== undefined) {
       await handleSyncAuditEvent(req, res, dependencies, eventId);
+      return;
+    }
+  }
+
+  const repairReconciliationIssueMatch = pathname.match(
+    /^\/sync\/reconciliation\/issues\/([^/]+)\/repair$/,
+  );
+  if (method === "POST" && repairReconciliationIssueMatch !== null) {
+    const issueId = repairReconciliationIssueMatch[1];
+    if (issueId !== undefined) {
+      await handleSyncReconciliationIssueRepair(req, res, dependencies, issueId);
       return;
     }
   }

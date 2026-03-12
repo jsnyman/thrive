@@ -13,6 +13,7 @@ describe("refreshProjections", () => {
     expect(executed[1]).toBe("REFRESH MATERIALIZED VIEW mv_points_ledger_entries");
     expect(executed[2]).toBe("REFRESH MATERIALIZED VIEW mv_points_balances");
     expect(executed[3]).toBe("REFRESH MATERIALIZED VIEW mv_inventory_status_summary");
-    expect(executed[4]).toContain("insert into projection_freshness");
+    expect(executed[4]).toBe("REFRESH MATERIALIZED VIEW mv_materials_collected_daily");
+    expect(executed[5]).toContain("insert into projection_freshness");
   });
 });

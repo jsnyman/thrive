@@ -1,6 +1,13 @@
 import type { EventType } from "./events";
 
-export type JsonSchemaType = "object" | "string" | "number" | "integer" | "array" | "boolean" | "null";
+export type JsonSchemaType =
+  | "object"
+  | "string"
+  | "number"
+  | "integer"
+  | "array"
+  | "boolean"
+  | "null";
 
 export type JsonSchema = {
   $schema?: string;
@@ -142,7 +149,7 @@ const itemCreatedSchema = objectSchema(
   {
     itemId: stringSchema(),
     name: stringSchema(),
-    pointsPrice: integerSchema({ minimum: 0 }),
+    pointsPrice: numberSchema({ minimum: 0 }),
     costPrice: nullable(numberSchema({ minimum: 0 })),
     sku: nullable(stringSchema()),
   },
@@ -155,7 +162,7 @@ const itemUpdatedSchema = objectSchema(
     updates: objectSchema(
       {
         name: stringSchema(),
-        pointsPrice: integerSchema({ minimum: 0 }),
+        pointsPrice: numberSchema({ minimum: 0 }),
         costPrice: nullable(numberSchema({ minimum: 0 })),
         sku: nullable(stringSchema()),
       },
@@ -188,7 +195,7 @@ const intakeLineSchema = objectSchema(
     materialTypeId: stringSchema(),
     weightKg: numberSchema({ minimum: 0 }),
     pointsPerKg: numberSchema({ minimum: 0 }),
-    pointsAwarded: integerSchema({ minimum: 0 }),
+    pointsAwarded: numberSchema({ minimum: 0 }),
   },
   ["materialTypeId", "weightKg", "pointsPerKg", "pointsAwarded"],
 );
@@ -197,7 +204,7 @@ const intakeRecordedSchema = objectSchema(
   {
     personId: stringSchema(),
     lines: arraySchema(intakeLineSchema, { minItems: 1 }),
-    totalPoints: integerSchema({ minimum: 0 }),
+    totalPoints: numberSchema({ minimum: 0 }),
   },
   ["personId", "lines", "totalPoints"],
 );
@@ -207,8 +214,8 @@ const saleLineSchema = objectSchema(
     itemId: stringSchema(),
     inventoryBatchId: nullable(stringSchema()),
     quantity: integerSchema({ minimum: 0 }),
-    pointsPrice: integerSchema({ minimum: 0 }),
-    lineTotalPoints: integerSchema({ minimum: 0 }),
+    pointsPrice: numberSchema({ minimum: 0 }),
+    lineTotalPoints: numberSchema({ minimum: 0 }),
   },
   ["itemId", "quantity", "pointsPrice", "lineTotalPoints"],
 );
@@ -217,7 +224,7 @@ const saleRecordedSchema = objectSchema(
   {
     personId: stringSchema(),
     lines: arraySchema(saleLineSchema, { minItems: 1 }),
-    totalPoints: integerSchema({ minimum: 0 }),
+    totalPoints: numberSchema({ minimum: 0 }),
   },
   ["personId", "lines", "totalPoints"],
 );
@@ -292,7 +299,7 @@ const inventoryAdjustmentAppliedSchema = objectSchema(
 const pointsAdjustmentRequestedSchema = objectSchema(
   {
     personId: stringSchema(),
-    deltaPoints: integerSchema(),
+    deltaPoints: numberSchema(),
     reason: stringSchema(),
     notes: nullable(stringSchema()),
   },
@@ -303,7 +310,7 @@ const pointsAdjustmentAppliedSchema = objectSchema(
   {
     requestEventId: nullable(stringSchema()),
     personId: stringSchema(),
-    deltaPoints: integerSchema(),
+    deltaPoints: numberSchema(),
     reason: stringSchema(),
     notes: nullable(stringSchema()),
   },
@@ -314,7 +321,15 @@ const conflictDetectedSchema = objectSchema(
   {
     conflictId: stringSchema(),
     entityType: stringSchema({
-      enum: ["person", "intake", "sale", "procurement", "expense", "inventory_batch", "points_ledger"],
+      enum: [
+        "person",
+        "intake",
+        "sale",
+        "procurement",
+        "expense",
+        "inventory_batch",
+        "points_ledger",
+      ],
     }),
     entityId: stringSchema(),
     detectedEventIds: arraySchema(stringSchema(), { minItems: 1 }),

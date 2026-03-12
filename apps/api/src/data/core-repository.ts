@@ -1,8 +1,14 @@
 import type { Event } from "../../../../packages/shared/src/domain/events";
+import { normalizePointValue } from "../../../../packages/shared/src/domain/points";
 import type {
   SyncAuditEventResponse,
   SyncAuditIssue,
   SyncAuditReportResponse,
+  SyncReconciliationIssue,
+  SyncReconciliationIssueCode,
+  SyncReconciliationRepair,
+  SyncReconciliationReportResponse,
+  SyncRepairReconciliationIssueResponse,
   SyncConflictsResponse,
   SyncCursor,
   SyncResolveConflictRequest,
@@ -54,6 +60,10 @@ type InventoryBatchStateRecord = {
   quantities: Record<InventoryStatus, number>;
 };
 
+type InventoryBatchCostStateRecord = InventoryBatchStateRecord & {
+  unitCost: number | null;
+};
+
 type InventoryStatusSummaryRecord = {
   status: InventoryStatus;
   totalQuantity: number;
@@ -73,6 +83,141 @@ type LedgerEntryRecord = {
   sourceEventId: string;
 };
 
+type MaterialsCollectedReportFilter = {
+  fromDate: string | null;
+  toDate: string | null;
+  locationText: string | null;
+  materialTypeId: string | null;
+};
+
+type MaterialsCollectedReportRow = {
+  day: string;
+  materialTypeId: string;
+  materialName: string;
+  locationText: string;
+  totalWeightKg: number;
+  totalPoints: number;
+};
+
+type SalesReportFilter = {
+  fromDate: string | null;
+  toDate: string | null;
+  locationText: string | null;
+  itemId: string | null;
+};
+
+type SalesReportRow = {
+  day: string;
+  itemId: string;
+  itemName: string;
+  locationText: string;
+  totalQuantity: number;
+  totalPoints: number;
+  saleCount: number;
+};
+
+type SalesReportResult = {
+  rows: SalesReportRow[];
+  summary: {
+    totalQuantity: number;
+    totalPoints: number;
+    saleCount: number;
+  };
+};
+
+type CashflowReportFilter = {
+  fromDate: string | null;
+  toDate: string | null;
+  locationText: string | null;
+};
+
+type CashflowReportRow = {
+  day: string;
+  salesPointsValue: number;
+  expenseCashTotal: number;
+  netCashflow: number;
+  saleCount: number;
+  expenseCount: number;
+};
+
+type CashflowExpenseCategoryRow = {
+  category: string;
+  totalCashAmount: number;
+  expenseCount: number;
+};
+
+type CashflowReportResult = {
+  rows: CashflowReportRow[];
+  summary: {
+    totalSalesPointsValue: number;
+    totalExpenseCash: number;
+    netCashflow: number;
+    saleCount: number;
+    expenseCount: number;
+  };
+  expenseCategories: CashflowExpenseCategoryRow[];
+};
+
+type PointsLiabilityReportFilter = {
+  search: string | null;
+};
+
+type PointsLiabilityReportRow = {
+  personId: string;
+  name: string;
+  surname: string;
+  balancePoints: number;
+};
+
+type PointsLiabilityReportResult = {
+  rows: PointsLiabilityReportRow[];
+  summary: {
+    totalOutstandingPoints: number;
+    personCount: number;
+  };
+};
+
+type InventoryStatusLogReportFilter = {
+  fromDate: string | null;
+  toDate: string | null;
+  fromStatus: InventoryStatus | null;
+  toStatus: InventoryStatus | null;
+};
+
+type InventoryStatusReportSummaryRow = {
+  status: InventoryStatus;
+  totalQuantity: number;
+  totalCostValue: number;
+};
+
+type InventoryStatusReportRow = {
+  status: InventoryStatus;
+  itemId: string;
+  itemName: string;
+  quantity: number;
+  unitCost: number;
+  totalCostValue: number;
+};
+
+type InventoryStatusReportResult = {
+  summary: InventoryStatusReportSummaryRow[];
+  rows: InventoryStatusReportRow[];
+};
+
+type InventoryStatusLogReportRow = {
+  eventId: string;
+  eventType: "inventory.status_changed" | "inventory.adjustment_applied";
+  occurredAt: string;
+  inventoryBatchId: string;
+  itemId: string | null;
+  itemName: string | null;
+  fromStatus: InventoryStatus;
+  toStatus: InventoryStatus;
+  quantity: number;
+  reason: string | null;
+  notes: string | null;
+};
+
 type PullEventsResult = {
   events: Event[];
   nextCursor: SyncCursor | null;
@@ -86,13 +231,13 @@ type ProjectionStatusRecord = {
 
 type LedgerBalanceRow = {
   person_id: string;
-  balance_points: number;
+  balance_points: unknown;
 };
 
 type LedgerEntryRow = {
   id: string;
   person_id: string;
-  delta_points: number;
+  delta_points: unknown;
   occurred_at: Date;
   source_event_type: string;
   source_event_id: string;
@@ -106,6 +251,46 @@ type InventoryStatusSummaryRow = {
 type InventoryEventRow = {
   event_type: string;
   payload: unknown;
+};
+
+type InventoryStatusLogEventRow = {
+  event_id: string;
+  event_type: string;
+  occurred_at: Date;
+  payload: unknown;
+};
+
+type SalesReportEventRow = {
+  event_id: string;
+  occurred_at: Date;
+  location_text: string | null;
+  payload: unknown;
+};
+
+type CashflowReportEventRow = {
+  event_id: string;
+  event_type: string;
+  occurred_at: Date;
+  location_text: string | null;
+  payload: unknown;
+};
+
+type MaterialsCollectedReportQueryRow = {
+  day: Date;
+  material_type_id: string;
+  material_name: string;
+  location_text: string;
+  total_weight_kg: unknown;
+  total_points: unknown;
+};
+
+type PointsLiabilityReportQueryRow = {
+  person_id: string;
+  name: string;
+  surname: string;
+  balance_points: unknown;
+  total_outstanding_points: unknown;
+  person_count: number;
 };
 
 type CoreTransactionExecutor = Pick<
@@ -149,6 +334,11 @@ type ConflictResolveAppendResult =
   | { ok: false; error: "CONFLICT_NOT_FOUND" | "ALREADY_RESOLVED" | "BAD_REQUEST" };
 
 type AuditIssueCursorParts = {
+  detectedAt: string;
+  issueId: string;
+};
+
+type ReconciliationIssueCursorParts = {
   detectedAt: string;
   issueId: string;
 };
@@ -212,12 +402,23 @@ type ProjectionCursorRow = {
   cursor_event_id: string | null;
 };
 
+type ProjectedPointsBalanceRow = {
+  person_id: string;
+  balance_points: unknown;
+};
+
+type ReconciliationRepairResult =
+  | { ok: true; value: SyncRepairReconciliationIssueResponse }
+  | { ok: false; error: "NOT_FOUND" | "CONFLICT" | "BAD_REQUEST" };
+
 const toNumber = (value: unknown): number => {
   if (typeof value === "number") {
     return value;
   }
   return Number(value);
 };
+
+const toPointNumber = (value: unknown): number => normalizePointValue(toNumber(value));
 
 const encodeConflictCursor = (parts: ConflictCursorParts): SyncCursor =>
   Buffer.from(JSON.stringify(parts), "utf8").toString("base64url");
@@ -273,6 +474,32 @@ const decodeAuditIssueCursor = (cursor: SyncCursor | null): AuditIssueCursorPart
   }
 };
 
+const encodeReconciliationIssueCursor = (parts: ReconciliationIssueCursorParts): SyncCursor =>
+  Buffer.from(JSON.stringify(parts), "utf8").toString("base64url");
+
+const decodeReconciliationIssueCursor = (
+  cursor: SyncCursor | null,
+): ReconciliationIssueCursorParts | null => {
+  if (cursor === null) {
+    return null;
+  }
+  try {
+    const raw = Buffer.from(cursor, "base64url").toString("utf8");
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const detectedAt = parsed["detectedAt"];
+    const issueId = parsed["issueId"];
+    if (typeof detectedAt !== "string" || typeof issueId !== "string") {
+      return null;
+    }
+    if (Number.isNaN(Date.parse(detectedAt))) {
+      return null;
+    }
+    return { detectedAt, issueId };
+  } catch {
+    return null;
+  }
+};
+
 const toPersonRecord = (person: {
   id: string;
   name: string;
@@ -298,19 +525,19 @@ const toMaterialRecord = (material: {
 }): MaterialRecord => ({
   id: material.id,
   name: material.name,
-  pointsPerKg: toNumber(material.pointsPerKg),
+  pointsPerKg: toPointNumber(material.pointsPerKg),
 });
 
 const toItemRecord = (item: {
   id: string;
   name: string;
-  pointsPrice: number;
+  pointsPrice: unknown;
   costPrice: unknown | null;
   sku: string | null;
 }): ItemRecord => ({
   id: item.id,
   name: item.name,
-  pointsPrice: item.pointsPrice,
+  pointsPrice: toPointNumber(item.pointsPrice),
   costPrice: item.costPrice === null ? null : toNumber(item.costPrice),
   sku: item.sku,
 });
@@ -332,6 +559,44 @@ const createEmptyInventoryQuantities = (): Record<InventoryStatus, number> => ({
   damaged: 0,
   missing: 0,
 });
+
+const createInventoryBatchCostState = (
+  inventoryBatchId: string,
+  itemId: string | null,
+  unitCost: number | null,
+): InventoryBatchCostStateRecord => ({
+  inventoryBatchId,
+  itemId,
+  unitCost,
+  quantities: createEmptyInventoryQuantities(),
+});
+
+const compareSyncCursors = (left: SyncCursor | null, right: SyncCursor | null): number => {
+  if (left === right) {
+    return 0;
+  }
+  const decodedLeft = decodeSyncCursor(left);
+  const decodedRight = decodeSyncCursor(right);
+  if (decodedLeft === null || decodedRight === null) {
+    if (left === null) {
+      return -1;
+    }
+    if (right === null) {
+      return 1;
+    }
+    return left.localeCompare(right);
+  }
+  if (decodedLeft.recordedAt !== decodedRight.recordedAt) {
+    return decodedLeft.recordedAt.localeCompare(decodedRight.recordedAt);
+  }
+  return decodedLeft.eventId.localeCompare(decodedRight.eventId);
+};
+
+const isRepairableReconciliationCode = (code: SyncReconciliationIssueCode): boolean =>
+  code === "POINTS_BALANCE_MISMATCH" ||
+  code === "INVENTORY_STATUS_SUMMARY_MISMATCH" ||
+  code === "INVENTORY_BATCH_NEGATIVE_QUANTITY" ||
+  code === "PROJECTION_CURSOR_DRIFT";
 
 export const createCoreRepository = (prisma: PrismaClient) => {
   const eventStore = createEventStore(prisma);
@@ -401,7 +666,7 @@ export const createCoreRepository = (prisma: PrismaClient) => {
     }));
   };
 
-  const listInventoryBatches = async (): Promise<InventoryBatchStateRecord[]> => {
+  const listInventoryBatchCostState = async (): Promise<InventoryBatchCostStateRecord[]> => {
     const rows = await prisma.$queryRaw<InventoryEventRow[]>`
       select event_type::text as event_type, payload
       from event
@@ -413,7 +678,7 @@ export const createCoreRepository = (prisma: PrismaClient) => {
       )
       order by recorded_at asc, event_id asc
     `;
-    const stateByBatch = new Map<string, InventoryBatchStateRecord>();
+    const stateByBatch = new Map<string, InventoryBatchCostStateRecord>();
     for (const row of rows) {
       const payload = row.payload as Record<string, unknown>;
       if (row.event_type === "procurement.recorded") {
@@ -429,19 +694,22 @@ export const createCoreRepository = (prisma: PrismaClient) => {
           const inventoryBatchId = lineRecord["inventoryBatchId"];
           const itemId = lineRecord["itemId"];
           const quantity = lineRecord["quantity"];
+          const unitCost = lineRecord["unitCost"];
           if (
             typeof inventoryBatchId !== "string" ||
             typeof itemId !== "string" ||
             typeof quantity !== "number" ||
-            !Number.isFinite(quantity)
+            !Number.isFinite(quantity) ||
+            typeof unitCost !== "number" ||
+            !Number.isFinite(unitCost)
           ) {
             continue;
           }
-          const existing = stateByBatch.get(inventoryBatchId) ?? {
-            inventoryBatchId,
-            itemId,
-            quantities: createEmptyInventoryQuantities(),
-          };
+          const existing =
+            stateByBatch.get(inventoryBatchId) ??
+            createInventoryBatchCostState(inventoryBatchId, itemId, unitCost);
+          existing.itemId = itemId;
+          existing.unitCost = unitCost;
           existing.quantities.storage += quantity;
           stateByBatch.set(inventoryBatchId, existing);
         }
@@ -468,11 +736,10 @@ export const createCoreRepository = (prisma: PrismaClient) => {
           ) {
             continue;
           }
-          const existing = stateByBatch.get(inventoryBatchId) ?? {
-            inventoryBatchId,
-            itemId,
-            quantities: createEmptyInventoryQuantities(),
-          };
+          const existing =
+            stateByBatch.get(inventoryBatchId) ??
+            createInventoryBatchCostState(inventoryBatchId, itemId, null);
+          existing.itemId = itemId;
           existing.quantities.shop -= quantity;
           existing.quantities.sold += quantity;
           stateByBatch.set(inventoryBatchId, existing);
@@ -494,16 +761,30 @@ export const createCoreRepository = (prisma: PrismaClient) => {
       ) {
         continue;
       }
-      const existing = stateByBatch.get(inventoryBatchId) ?? {
-        inventoryBatchId,
-        itemId: null,
-        quantities: createEmptyInventoryQuantities(),
-      };
+      const existing =
+        stateByBatch.get(inventoryBatchId) ??
+        createInventoryBatchCostState(inventoryBatchId, null, null);
       existing.quantities[fromStatus as InventoryStatus] -= quantity;
       existing.quantities[toStatus as InventoryStatus] += quantity;
       stateByBatch.set(inventoryBatchId, existing);
     }
     return Array.from(stateByBatch.values());
+  };
+
+  const listInventoryBatches = async (): Promise<InventoryBatchStateRecord[]> => {
+    const batches = await listInventoryBatchCostState();
+    return batches.map((batch) => ({
+      inventoryBatchId: batch.inventoryBatchId,
+      itemId: batch.itemId,
+      quantities: {
+        storage: batch.quantities.storage,
+        shop: batch.quantities.shop,
+        sold: batch.quantities.sold,
+        spoiled: batch.quantities.spoiled,
+        damaged: batch.quantities.damaged,
+        missing: batch.quantities.missing,
+      },
+    }));
   };
 
   const listShopBatchesForItem = async (itemId: string): Promise<InventoryBatchStateRecord[]> => {
@@ -699,7 +980,7 @@ export const createCoreRepository = (prisma: PrismaClient) => {
     }
     return {
       personId: row.person_id,
-      balancePoints: row.balance_points,
+      balancePoints: toPointNumber(row.balance_points),
     };
   };
 
@@ -713,7 +994,7 @@ export const createCoreRepository = (prisma: PrismaClient) => {
     return rows.map((row) => ({
       id: row.id,
       personId: row.person_id,
-      deltaPoints: row.delta_points,
+      deltaPoints: toPointNumber(row.delta_points),
       occurredAt: row.occurred_at.toISOString(),
       sourceEventType: row.source_event_type,
       sourceEventId: row.source_event_id,
@@ -723,29 +1004,832 @@ export const createCoreRepository = (prisma: PrismaClient) => {
   const getLivePointsBalance = async (personId: string): Promise<number> => {
     const rows = await prisma.$queryRaw<
       {
-        balance_points: number;
+        balance_points: unknown;
       }[]
     >`
       with ledger as (
         select
           case
-            when event_type = 'intake.recorded' then (payload ->> 'totalPoints')::integer
-            when event_type = 'sale.recorded' then ((payload ->> 'totalPoints')::integer * -1)
-            when event_type = 'points.adjustment_applied' then (payload ->> 'deltaPoints')::integer
+            when event_type = 'intake.recorded' then (payload ->> 'totalPoints')::numeric(12, 1)
+            when event_type = 'sale.recorded' then ((payload ->> 'totalPoints')::numeric(12, 1) * -1)
+            when event_type = 'points.adjustment_applied' then (payload ->> 'deltaPoints')::numeric(12, 1)
             else 0
           end as delta_points
         from event
         where payload ->> 'personId' = ${personId}
           and event_type in ('intake.recorded', 'sale.recorded', 'points.adjustment_applied')
       )
-      select coalesce(sum(delta_points), 0)::integer as balance_points
+      select coalesce(sum(delta_points), 0)::numeric(12, 1) as balance_points
       from ledger
     `;
     const first = rows[0];
     if (first === undefined) {
       return 0;
     }
-    return first.balance_points;
+    return toPointNumber(first.balance_points);
+  };
+
+  const listMaterialsCollectedReport = async (
+    filters: MaterialsCollectedReportFilter,
+  ): Promise<MaterialsCollectedReportRow[]> => {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (filters.fromDate !== null) {
+      params.push(filters.fromDate);
+      conditions.push(`day >= $${String(params.length)}::date`);
+    }
+    if (filters.toDate !== null) {
+      params.push(filters.toDate);
+      conditions.push(`day <= $${String(params.length)}::date`);
+    }
+    if (filters.locationText !== null) {
+      params.push(`%${filters.locationText.toLowerCase()}%`);
+      conditions.push(`lower(location_text) like $${String(params.length)}`);
+    }
+    if (filters.materialTypeId !== null) {
+      params.push(filters.materialTypeId);
+      conditions.push(`material_type_id = $${String(params.length)}`);
+    }
+    const whereClause = conditions.length > 0 ? `where ${conditions.join(" and ")}` : "";
+    const rows = await prisma.$queryRawUnsafe<MaterialsCollectedReportQueryRow[]>(
+      `
+        select
+          day,
+          material_type_id,
+          material_name,
+          location_text,
+          total_weight_kg,
+          total_points
+        from mv_materials_collected_daily
+        ${whereClause}
+        order by day desc, material_name asc, location_text asc
+      `,
+      ...params,
+    );
+    return rows.map((row) => ({
+      day: row.day.toISOString().slice(0, 10),
+      materialTypeId: row.material_type_id,
+      materialName: row.material_name,
+      locationText: row.location_text,
+      totalWeightKg: Number(row.total_weight_kg),
+      totalPoints: toPointNumber(row.total_points),
+    }));
+  };
+
+  const listSalesReport = async (filters: SalesReportFilter): Promise<SalesReportResult> => {
+    const [rows, items] = await Promise.all([
+      prisma.$queryRaw<SalesReportEventRow[]>`
+        select event_id, occurred_at, location_text, payload
+        from event
+        where event_type = 'sale.recorded'
+        order by occurred_at desc, event_id desc
+      `,
+      listItems(),
+    ]);
+    const itemNameById = new Map(items.map((item) => [item.id, item.name] as const));
+    const grouped = new Map<
+      string,
+      {
+        row: SalesReportRow;
+        eventIds: Set<string>;
+      }
+    >();
+
+    for (const eventRow of rows) {
+      const day = eventRow.occurred_at.toISOString().slice(0, 10);
+      const eventLocationText = eventRow.location_text ?? "Unknown";
+      if (filters.fromDate !== null && day < filters.fromDate) {
+        continue;
+      }
+      if (filters.toDate !== null && day > filters.toDate) {
+        continue;
+      }
+      if (
+        filters.locationText !== null &&
+        !eventLocationText.toLowerCase().includes(filters.locationText.toLowerCase())
+      ) {
+        continue;
+      }
+      const payload = eventRow.payload as Record<string, unknown>;
+      const linesRaw = payload["lines"];
+      if (!Array.isArray(linesRaw)) {
+        continue;
+      }
+      for (const line of linesRaw) {
+        if (typeof line !== "object" || line === null || Array.isArray(line)) {
+          continue;
+        }
+        const lineRecord = line as Record<string, unknown>;
+        const itemId = lineRecord["itemId"];
+        const quantity = lineRecord["quantity"];
+        const lineTotalPoints = lineRecord["lineTotalPoints"];
+        if (
+          typeof itemId !== "string" ||
+          typeof quantity !== "number" ||
+          !Number.isInteger(quantity) ||
+          typeof lineTotalPoints !== "number"
+        ) {
+          continue;
+        }
+        if (filters.itemId !== null && itemId !== filters.itemId) {
+          continue;
+        }
+        const itemName = itemNameById.get(itemId) ?? itemId;
+        const key = `${day}:${eventLocationText}:${itemId}`;
+        const existing = grouped.get(key) ?? {
+          row: {
+            day,
+            itemId,
+            itemName,
+            locationText: eventLocationText,
+            totalQuantity: 0,
+            totalPoints: 0,
+            saleCount: 0,
+          },
+          eventIds: new Set<string>(),
+        };
+        existing.row.totalQuantity += quantity;
+        existing.row.totalPoints = normalizePointValue(existing.row.totalPoints + lineTotalPoints);
+        existing.eventIds.add(eventRow.event_id);
+        existing.row.saleCount = existing.eventIds.size;
+        grouped.set(key, existing);
+      }
+    }
+
+    const resultRows = Array.from(grouped.values())
+      .map((entry) => entry.row)
+      .sort((left, right) => {
+        if (left.day !== right.day) {
+          return right.day.localeCompare(left.day);
+        }
+        if (left.locationText !== right.locationText) {
+          return left.locationText.localeCompare(right.locationText);
+        }
+        if (left.itemName !== right.itemName) {
+          return left.itemName.localeCompare(right.itemName);
+        }
+        return left.itemId.localeCompare(right.itemId);
+      });
+
+    return {
+      rows: resultRows,
+      summary: {
+        totalQuantity: resultRows.reduce((sum, row) => sum + row.totalQuantity, 0),
+        totalPoints: resultRows.reduce((sum, row) => normalizePointValue(sum + row.totalPoints), 0),
+        saleCount: resultRows.reduce((sum, row) => sum + row.saleCount, 0),
+      },
+    };
+  };
+
+  const listCashflowReport = async (
+    filters: CashflowReportFilter,
+  ): Promise<CashflowReportResult> => {
+    const rows = await prisma.$queryRaw<CashflowReportEventRow[]>`
+      select event_id, event_type::text as event_type, occurred_at, location_text, payload
+      from event
+      where event_type in ('sale.recorded', 'expense.recorded')
+      order by occurred_at desc, event_id desc
+    `;
+    const dayTotals = new Map<
+      string,
+      {
+        salesPointsValue: number;
+        expenseCashTotal: number;
+        saleCount: number;
+        expenseCount: number;
+      }
+    >();
+    const categoryTotals = new Map<
+      string,
+      {
+        totalCashAmount: number;
+        expenseCount: number;
+      }
+    >();
+
+    for (const eventRow of rows) {
+      const day = eventRow.occurred_at.toISOString().slice(0, 10);
+      if (filters.fromDate !== null && day < filters.fromDate) {
+        continue;
+      }
+      if (filters.toDate !== null && day > filters.toDate) {
+        continue;
+      }
+      if (filters.locationText !== null) {
+        const eventLocation = eventRow.location_text;
+        if (
+          eventLocation === null ||
+          !eventLocation.toLowerCase().includes(filters.locationText.toLowerCase())
+        ) {
+          continue;
+        }
+      }
+      const dayEntry = dayTotals.get(day) ?? {
+        salesPointsValue: 0,
+        expenseCashTotal: 0,
+        saleCount: 0,
+        expenseCount: 0,
+      };
+      const payload = eventRow.payload as Record<string, unknown>;
+      if (eventRow.event_type === "sale.recorded") {
+        const totalPoints = payload["totalPoints"];
+        if (typeof totalPoints !== "number" || !Number.isFinite(totalPoints)) {
+          continue;
+        }
+        dayEntry.salesPointsValue = normalizePointValue(dayEntry.salesPointsValue + totalPoints);
+        dayEntry.saleCount += 1;
+        dayTotals.set(day, dayEntry);
+        continue;
+      }
+      if (eventRow.event_type === "expense.recorded") {
+        const cashAmount = payload["cashAmount"];
+        const category = payload["category"];
+        if (
+          typeof cashAmount !== "number" ||
+          !Number.isFinite(cashAmount) ||
+          typeof category !== "string"
+        ) {
+          continue;
+        }
+        dayEntry.expenseCashTotal = Number((dayEntry.expenseCashTotal + cashAmount).toFixed(2));
+        dayEntry.expenseCount += 1;
+        dayTotals.set(day, dayEntry);
+
+        const categoryEntry = categoryTotals.get(category) ?? {
+          totalCashAmount: 0,
+          expenseCount: 0,
+        };
+        categoryEntry.totalCashAmount = Number(
+          (categoryEntry.totalCashAmount + cashAmount).toFixed(2),
+        );
+        categoryEntry.expenseCount += 1;
+        categoryTotals.set(category, categoryEntry);
+      }
+    }
+
+    const resultRows = Array.from(dayTotals.entries())
+      .map(([day, totals]) => ({
+        day,
+        salesPointsValue: totals.salesPointsValue,
+        expenseCashTotal: totals.expenseCashTotal,
+        netCashflow: Number((totals.salesPointsValue - totals.expenseCashTotal).toFixed(2)),
+        saleCount: totals.saleCount,
+        expenseCount: totals.expenseCount,
+      }))
+      .sort((left, right) => right.day.localeCompare(left.day));
+
+    const expenseCategories = Array.from(categoryTotals.entries())
+      .map(([category, totals]) => ({
+        category,
+        totalCashAmount: totals.totalCashAmount,
+        expenseCount: totals.expenseCount,
+      }))
+      .sort((left, right) => {
+        if (left.totalCashAmount !== right.totalCashAmount) {
+          return right.totalCashAmount - left.totalCashAmount;
+        }
+        return left.category.localeCompare(right.category);
+      });
+
+    return {
+      rows: resultRows,
+      summary: {
+        totalSalesPointsValue: resultRows.reduce(
+          (sum, row) => normalizePointValue(sum + row.salesPointsValue),
+          0,
+        ),
+        totalExpenseCash: resultRows.reduce(
+          (sum, row) => Number((sum + row.expenseCashTotal).toFixed(2)),
+          0,
+        ),
+        netCashflow: Number(
+          (
+            resultRows.reduce((sum, row) => normalizePointValue(sum + row.salesPointsValue), 0) -
+            resultRows.reduce((sum, row) => Number((sum + row.expenseCashTotal).toFixed(2)), 0)
+          ).toFixed(2),
+        ),
+        saleCount: resultRows.reduce((sum, row) => sum + row.saleCount, 0),
+        expenseCount: resultRows.reduce((sum, row) => sum + row.expenseCount, 0),
+      },
+      expenseCategories,
+    };
+  };
+
+  const listPointsLiabilityReport = async (
+    filters: PointsLiabilityReportFilter,
+  ): Promise<PointsLiabilityReportResult> => {
+    const conditions = ["b.balance_points > 0"];
+    const params: unknown[] = [];
+    if (filters.search !== null) {
+      params.push(`%${filters.search.toLowerCase()}%`);
+      conditions.push(
+        `(lower(p.name) like $${String(params.length)} or lower(p.surname) like $${String(params.length)})`,
+      );
+    }
+    const whereClause = `where ${conditions.join(" and ")}`;
+    const rows = await prisma.$queryRawUnsafe<PointsLiabilityReportQueryRow[]>(
+      `
+        select
+          b.person_id,
+          p.name,
+          p.surname,
+          b.balance_points,
+          coalesce(sum(b.balance_points) over (), 0)::numeric(12, 1) as total_outstanding_points,
+          count(*) over ()::integer as person_count
+        from mv_points_balances b
+        join mv_people p on p.id = b.person_id
+        ${whereClause}
+        order by b.balance_points desc, p.surname asc, p.name asc, b.person_id asc
+      `,
+      ...params,
+    );
+    const firstRow = rows[0];
+    return {
+      rows: rows.map((row) => ({
+        personId: row.person_id,
+        name: row.name,
+        surname: row.surname,
+        balancePoints: toPointNumber(row.balance_points),
+      })),
+      summary: {
+        totalOutstandingPoints:
+          firstRow === undefined ? 0 : toPointNumber(firstRow.total_outstanding_points),
+        personCount: firstRow?.person_count ?? 0,
+      },
+    };
+  };
+
+  const listInventoryStatusReport = async (): Promise<InventoryStatusReportResult> => {
+    const [batches, items] = await Promise.all([listInventoryBatchCostState(), listItems()]);
+    const itemNameById = new Map(items.map((item) => [item.id, item.name] as const));
+    const summaryTotals = new Map<
+      InventoryStatus,
+      { totalQuantity: number; totalCostValue: number }
+    >();
+    const detailTotals = new Map<
+      string,
+      {
+        status: InventoryStatus;
+        itemId: string;
+        itemName: string;
+        quantity: number;
+        unitCost: number;
+        totalCostValue: number;
+      }
+    >();
+
+    for (const status of INVENTORY_STATUSES) {
+      summaryTotals.set(status, { totalQuantity: 0, totalCostValue: 0 });
+    }
+
+    for (const batch of batches) {
+      if (batch.itemId === null || batch.unitCost === null) {
+        continue;
+      }
+      const itemName = itemNameById.get(batch.itemId) ?? batch.itemId;
+      for (const status of INVENTORY_STATUSES) {
+        const quantity = batch.quantities[status];
+        if (quantity === 0) {
+          continue;
+        }
+        const totalCostValue = Number((quantity * batch.unitCost).toFixed(2));
+        const summary = summaryTotals.get(status);
+        if (summary !== undefined) {
+          summary.totalQuantity += quantity;
+          summary.totalCostValue = Number((summary.totalCostValue + totalCostValue).toFixed(2));
+        }
+        const key = `${status}:${batch.itemId}:${batch.unitCost.toFixed(2)}`;
+        const detail = detailTotals.get(key) ?? {
+          status,
+          itemId: batch.itemId,
+          itemName,
+          quantity: 0,
+          unitCost: batch.unitCost,
+          totalCostValue: 0,
+        };
+        detail.quantity += quantity;
+        detail.totalCostValue = Number((detail.totalCostValue + totalCostValue).toFixed(2));
+        detailTotals.set(key, detail);
+      }
+    }
+
+    const statusOrder = new Map(
+      INVENTORY_STATUSES.map((status, index) => [status, index] as const),
+    );
+
+    return {
+      summary: INVENTORY_STATUSES.map((status) => {
+        const totals = summaryTotals.get(status);
+        return {
+          status,
+          totalQuantity: totals?.totalQuantity ?? 0,
+          totalCostValue: totals?.totalCostValue ?? 0,
+        };
+      }),
+      rows: Array.from(detailTotals.values())
+        .filter((row) => row.quantity > 0)
+        .sort((left, right) => {
+          const statusDiff =
+            (statusOrder.get(left.status) ?? Number.MAX_SAFE_INTEGER) -
+            (statusOrder.get(right.status) ?? Number.MAX_SAFE_INTEGER);
+          if (statusDiff !== 0) {
+            return statusDiff;
+          }
+          if (left.itemName !== right.itemName) {
+            return left.itemName.localeCompare(right.itemName);
+          }
+          return left.itemId.localeCompare(right.itemId);
+        }),
+    };
+  };
+
+  const listInventoryStatusLogReport = async (
+    filters: InventoryStatusLogReportFilter,
+  ): Promise<InventoryStatusLogReportRow[]> => {
+    const [batches, items, rows] = await Promise.all([
+      listInventoryBatchCostState(),
+      listItems(),
+      prisma.$queryRaw<InventoryStatusLogEventRow[]>`
+        select event_id, event_type::text as event_type, occurred_at, payload
+        from event
+        where event_type in (
+          'inventory.status_changed',
+          'inventory.adjustment_applied',
+          'inventory.adjustment_requested'
+        )
+        order by occurred_at desc, event_id desc
+      `,
+    ]);
+    const itemNameById = new Map(items.map((item) => [item.id, item.name] as const));
+    const batchItemById = new Map(
+      batches.map((batch) => [batch.inventoryBatchId, batch.itemId] as const),
+    );
+
+    return rows
+      .filter(
+        (row) =>
+          row.event_type === "inventory.status_changed" ||
+          row.event_type === "inventory.adjustment_applied",
+      )
+      .map((row) => {
+        const payload = row.payload as Record<string, unknown>;
+        const inventoryBatchId = payload["inventoryBatchId"];
+        const fromStatus = payload["fromStatus"];
+        const toStatus = payload["toStatus"];
+        const quantity = payload["quantity"];
+        const reason = payload["reason"];
+        const notes = payload["notes"];
+        if (
+          typeof inventoryBatchId !== "string" ||
+          typeof fromStatus !== "string" ||
+          typeof toStatus !== "string" ||
+          typeof quantity !== "number" ||
+          !Number.isInteger(quantity) ||
+          !INVENTORY_STATUSES.includes(fromStatus as InventoryStatus) ||
+          !INVENTORY_STATUSES.includes(toStatus as InventoryStatus)
+        ) {
+          return null;
+        }
+        const itemId = batchItemById.get(inventoryBatchId) ?? null;
+        return {
+          eventId: row.event_id,
+          eventType: row.event_type as InventoryStatusLogReportRow["eventType"],
+          occurredAt: row.occurred_at.toISOString(),
+          inventoryBatchId,
+          itemId,
+          itemName: itemId === null ? null : (itemNameById.get(itemId) ?? null),
+          fromStatus: fromStatus as InventoryStatus,
+          toStatus: toStatus as InventoryStatus,
+          quantity,
+          reason: typeof reason === "string" ? reason : null,
+          notes: typeof notes === "string" ? notes : null,
+        } satisfies InventoryStatusLogReportRow;
+      })
+      .filter((row): row is InventoryStatusLogReportRow => row !== null)
+      .filter((row) => {
+        const occurredDate = row.occurredAt.slice(0, 10);
+        const inFrom = filters.fromDate === null || occurredDate >= filters.fromDate;
+        const inTo = filters.toDate === null || occurredDate <= filters.toDate;
+        const inFromStatus = filters.fromStatus === null || row.fromStatus === filters.fromStatus;
+        const inToStatus = filters.toStatus === null || row.toStatus === filters.toStatus;
+        return inFrom && inTo && inFromStatus && inToStatus;
+      });
+  };
+
+  const buildSyncReconciliationIssues = async (): Promise<SyncReconciliationIssue[]> => {
+    const [projectedBalances, projectedInventorySummary, replayedBatches, syncStatus] =
+      await Promise.all([
+        prisma.$queryRaw<ProjectedPointsBalanceRow[]>`
+          select person_id, balance_points
+          from mv_points_balances
+        `,
+        listInventoryStatusSummary(),
+        listInventoryBatches(),
+        getSyncStatus(),
+      ]);
+
+    const issues: SyncReconciliationIssue[] = [];
+    const detectedAt = new Date().toISOString();
+
+    const projectedBalanceByPersonId = new Map(
+      projectedBalances.map((row) => [row.person_id, toPointNumber(row.balance_points)] as const),
+    );
+    const allPersonIds = new Set<string>(projectedBalanceByPersonId.keys());
+    for (const personId of projectedBalanceByPersonId.keys()) {
+      allPersonIds.add(personId);
+    }
+    for (const personId of projectedBalanceByPersonId.keys()) {
+      allPersonIds.add(personId);
+    }
+    const personRows = await prisma.person.findMany({
+      select: {
+        id: true,
+      },
+    });
+    for (const person of personRows) {
+      allPersonIds.add(person.id);
+    }
+
+    for (const rawPersonId of allPersonIds) {
+      const personId = String(rawPersonId);
+      const expectedBalance = await getLivePointsBalance(personId);
+      const actualBalance = projectedBalanceByPersonId.get(personId) ?? 0;
+      if (expectedBalance === actualBalance) {
+        continue;
+      }
+      const deltaPoints = normalizePointValue(expectedBalance - actualBalance);
+      const suggestedRepair: SyncReconciliationRepair | null =
+        deltaPoints === 0
+          ? null
+          : {
+              repairKind: "points_adjustment",
+              deltaPoints,
+              reasonTemplate: "Reconciliation correction for points balance mismatch",
+            };
+      issues.push({
+        issueId: `POINTS_BALANCE_MISMATCH:${personId}`,
+        code: "POINTS_BALANCE_MISMATCH",
+        severity: "error",
+        entityType: "person",
+        entityId: personId,
+        detail: "Projected balance does not match event-log balance.",
+        detectedAt,
+        expected: { balancePoints: expectedBalance },
+        actual: { balancePoints: actualBalance },
+        suggestedRepair,
+      });
+    }
+
+    const replayedInventoryTotals = new Map<InventoryStatus, number>();
+    for (const status of INVENTORY_STATUSES) {
+      replayedInventoryTotals.set(status, 0);
+    }
+    for (const batch of replayedBatches) {
+      for (const status of INVENTORY_STATUSES) {
+        replayedInventoryTotals.set(
+          status,
+          (replayedInventoryTotals.get(status) ?? 0) + batch.quantities[status],
+        );
+        if (batch.quantities[status] >= 0) {
+          continue;
+        }
+        const correctiveQuantity = Math.abs(batch.quantities[status]);
+        const donorStatus =
+          INVENTORY_STATUSES.find(
+            (candidate) =>
+              candidate !== status && batch.quantities[candidate] >= correctiveQuantity,
+          ) ?? null;
+        issues.push({
+          issueId: `INVENTORY_BATCH_NEGATIVE_QUANTITY:${batch.inventoryBatchId}:${status}`,
+          code: "INVENTORY_BATCH_NEGATIVE_QUANTITY",
+          severity: "error",
+          entityType: "inventory_batch",
+          entityId: batch.inventoryBatchId,
+          detail: `Replay-derived quantity for ${status} is negative.`,
+          detectedAt,
+          expected: { quantity: 0, status },
+          actual: { quantity: batch.quantities[status], status },
+          suggestedRepair:
+            donorStatus === null
+              ? null
+              : {
+                  repairKind: "inventory_adjustment",
+                  inventoryBatchId: batch.inventoryBatchId,
+                  fromStatus: donorStatus,
+                  toStatus: status,
+                  quantity: correctiveQuantity,
+                  reasonTemplate: "Reconciliation correction for negative inventory quantity",
+                },
+        });
+      }
+    }
+
+    for (const projectedStatus of projectedInventorySummary) {
+      const expectedQuantity = replayedInventoryTotals.get(projectedStatus.status) ?? 0;
+      if (expectedQuantity === projectedStatus.totalQuantity) {
+        continue;
+      }
+      issues.push({
+        issueId: `INVENTORY_STATUS_SUMMARY_MISMATCH:${projectedStatus.status}`,
+        code: "INVENTORY_STATUS_SUMMARY_MISMATCH",
+        severity: "warning",
+        entityType: "inventory_status_summary",
+        entityId: projectedStatus.status,
+        detail: "Projected inventory status summary does not match replay totals.",
+        detectedAt,
+        expected: { totalQuantity: expectedQuantity, status: projectedStatus.status },
+        actual: { totalQuantity: projectedStatus.totalQuantity, status: projectedStatus.status },
+        suggestedRepair: {
+          repairKind: "projection_rebuild",
+          reasonTemplate: "Rebuild projections for inventory summary reconciliation",
+        },
+      });
+    }
+
+    if (compareSyncCursors(syncStatus.projectionCursor, syncStatus.latestCursor) < 0) {
+      issues.push({
+        issueId: "PROJECTION_CURSOR_DRIFT:default",
+        code: "PROJECTION_CURSOR_DRIFT",
+        severity: "warning",
+        entityType: "projection",
+        entityId: "default",
+        detail: "Projection freshness cursor is behind the latest event cursor.",
+        detectedAt,
+        expected: { latestCursor: syncStatus.latestCursor },
+        actual: { projectionCursor: syncStatus.projectionCursor },
+        suggestedRepair: {
+          repairKind: "projection_rebuild",
+          reasonTemplate: "Rebuild projections for cursor drift reconciliation",
+        },
+      });
+    }
+
+    return issues.sort((left, right) => {
+      if (left.detectedAt !== right.detectedAt) {
+        return right.detectedAt.localeCompare(left.detectedAt);
+      }
+      return left.issueId.localeCompare(right.issueId);
+    });
+  };
+
+  const listSyncReconciliationReport = async (
+    limit: number,
+    cursor: SyncCursor | null,
+    code: SyncReconciliationIssueCode | null,
+    repairableOnly: boolean,
+  ): Promise<SyncReconciliationReportResponse> => {
+    const effectiveLimit = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 200) : 50;
+    const parsedCursor = decodeReconciliationIssueCursor(cursor);
+    const allIssues = await buildSyncReconciliationIssues();
+    const filtered = allIssues
+      .filter((issue) => (code === null ? true : issue.code === code))
+      .filter((issue) => (repairableOnly ? isRepairableReconciliationCode(issue.code) : true));
+    const paged = parsedCursor
+      ? filtered.filter(
+          (issue) =>
+            issue.detectedAt < parsedCursor.detectedAt ||
+            (issue.detectedAt === parsedCursor.detectedAt && issue.issueId > parsedCursor.issueId),
+        )
+      : filtered;
+    const issues = paged.slice(0, effectiveLimit);
+    const lastIssue = issues[issues.length - 1];
+    return {
+      generatedAt: new Date().toISOString(),
+      summary: {
+        totalIssues: filtered.length,
+        errorCount: filtered.filter((issue) => issue.severity === "error").length,
+        warningCount: filtered.filter((issue) => issue.severity === "warning").length,
+        repairableCount: filtered.filter((issue) => issue.suggestedRepair !== null).length,
+      },
+      issues,
+      nextCursor:
+        issues.length < effectiveLimit || lastIssue === undefined
+          ? null
+          : encodeReconciliationIssueCursor({
+              detectedAt: lastIssue.detectedAt,
+              issueId: lastIssue.issueId,
+            }),
+    };
+  };
+
+  const repairSyncReconciliationIssue = async (
+    issueId: string,
+    notes: string,
+    actor: StaffIdentity,
+  ): Promise<ReconciliationRepairResult> => {
+    if (notes.trim().length === 0) {
+      return { ok: false, error: "BAD_REQUEST" };
+    }
+    const currentIssue = (await buildSyncReconciliationIssues()).find(
+      (issue) => issue.issueId === issueId,
+    );
+    if (currentIssue === undefined || currentIssue.suggestedRepair === null) {
+      return { ok: false, error: "NOT_FOUND" };
+    }
+    const currentRepair = currentIssue.suggestedRepair;
+    if (currentRepair === undefined || currentRepair === null) {
+      return { ok: false, error: "NOT_FOUND" };
+    }
+
+    if (currentRepair.repairKind === "projection_rebuild") {
+      await refreshProjections(prisma);
+      return {
+        ok: true,
+        value: {
+          issueId,
+          repairKind: "projection_rebuild",
+          rebuiltAt: new Date().toISOString(),
+        },
+      };
+    }
+
+    return prisma.$transaction(async (tx) => {
+      const latestIssue = (await buildSyncReconciliationIssues()).find(
+        (issue) => issue.issueId === issueId,
+      );
+      if (latestIssue === undefined || latestIssue.suggestedRepair === null) {
+        return { ok: false, error: "NOT_FOUND" as const };
+      }
+      const latestRepair = latestIssue.suggestedRepair;
+      if (latestRepair === undefined || latestRepair === null) {
+        return { ok: false, error: "NOT_FOUND" as const };
+      }
+      if (latestRepair.repairKind !== currentRepair.repairKind) {
+        return { ok: false, error: "CONFLICT" as const };
+      }
+      const txEventStore = createEventStore(tx);
+      if (latestRepair.repairKind === "points_adjustment") {
+        const pointsRepair = latestRepair;
+        const repairEvent: Event = {
+          eventId: randomUUID(),
+          eventType: "points.adjustment_applied",
+          occurredAt: new Date().toISOString(),
+          actorUserId: actor.id,
+          deviceId: "api-server",
+          locationText: null,
+          schemaVersion: 1,
+          correlationId: null,
+          causationId: null,
+          payload: {
+            requestEventId: null,
+            personId: latestIssue.entityId,
+            deltaPoints: pointsRepair.deltaPoints,
+            reason: pointsRepair.reasonTemplate,
+            notes,
+          },
+        };
+        const appendResult = await txEventStore.appendEvent(repairEvent);
+        if (appendResult.status !== "accepted") {
+          return { ok: false, error: "CONFLICT" as const };
+        }
+        await projectEventToReadModels(tx, repairEvent);
+        return {
+          ok: true,
+          value: {
+            issueId,
+            repairKind: "points_adjustment",
+            repairEventId: repairEvent.eventId,
+          },
+        };
+      }
+      if (latestRepair.repairKind !== "inventory_adjustment") {
+        return { ok: false, error: "CONFLICT" as const };
+      }
+      const inventoryRepair = latestRepair;
+      const repairEvent: Event = {
+        eventId: randomUUID(),
+        eventType: "inventory.adjustment_applied",
+        occurredAt: new Date().toISOString(),
+        actorUserId: actor.id,
+        deviceId: "api-server",
+        locationText: null,
+        schemaVersion: 1,
+        correlationId: null,
+        causationId: null,
+        payload: {
+          requestEventId: null,
+          inventoryBatchId: inventoryRepair.inventoryBatchId,
+          fromStatus: inventoryRepair.fromStatus,
+          toStatus: inventoryRepair.toStatus,
+          quantity: inventoryRepair.quantity,
+          reason: inventoryRepair.reasonTemplate,
+          notes,
+        },
+      };
+      const appendResult = await txEventStore.appendEvent(repairEvent);
+      if (appendResult.status !== "accepted") {
+        return { ok: false, error: "CONFLICT" as const };
+      }
+      await projectEventToReadModels(tx, repairEvent);
+      return {
+        ok: true,
+        value: {
+          issueId,
+          repairKind: "inventory_adjustment",
+          repairEventId: repairEvent.eventId,
+        },
+      };
+    });
   };
 
   const pullEvents = async (cursor: string | null, limit: number): Promise<PullEventsResult> =>
@@ -1320,11 +2404,19 @@ export const createCoreRepository = (prisma: PrismaClient) => {
     getLedgerBalance,
     listLedgerEntries,
     getLivePointsBalance,
+    listMaterialsCollectedReport,
+    listCashflowReport,
+    listSalesReport,
+    listPointsLiabilityReport,
+    listInventoryStatusReport,
+    listInventoryStatusLogReport,
     pullEvents,
     getSyncStatus,
     listSyncConflicts,
     resolveSyncConflict,
     listSyncAuditReport,
     getSyncAuditEvent,
+    listSyncReconciliationReport,
+    repairSyncReconciliationIssue,
   };
 };

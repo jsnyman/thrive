@@ -1,28 +1,73 @@
 # Prisma Usage Guide
 
-Purpose: document how we use Prisma in `apps/api` and when to run each command so the schema and generated client stay in sync across dev/CI.
+Purpose: document how Prisma is used in `apps/api`, and when to run each command, so the schema and generated client stay in sync across development and CI.
 
-## Commands (npm scripts)
-- `npm run prisma:generate` - regenerates the TypeScript client in `apps/api/src/generated/prisma`. Run after any change to `apps/api/prisma/schema.prisma` or after pulling schema changes. Keeps typings in sync with the DB schema definition.
-- `npm run prisma:migrate` - creates and applies a new migration (name `init` by default). Use when you change the schema and want a versioned migration committed. Also run on a fresh DB to apply all migrations.
-- `npm run prisma:studio` - opens Prisma Studio against the `DATABASE_URL` for quick inspection. Dev-only; not required for CI.
+## Commands
 
-## Why this matters
-- Repeatable schema: migrations keep every environment (dev, CI, prod) aligned and catch drift early.
-- Type safety: generated client reflects the current schema; stale clients cause runtime errors or missing fields.
-- Auditable changes: migrations are versioned files in git, making DB changes code-reviewed like the rest of the repo.
+### `npm run prisma:generate`
 
-## Update workflow
+Regenerates the TypeScript client in `apps/api/src/generated/prisma`.
+
+Run this:
+
+- After any change to `apps/api/prisma/schema.prisma`
+- After pulling schema changes from another branch
+
+Why:
+
+- Keeps typings in sync with the schema definition
+
+### `npm run prisma:migrate`
+
+Creates and applies a new migration. The default name is `init`.
+
+Use this when:
+
+- You change the schema and want a versioned migration committed
+- You need to apply all migrations to a fresh database
+
+### `npm run prisma:studio`
+
+Opens Prisma Studio against `DATABASE_URL` for quick inspection.
+
+Notes:
+
+- Dev-only
+- Not required for CI
+
+## Why This Matters
+
+- Repeatable schema: migrations keep development, CI, and production aligned and catch drift early
+- Type safety: the generated client reflects the current schema; stale clients cause runtime errors or missing fields
+- Auditable changes: migrations are versioned in Git, so DB changes can be reviewed like the rest of the codebase
+
+## Update Workflow
+
 1. Edit `apps/api/prisma/schema.prisma`.
-2. Run `npm run prisma:migrate` with a descriptive `--name` (for example, `--name add-person-index`) to produce a migration and apply it to your local DB.
-3. Run `npm run prisma:generate` to refresh the client.
-4. Commit both the migration folder and any schema changes.
-5. After pulling main: run `npm run prisma:migrate` then `npm run prisma:generate` to sync local DB and client.
+2. Run `npm run prisma:migrate -- --name <descriptive-name>` to create and apply a migration locally.
+3. Run `npm run prisma:generate` to refresh the Prisma client.
+4. Commit both the migration folder and the schema changes.
+5. After pulling `main`, run `npm run prisma:migrate` and then `npm run prisma:generate`.
+
+Example migration name:
+
+- `add-person-index`
+
+Current point storage rules:
+
+- `MaterialType.pointsPerKg` is stored as a decimal and validated as a one-decimal-place point value in application code
+- `Item.pointsPrice` is stored as `Decimal(10,1)`
+- Event payload point values stay numeric in JSON and are normalized to one decimal place before persistence
 
 ## Environment
-- Set `DATABASE_URL` in `apps/api/.env` before running any Prisma command. The placeholder currently points to local Postgres; update to your real connection string.
 
-## Keeping things healthy
-- If Prisma reports "schema/client out of date", rerun `npm run prisma:generate`.
-- If migrations fail, inspect the error, fix the schema or data, and rerun. Do not hand-edit DB tables outside migrations.
-- For CI: add `npm run prisma:generate` before API builds/tests; migrations should run in deployment pipelines against staging/prod with backups enabled.
+- Set `DATABASE_URL` in `apps/api/.env` before running any Prisma command
+- The placeholder currently points to local Postgres; replace it with the actual connection string for your environment
+
+## Keeping Things Healthy
+
+- If Prisma reports that the schema or client is out of date, rerun `npm run prisma:generate`
+- If migrations fail, inspect the error, fix the schema or data issue, and rerun
+- Do not hand-edit database tables outside migrations
+- In CI, run `npm run prisma:generate` before API builds or tests
+- Run migrations in deployment pipelines for staging and production, with backups enabled

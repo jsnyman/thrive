@@ -76,12 +76,66 @@ const createDependencies = (overrides?: Partial<ApiServerDependencies>): ApiServ
     nextCursor: null,
   }),
   getSyncAuditEvent: async () => null,
+  listSyncReconciliationReport: async () => ({
+    generatedAt: "2026-03-07T12:00:00.000Z",
+    summary: {
+      totalIssues: 0,
+      errorCount: 0,
+      warningCount: 0,
+      repairableCount: 0,
+    },
+    issues: [],
+    nextCursor: null,
+  }),
+  repairSyncReconciliationIssue: async () => ({
+    ok: false,
+    error: "NOT_FOUND",
+  }),
   getLedgerBalance: async (personId) => ({
     personId,
     balancePoints: 0,
   }),
   listLedgerEntries: async () => [],
   getLivePointsBalance: async () => 0,
+  listMaterialsCollectedReport: async () => [],
+  listCashflowReport: async () => ({
+    rows: [],
+    summary: {
+      totalSalesPointsValue: 0,
+      totalExpenseCash: 0,
+      netCashflow: 0,
+      saleCount: 0,
+      expenseCount: 0,
+    },
+    expenseCategories: [],
+  }),
+  listPointsLiabilityReport: async () => ({
+    rows: [],
+    summary: {
+      totalOutstandingPoints: 0,
+      personCount: 0,
+    },
+  }),
+  listInventoryStatusReport: async () => ({
+    summary: [
+      { status: "storage", totalQuantity: 0, totalCostValue: 0 },
+      { status: "shop", totalQuantity: 0, totalCostValue: 0 },
+      { status: "sold", totalQuantity: 0, totalCostValue: 0 },
+      { status: "spoiled", totalQuantity: 0, totalCostValue: 0 },
+      { status: "damaged", totalQuantity: 0, totalCostValue: 0 },
+      { status: "missing", totalQuantity: 0, totalCostValue: 0 },
+    ],
+    rows: [],
+  }),
+  listInventoryStatusLogReport: async () => [],
+  listSalesReport: async () => ({
+    rows: [],
+    summary: {
+      totalQuantity: 0,
+      totalPoints: 0,
+      saleCount: 0,
+    },
+  }),
   pullEvents: async () => ({
     events: [defaultEvent],
     nextCursor: null,

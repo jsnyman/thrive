@@ -1,4 +1,9 @@
 import type { Event, EventType } from "../../../../packages/shared/src/domain/events";
+import {
+  comparePointValues,
+  normalizePointValue,
+  sumPointValues,
+} from "../../../../packages/shared/src/domain/points";
 import type { InventoryStatus } from "../../../../packages/shared/src/domain/types";
 
 export type MergeRejectReason =
@@ -331,12 +336,18 @@ const applyStateMutation = (state: MergeState, event: Event, marker: MutationMar
       return;
     case "intake.recorded": {
       const current = state.personBalances.get(event.payload.personId) ?? 0;
-      state.personBalances.set(event.payload.personId, current + event.payload.totalPoints);
+      state.personBalances.set(
+        event.payload.personId,
+        sumPointValues([current, event.payload.totalPoints]),
+      );
       return;
     }
     case "sale.recorded": {
       const current = state.personBalances.get(event.payload.personId) ?? 0;
-      state.personBalances.set(event.payload.personId, current - event.payload.totalPoints);
+      state.personBalances.set(
+        event.payload.personId,
+        normalizePointValue(current - event.payload.totalPoints),
+      );
       for (const line of event.payload.lines) {
         if (line.inventoryBatchId !== null && line.inventoryBatchId !== undefined) {
           addToBatchStatus(state, line.inventoryBatchId, "shop", line.quantity * -1);
@@ -387,7 +398,10 @@ const applyStateMutation = (state: MergeState, event: Event, marker: MutationMar
       return;
     case "points.adjustment_applied": {
       const current = state.personBalances.get(event.payload.personId) ?? 0;
-      state.personBalances.set(event.payload.personId, current + event.payload.deltaPoints);
+      state.personBalances.set(
+        event.payload.personId,
+        sumPointValues([current, event.payload.deltaPoints]),
+      );
       return;
     }
     case "conflict.detected":
@@ -553,7 +567,7 @@ export const evaluateMergeDecision = (
         }
       }
       const balance = state.personBalances.get(event.payload.personId) ?? 0;
-      if (balance - event.payload.totalPoints < 0) {
+      if (comparePointValues(balance, event.payload.totalPoints) < 0) {
         return insufficientPoints(event);
       }
       return { status: "accepted" };
@@ -626,7 +640,7 @@ export const evaluateMergeDecision = (
         }
       }
       const currentBalance = state.personBalances.get(event.payload.personId) ?? 0;
-      if (currentBalance + event.payload.deltaPoints < 0) {
+      if (comparePointValues(sumPointValues([currentBalance, event.payload.deltaPoints]), 0) < 0) {
         return insufficientPoints(event);
       }
       return { status: "accepted" };
