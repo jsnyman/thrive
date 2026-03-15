@@ -2,7 +2,7 @@
 
 ## User Stories and Acceptance Criteria (v1)
 
-Last updated: `2026-03-12`
+Last updated: `2026-03-13`
 
 ---
 
@@ -50,6 +50,7 @@ Acceptance criteria:
 - Optional fields can be left blank
 - Optional fields can be edited later
 - ID numbers and phone numbers are not displayed during interactions
+- Standard person API responses return masked ID and phone values by default
 
 ### US-5
 

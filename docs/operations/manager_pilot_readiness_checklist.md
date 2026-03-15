@@ -2,6 +2,9 @@
 
 Use this checklist before, during, and after a pilot field day.
 
+This checklist is for pre-flight readiness, supervision, and sign-off. For structured scenario execution, use `docs/operations/field_test_plan.md`.
+For deployment-window cutover and launch sign-off, use `docs/operations/go_live_checklist.md`.
+
 ## Before the Pilot Day
 
 - Confirm the internet-hosted server is reachable.
@@ -42,14 +45,13 @@ Use this checklist before, during, and after a pilot field day.
   - do not reinstall the app
   - do not clear browser data
 
-## During Trading
+## During Trading Oversight
 
 - Monitor battery levels on both phones.
 - If signal appears, ask staff to sync collector first and shop second.
 - Only treat newly earned points as available after both phones have synced successfully.
 - Use the tablet only as a display device.
-- Record any cases where a customer expected to spend same-day points but could not.
-- Record any cases where staff were unsure whether to continue trading offline.
+- Record scenario results in `docs/operations/field_test_execution_sheet.md`.
 
 ## Closing Procedure
 
@@ -75,13 +77,8 @@ Use this checklist before, during, and after a pilot field day.
 
 ## After the Pilot Day
 
-- Record whether the morning sync succeeded on all devices.
-- Record whether midday sync was possible.
-- Record whether end-of-day sync succeeded on all devices.
-- Record any battery or charging problems.
-- Record any missing images or stale prices on the tablet.
-- Record any complaints or confusion around the same-day points rule.
-- Record any conflicts, rejected events, or unexpected balances.
+- Review the completed `docs/operations/field_test_execution_sheet.md`.
+- Convert failures, blocked scenarios, and notable issues into `docs/operations/field_test_findings_log.md`.
 - Decide whether the current two-phone plus tablet model is adequate or needs changes.
 
 ## Sign-Off

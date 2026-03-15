@@ -216,8 +216,8 @@ describe("App person registry", () => {
               id: "person-1",
               name: "Jane",
               surname: "Doe",
-              idNumber: "8001015009087",
-              phone: "0821234567",
+              idNumber: "****87",
+              phone: "****67",
             },
           ],
         });
@@ -343,8 +343,8 @@ describe("App person registry", () => {
                 id: "person-1",
                 name: "Jane",
                 surname: "Doe",
-                idNumber: "8001015009087",
-                phone: "0821234567",
+                idNumber: "****87",
+                phone: "****67",
               },
             ],
           });
@@ -355,8 +355,8 @@ describe("App person registry", () => {
               id: "person-1",
               name: "Jane",
               surname: "Updated",
-              idNumber: "8001015009087",
-              phone: "0821234567",
+              idNumber: "****87",
+              phone: "****67",
             },
           ],
         });

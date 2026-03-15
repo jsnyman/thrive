@@ -130,6 +130,7 @@ Mitigation:
 
 For a shorter staff-facing procedure, see `docs/operations/field_staff_checklist.md`.
 For a manager-facing pilot checklist, see `docs/operations/manager_pilot_readiness_checklist.md`.
+For structured pilot scenario execution and evidence capture, see `docs/operations/field_test_plan.md`, `docs/operations/field_test_execution_sheet.md`, and `docs/operations/field_test_findings_log.md`.
 
 ## Documentation Layout
 
@@ -141,5 +142,9 @@ The field deployment guidance should stay split across two document types:
   - records the practical layout, sync windows, operating rules, and staff runbook
 - Operations checklist:
   - records the short day-of-trading procedure for field staff and supervisors
+- Field test pack:
+  - records structured pilot scenarios, pass/fail expectations, and evidence capture
+- Training guides:
+  - record role-specific onboarding, practice scenarios, and competency checks
 
 This split keeps long-lived design intent separate from procedures that may evolve during pilot testing.

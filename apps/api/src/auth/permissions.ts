@@ -3,6 +3,7 @@ import type { PermissionAction } from "./types";
 
 const permissionMap: Record<StaffRole, PermissionAction[]> = {
   collector: [
+    "person.read",
     "person.create",
     "person.update",
     "intake.record",
@@ -10,6 +11,7 @@ const permissionMap: Record<StaffRole, PermissionAction[]> = {
     "inventory.adjustment.request",
   ],
   shop_operator: [
+    "person.read",
     "person.create",
     "person.update",
     "sale.record",
@@ -18,6 +20,7 @@ const permissionMap: Record<StaffRole, PermissionAction[]> = {
     "inventory.adjustment.request",
   ],
   manager: [
+    "person.read",
     "person.create",
     "person.update",
     "intake.record",

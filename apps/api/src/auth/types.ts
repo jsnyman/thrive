@@ -43,6 +43,7 @@ export type AuthTokenClaims = {
 };
 
 export type PermissionAction =
+  | "person.read"
   | "person.create"
   | "person.update"
   | "intake.record"

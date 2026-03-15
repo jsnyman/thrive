@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { createDefaultEventQueue } from "./offline/event-queue-provider";
 import { createDefaultSyncStateStore } from "./offline/sync-state-provider";
+import { registerServiceWorker } from "./pwa";
 import "@mantine/core/styles.css";
 
 const rootElement = document.getElementById("root");
@@ -16,6 +17,8 @@ const bootstrap = async (): Promise<void> => {
     createDefaultEventQueue(),
     createDefaultSyncStateStore(),
   ]);
+
+  void registerServiceWorker();
 
   createRoot(rootElement).render(
     <MantineProvider>

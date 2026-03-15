@@ -1,6 +1,6 @@
 # Recycling Swap-Shop Basic Plan
 
-Last updated: `2026-03-12`
+Last updated: `2026-03-13`
 
 ---
 
@@ -61,9 +61,9 @@ The system also needs to keep track of all recyclable material. It should record
 
 ---
 
-# Project Plan (v1)
+## Project Plan (v1)
 
-## Scope and Rules
+### Scope and Rules
 
 - Multi-user system with asynchronous sync across devices
 - Offline-first with event-log merge and audit trail
@@ -74,7 +74,7 @@ The system also needs to keep track of all recyclable material. It should record
 - Adjustments require a logged request; only managers can approve and apply them
 - Overlapping edits are flagged for manager resolution
 
-## Tech Stack Notes
+### Tech Stack Notes
 
 - Postgres event log with Prisma schema in `apps/api/prisma/schema.prisma`
 - Projections via Postgres materialized views refreshed after each accepted event write
@@ -83,13 +83,13 @@ The system also needs to keep track of all recyclable material. It should record
   - Sellable cost excludes spoiled, damaged, and missing stock
   - Losses are tracked explicitly
 
-## Primary Actors
+### Primary Actors
 
 - Collector: intake
 - Shop operator: sales
 - Manager: stock, procurement, expenses, reporting
 
-## Core Entities
+### Core Entities
 
 - Staff user: username and passcode with role-based access
 - Person: name, surname, optional ID number, optional phone, address, notes
@@ -103,7 +103,7 @@ The system also needs to keep track of all recyclable material. It should record
 - Expense entries: non-inventory costs
 - Sale event and lines: points only
 
-## Key Workflows
+### Key Workflows
 
 1. Register person.
 2. Intake materials, validate, weigh, compute per-line points rounded down to the nearest `0.1`, and credit the person.
@@ -112,7 +112,7 @@ The system also needs to keep track of all recyclable material. It should record
 5. Record expenses such as fuel, labor, and repairs.
 6. Produce reporting and audits.
 
-## Reporting Outputs
+### Reporting Outputs
 
 - Cashflow summary: sales in points-as-rand, expenses, and net position
 - Sales report: items sold, points spent, location, and date
@@ -123,7 +123,7 @@ The system also needs to keep track of all recyclable material. It should record
 - Inventory status change report: who changed status, when, and why
 - CSV export from the report views for sharing and offline review
 
-## MVP Milestones
+### MVP Milestones
 
 1. Person registry, intake, and points ledger with offline-first behavior
 2. Inventory and points-only sales

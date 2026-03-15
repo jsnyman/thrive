@@ -75,6 +75,15 @@ Endpoints:
 - `POST /people`
 - `PATCH /people/:personId`
 
+#### `GET /people?search=<query>`
+
+Notes:
+
+- Requires `person.read` permission
+- Supports optional case-insensitive name/surname search
+- Returns masked `idNumber` and `phone` values by default in standard person responses
+- Does not expose raw sensitive person fields in normal interaction flows
+
 #### `POST /people`
 
 Request body:
@@ -110,7 +119,10 @@ Request body:
 
 Notes:
 
+- `GET /people` requires `person.read` permission
+- `POST /people` requires `person.create` permission
 - Requires `person.update` permission
+- `POST /people` and `PATCH /people/:personId` return masked `idNumber` and `phone` values in the echoed person payload
 - Appends immutable `person.profile_updated` event
 - Does not mutate or delete existing events
 - Rejects empty updates or unknown fields with `400`

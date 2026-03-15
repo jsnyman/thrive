@@ -169,6 +169,8 @@ const createDependencies = (options?: {
       id: "person-a",
       name: "Alice",
       surname: "Zulu",
+      idNumber: "8001015009087",
+      phone: "0821234567",
     },
   ];
   const materials: MaterialRecord[] = [
@@ -919,7 +921,49 @@ describe("core HTTP endpoints", () => {
     expect(response.status).toBe(401);
   });
 
+  test("GET /people allows collector, operator, and manager and masks sensitive fields", async () => {
+    const server = createApiServer(createDependencies());
+    const collectorToken = await loginAndGetToken(server, "collector", collectorPasscode);
+    const operatorToken = await loginAndGetToken(server, "operator", operatorPasscode);
+    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+
+    const collectorResponse = await supertest(server)
+      .get("/people")
+      .set("authorization", `Bearer ${collectorToken}`);
+    const operatorResponse = await supertest(server)
+      .get("/people")
+      .set("authorization", `Bearer ${operatorToken}`);
+    const managerResponse = await supertest(server)
+      .get("/people")
+      .set("authorization", `Bearer ${managerToken}`);
+
+    for (const response of [collectorResponse, operatorResponse, managerResponse]) {
+      expect(response.status).toBe(200);
+      expect(response.body.people[0]?.idNumber).toBe("****87");
+      expect(response.body.people[0]?.phone).toBe("****67");
+    }
+  });
+
   test("POST /people allows collector", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "collector", collectorPasscode);
+    const response = await supertest(server)
+      .post("/people")
+      .set("authorization", `Bearer ${token}`)
+      .send({
+        name: "Jane",
+        surname: "Doe",
+        idNumber: "8001015009087",
+        phone: "0821234567",
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.person.name).toBe("Jane");
+    expect(response.body.person.idNumber).toBe("****87");
+    expect(response.body.person.phone).toBe("****67");
+  });
+
+  test("POST /people keeps null sensitive fields as null in responses", async () => {
     const server = createApiServer(createDependencies());
     const token = await loginAndGetToken(server, "collector", collectorPasscode);
     const response = await supertest(server)
@@ -928,7 +972,8 @@ describe("core HTTP endpoints", () => {
       .send({ name: "Jane", surname: "Doe" });
 
     expect(response.status).toBe(201);
-    expect(response.body.person.name).toBe("Jane");
+    expect(response.body.person.idNumber).toBeNull();
+    expect(response.body.person.phone).toBeNull();
   });
 
   test("PATCH /people/:personId returns 401 without authorization", async () => {
@@ -970,7 +1015,7 @@ describe("core HTTP endpoints", () => {
       });
     expect(allowed.status).toBe(200);
     expect(allowed.body.person.id).toBe("person-a");
-    expect(allowed.body.person.phone).toBe("0123456789");
+    expect(allowed.body.person.phone).toBe("****89");
   });
 
   test("PATCH /people/:personId returns 404 for unknown person", async () => {

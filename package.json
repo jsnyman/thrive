@@ -35,6 +35,7 @@
     "typecheck": "tsc -p apps/web/tsconfig.json && tsc -p apps/api/tsconfig.json && tsc -p packages/shared/tsconfig.json",
     "prisma:generate": "cd apps/api && npx prisma generate",
     "prisma:migrate": "cd apps/api && npx prisma migrate dev --name init",
+    "prisma:migrate:deploy": "cd apps/api && npx prisma migrate deploy",
     "prisma:studio": "cd apps/api && npx prisma studio",
     "prepare": "husky install"
   },

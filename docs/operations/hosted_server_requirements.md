@@ -134,6 +134,7 @@ These requirements apply to:
 - Document the restore process and the person responsible for running it.
 - Verify that backups can restore both the event log and projection-supporting tables.
 - Run restore drills before production launch and after major infrastructure changes.
+- Use `docs/operations/backup_and_recovery_runbook.md` as the operational restore procedure and incident-response reference.
 
 ## Monitoring and Alerting Requirements
 
@@ -160,6 +161,7 @@ Exact sizing should be reviewed after pilot measurements, but the environment mu
 - Application and schema changes must be deployed in a controlled sequence.
 - Production deployments should include a rollback plan.
 - Production changes should be logged with date, operator, and release identifier.
+- Use `docs/operations/deployment_and_launch_runbook.md` and `docs/operations/go_live_checklist.md` for deployment execution and release sign-off.
 
 ## Out of Scope
 

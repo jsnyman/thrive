@@ -2,6 +2,8 @@
 
 Use this checklist on swap-shop days at low-connectivity sites.
 
+This document is the short day-of-trading procedure for staff. It is not the structured test script. For pilot scenario execution, use `docs/operations/field_test_plan.md`.
+
 ## Device Roles
 
 - Collector phone:
@@ -37,6 +39,7 @@ Use this checklist on swap-shop days at low-connectivity sites.
 - Use the shop phone for all sales.
 - Keep the tablet as display-only.
 - If signal briefly appears, staff may run `Sync Now`, but do not stop trading if sync fails.
+- Follow the manager's test sequence for any pilot scenarios being run that day.
 
 ## Important Rule for Points
 
@@ -70,7 +73,7 @@ Use this checklist on swap-shop days at low-connectivity sites.
 - If a phone cannot sync, keep the device powered on and do not clear browser data.
 - Do not reinstall the app during the field day.
 - Record which device has the unsynced data.
-- Ask a manager to resolve the issue when connectivity is available.
+- Ask a manager to log the issue in the field test findings log when connectivity is available.
 
 ## Supervisor Sign-Off
 

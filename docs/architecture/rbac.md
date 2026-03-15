@@ -15,6 +15,7 @@ This document defines the initial role-based access control rules for staff user
 | Action                              | Collector | Shop operator | Manager |
 | ----------------------------------- | --------- | ------------- | ------- |
 | Log in                              | Yes       | Yes           | Yes     |
+| Read person list                    | Yes       | Yes           | Yes     |
 | Register person                     | Yes       | Yes           | Yes     |
 | Update person profile               | Yes       | Yes           | Yes     |
 | Record intake                       | Yes       | No            | Yes     |
@@ -35,6 +36,7 @@ This document defines the initial role-based access control rules for staff user
 
 ## Enforcement Notes
 
-- RBAC is enforced on the server for all write operations.
+- RBAC is enforced on the server for reads and writes.
 - The client mirrors these rules for usability but cannot be the source of truth.
+- Standard person API responses mask ID numbers and phone numbers by default for all roles.
 - ID numbers and phone numbers are hidden in standard flows for all roles; any explicit reveal requires a deliberate, role-gated action.

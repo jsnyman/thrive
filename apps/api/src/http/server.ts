@@ -487,6 +487,27 @@ const parseTenthsPointNumber = (value: unknown): number | null => {
   return normalizePointValue(value);
 };
 
+const maskSensitiveValue = (value: string | null | undefined): string | null => {
+  if (value === undefined || value === null || value.trim().length === 0) {
+    return null;
+  }
+  const normalized = value.trim();
+  if (normalized.length <= 2) {
+    return "****";
+  }
+  return `****${normalized.slice(-2)}`;
+};
+
+const toPersonResponse = (person: PersonRecord): PersonRecord => ({
+  id: person.id,
+  name: person.name,
+  surname: person.surname,
+  idNumber: maskSensitiveValue(person.idNumber),
+  phone: maskSensitiveValue(person.phone),
+  address: person.address ?? null,
+  notes: person.notes ?? null,
+});
+
 const parsePersonCreateRequest = (body: unknown): PersonCreateInput | null => {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return null;
@@ -1407,14 +1428,14 @@ const handlePeopleList = async (
   res: ServerResponse,
   dependencies: ApiServerDependencies,
 ): Promise<void> => {
-  const actor = requireAuthorization(req, res, dependencies, "person.update");
+  const actor = requireAuthorization(req, res, dependencies, "person.read");
   if (actor === null) {
     return;
   }
   const parsedUrl = new URL(req.url ?? "/", "http://localhost");
   const searchParam = parsedUrl.searchParams.get("search") ?? undefined;
   const people = await dependencies.listPeople(searchParam);
-  sendJson(res, 200, { people });
+  sendJson(res, 200, { people: people.map(toPersonResponse) });
 };
 
 const handlePeopleCreate = async (
@@ -1465,7 +1486,7 @@ const handlePeopleCreate = async (
     return;
   }
 
-  sendJson(res, 201, { person });
+  sendJson(res, 201, { person: toPersonResponse(person) });
 };
 
 const handlePeopleUpdate = async (
@@ -1513,7 +1534,7 @@ const handlePeopleUpdate = async (
     sendJson(res, 500, { error: "INTERNAL_SERVER_ERROR" });
     return;
   }
-  sendJson(res, 200, { person: updated });
+  sendJson(res, 200, { person: toPersonResponse(updated) });
 };
 
 const handleMaterialsList = async (

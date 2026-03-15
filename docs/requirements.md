@@ -2,7 +2,7 @@
 
 ## Detailed Requirements (v1)
 
-Last updated: `2026-03-12`
+Last updated: `2026-03-13`
 
 ---
 
@@ -124,7 +124,7 @@ The system is:
 - `FR-3`: Users can register a new person with name and surname
 - `FR-4`: Users can add optional ID number, phone, address, and notes
 - `FR-5`: Users can search and select existing persons
-- `FR-5a`: ID numbers and phone numbers must not be displayed during interactions
+- `FR-5a`: ID numbers and phone numbers must not be displayed during interactions; standard person API responses must return masked values by default
 
 ### 4.3 Material Intake and Points
 
@@ -206,8 +206,9 @@ The system is:
 - `NFR-4`: Data integrity must be maintained across sync
 - `NFR-5`: UI must be usable in low-connectivity, mobile contexts
 - `NFR-5a`: Manager reporting and reconciliation surfaces should lazy-load on demand so low-end devices do not pay the startup cost for all report panels at login
+- `NFR-5b`: Pilot readiness must include field-validation scenarios that exercise offline trading, intermittent connectivity, and the same-day points sync rule
 - `NFR-6`: Event logs must be retained indefinitely, initially
-- `NFR-7`: ID numbers and phone numbers must not be displayed during interactions
+- `NFR-7`: ID numbers and phone numbers must not be displayed during interactions, and server-side response masking must enforce that default visibility rule
 
 ---
 

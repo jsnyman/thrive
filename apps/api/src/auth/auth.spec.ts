@@ -83,6 +83,12 @@ describe("staff authentication", () => {
 });
 
 describe("rbac authorization", () => {
+  test("allows shop operator to read people", () => {
+    const allowed = authorizeStaffAction("shop_operator", "person.read");
+
+    expect(allowed).toBe(true);
+  });
+
   test("denies collector from applying points adjustments", () => {
     const allowed = authorizeStaffAction("collector", "points.adjustment.apply");
 
