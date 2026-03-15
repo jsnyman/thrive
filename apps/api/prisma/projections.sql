@@ -64,7 +64,7 @@ points_adjustment as (
     (e.payload ->> 'deltaPoints')::numeric(12, 1) as delta_points,
     e.occurred_at as occurred_at,
     'points.adjustment_applied'::text as source_event_type,
-    coalesce(e.payload ->> 'requestEventId', e.event_id) as source_event_id
+    coalesce(e.payload ->> 'requestEventId', e.event_id::text) as source_event_id
   from event e
   where e.event_type = 'points.adjustment_applied'
 )
@@ -139,3 +139,4 @@ create index if not exists mv_materials_collected_daily_material_idx
 
 create index if not exists mv_materials_collected_daily_location_idx
   on mv_materials_collected_daily (location_text);
+
