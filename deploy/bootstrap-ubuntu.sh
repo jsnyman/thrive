@@ -293,7 +293,7 @@ write_api_env() {
   log "Writing API environment file..."
   mkdir -p "$APP_DIR/apps/api"
   cat >"$APP_DIR/apps/api/.env" <<EOF
-DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}
+DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}?schema=public
 AUTH_SECRET=${AUTH_SECRET}
 AUTH_TOKEN_TTL_SECONDS=3600
 API_PORT=3001
@@ -474,5 +474,4 @@ main() {
 }
 
 main "$@"
-
 

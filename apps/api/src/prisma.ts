@@ -1,7 +1,19 @@
+import { config as loadEnv } from "dotenv";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "./generated/prisma/client";
 
 export type PrismaClientOptions = ConstructorParameters<typeof PrismaClient>[0];
+
+const envCandidatePaths = [join(process.cwd(), "apps", "api", ".env"), join(process.cwd(), ".env")];
+
+for (const envPath of envCandidatePaths) {
+  if (existsSync(envPath)) {
+    loadEnv({ path: envPath, override: false });
+    break;
+  }
+}
 
 const getDatabaseUrl = (): string => {
   const databaseUrl = process.env["DATABASE_URL"];
