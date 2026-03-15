@@ -8,17 +8,17 @@ SYSTEMD_SERVICE_NAME="recycling-api.service"
 SYSTEMD_SERVICE_PATH="/etc/systemd/system/${SYSTEMD_SERVICE_NAME}"
 SSH_HARDENING_PATH="/etc/ssh/sshd_config.d/99-hardening.conf"
 
-DOMAIN="greytonthrive.org.za"
-GIT_REPO_URL="https://github.com/greytonthrive/recycling-swap-shop.git"
+DOMAIN=""
+GIT_REPO_URL=""
 GIT_BRANCH="main"
 APP_DIR="/opt/recycling-swap-shop"
 APP_USER="recycling"
 DB_NAME="recycling_swap_shop"
-DB_USER="recycling"
-DB_PASSWORD="6&DAP3WIEy-wWpVDZ4h2"
-AUTH_SECRET="xAi-4&70PuHU-8W5gv11QISNvgoyrk"
+DB_USER=""
+DB_PASSWORD=""
+AUTH_SECRET=""
 LETSENCRYPT_EMAIL="johan_snyman@yahoo.com"
-SEED_STAFF="no"
+SEED_STAFF="yes"
 
 log() {
   printf '[%s] %s\n' "$SCRIPT_NAME" "$1"
@@ -245,8 +245,11 @@ configure_postgresql() {
   local escaped_password
   escaped_password="${DB_PASSWORD//\'/\'\'}"
 
-  su - postgres -c "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='${DB_USER}'\"" | grep -q 1 || \
+  if su - postgres -c "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='${DB_USER}'\"" | grep -q 1; then
+    su - postgres -c "psql -c \"ALTER ROLE \\\"${DB_USER}\\\" WITH PASSWORD '${escaped_password}';\""
+  else
     su - postgres -c "psql -c \"CREATE ROLE \\\"${DB_USER}\\\" LOGIN PASSWORD '${escaped_password}';\""
+  fi
 
   su - postgres -c "psql -tAc \"SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'\"" | grep -q 1 || \
     su - postgres -c "psql -c \"CREATE DATABASE \\\"${DB_NAME}\\\" OWNER \\\"${DB_USER}\\\";\""
@@ -258,19 +261,20 @@ clone_or_update_repo() {
 
   if [[ ! -d "$APP_DIR/.git" ]]; then
     rm -rf "$APP_DIR"
-    git clone --branch "$GIT_BRANCH" "$GIT_REPO_URL" "$APP_DIR"
+    install -d -o "$APP_USER" -g "$APP_USER" "$APP_DIR"
+    sudo -u "$APP_USER" -H git clone --branch "$GIT_BRANCH" "$GIT_REPO_URL" "$APP_DIR"
   else
     local existing_remote
-    existing_remote="$(git -C "$APP_DIR" remote get-url origin)"
+    existing_remote="$(sudo -u "$APP_USER" -H git -C "$APP_DIR" remote get-url origin)"
     if [[ "$existing_remote" != "$GIT_REPO_URL" ]]; then
       fatal "Existing repo remote mismatch at $APP_DIR. Expected $GIT_REPO_URL but found $existing_remote."
     fi
-    if [[ -n "$(git -C "$APP_DIR" status --porcelain)" ]]; then
+    if [[ -n "$(sudo -u "$APP_USER" -H git -C "$APP_DIR" status --porcelain)" ]]; then
       fatal "Existing repo at $APP_DIR has uncommitted changes. Refusing to update."
     fi
-    git -C "$APP_DIR" fetch origin
-    git -C "$APP_DIR" checkout "$GIT_BRANCH"
-    git -C "$APP_DIR" pull --ff-only origin "$GIT_BRANCH"
+    sudo -u "$APP_USER" -H git -C "$APP_DIR" fetch origin
+    sudo -u "$APP_USER" -H git -C "$APP_DIR" checkout "$GIT_BRANCH"
+    sudo -u "$APP_USER" -H git -C "$APP_DIR" pull --ff-only origin "$GIT_BRANCH"
   fi
 
   chown -R "$APP_USER:$APP_USER" "$APP_DIR"
@@ -438,21 +442,21 @@ main() {
   require_ubuntu
   collect_inputs
 
- # apt_update_upgrade
- # install_hardening_packages
- # configure_ssh_hardening
- # configure_firewall
- # enable_fail2ban
- # enable_unattended_upgrades
- # create_app_user
+  apt_update_upgrade
+  install_hardening_packages
+  configure_ssh_hardening
+  configure_firewall
+  enable_fail2ban
+  enable_unattended_upgrades
+  create_app_user
 
- # install_nginx
- # configure_nginx_http_site
+  install_nginx
+  configure_nginx_http_site
 
- # install_runtime_packages
- # install_nodejs_22
- # verify_toolchain
- # configure_postgresql
+  install_runtime_packages
+  install_nodejs_22
+  verify_toolchain
+  configure_postgresql
 
   clone_or_update_repo
   run_app_build
@@ -470,4 +474,5 @@ main() {
 }
 
 main "$@"
+
 
