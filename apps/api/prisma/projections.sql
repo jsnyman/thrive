@@ -37,29 +37,29 @@ create unique index if not exists mv_people_id_idx on mv_people (id);
 create materialized view if not exists mv_points_ledger_entries as
 with intake as (
   select
-    e.event_id as id,
+    e.event_id::text as id,
     e.payload ->> 'personId' as person_id,
     (e.payload ->> 'totalPoints')::numeric(12, 1) as delta_points,
     e.occurred_at as occurred_at,
     'intake.recorded'::text as source_event_type,
-    e.event_id as source_event_id
+    e.event_id::text as source_event_id
   from event e
   where e.event_type = 'intake.recorded'
 ),
 sale as (
   select
-    e.event_id as id,
+    e.event_id::text as id,
     e.payload ->> 'personId' as person_id,
     ((e.payload ->> 'totalPoints')::numeric(12, 1) * -1) as delta_points,
     e.occurred_at as occurred_at,
     'sale.recorded'::text as source_event_type,
-    e.event_id as source_event_id
+    e.event_id::text as source_event_id
   from event e
   where e.event_type = 'sale.recorded'
 ),
 points_adjustment as (
   select
-    e.event_id as id,
+    e.event_id::text as id,
     e.payload ->> 'personId' as person_id,
     (e.payload ->> 'deltaPoints')::numeric(12, 1) as delta_points,
     e.occurred_at as occurred_at,
