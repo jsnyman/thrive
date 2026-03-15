@@ -23,63 +23,63 @@ CREATE TYPE "EventType" AS ENUM (
   'conflict.resolved'
 );
 
-CREATE TABLE "Event" (
-  "eventId" UUID NOT NULL,
-  "eventType" "EventType" NOT NULL,
-  "occurredAt" TIMESTAMPTZ(6) NOT NULL,
-  "recordedAt" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  "actorUserId" UUID NOT NULL,
-  "deviceId" TEXT NOT NULL,
-  "locationText" TEXT,
-  "schemaVersion" INTEGER NOT NULL,
-  "correlationId" TEXT,
-  "causationId" TEXT,
-  "payload" JSONB NOT NULL,
-  CONSTRAINT "Event_pkey" PRIMARY KEY ("eventId")
+CREATE TABLE event (
+  event_id UUID NOT NULL,
+  event_type "EventType" NOT NULL,
+  occurred_at TIMESTAMPTZ(6) NOT NULL,
+  recorded_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  actor_user_id UUID NOT NULL,
+  device_id TEXT NOT NULL,
+  location_text TEXT,
+  schema_version INTEGER NOT NULL,
+  correlation_id TEXT,
+  causation_id TEXT,
+  payload JSONB NOT NULL,
+  CONSTRAINT event_pkey PRIMARY KEY (event_id)
 );
 
-CREATE TABLE "StaffUser" (
-  "id" UUID NOT NULL DEFAULT gen_random_uuid(),
-  "username" TEXT NOT NULL,
-  "passcodeHash" TEXT NOT NULL,
-  "role" "StaffRole" NOT NULL,
-  "createdAt" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT "StaffUser_pkey" PRIMARY KEY ("id")
+CREATE TABLE staff_user (
+  id UUID NOT NULL DEFAULT gen_random_uuid(),
+  username TEXT NOT NULL,
+  passcode_hash TEXT NOT NULL,
+  role "StaffRole" NOT NULL,
+  created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT staff_user_pkey PRIMARY KEY (id)
 );
 
-CREATE TABLE "Person" (
-  "id" UUID NOT NULL DEFAULT gen_random_uuid(),
-  "name" TEXT NOT NULL,
-  "surname" TEXT NOT NULL,
-  "idNumber" TEXT,
-  "phone" TEXT,
-  "address" TEXT,
-  "notes" TEXT,
-  "createdAt" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT "Person_pkey" PRIMARY KEY ("id")
+CREATE TABLE person (
+  id UUID NOT NULL DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  surname TEXT NOT NULL,
+  id_number TEXT,
+  phone TEXT,
+  address TEXT,
+  notes TEXT,
+  created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT person_pkey PRIMARY KEY (id)
 );
 
-CREATE TABLE "MaterialType" (
-  "id" UUID NOT NULL DEFAULT gen_random_uuid(),
-  "name" TEXT NOT NULL,
-  "pointsPerKg" DECIMAL(10,2) NOT NULL,
-  "createdAt" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT "MaterialType_pkey" PRIMARY KEY ("id")
+CREATE TABLE material_type (
+  id UUID NOT NULL DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  points_per_kg DECIMAL(10,2) NOT NULL,
+  created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT material_type_pkey PRIMARY KEY (id)
 );
 
-CREATE TABLE "Item" (
-  "id" UUID NOT NULL DEFAULT gen_random_uuid(),
-  "name" TEXT NOT NULL,
-  "pointsPrice" DECIMAL(10,2) NOT NULL,
-  "costPrice" DECIMAL(12,2),
-  "sku" TEXT,
-  "createdAt" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT "Item_pkey" PRIMARY KEY ("id")
+CREATE TABLE item (
+  id UUID NOT NULL DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  points_price DECIMAL(10,2) NOT NULL,
+  cost_price DECIMAL(12,2),
+  sku TEXT,
+  created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT item_pkey PRIMARY KEY (id)
 );
 
-CREATE UNIQUE INDEX "StaffUser_username_key" ON "StaffUser"("username");
-CREATE UNIQUE INDEX "MaterialType_name_key" ON "MaterialType"("name");
-CREATE INDEX "Event_eventType_idx" ON "Event"("eventType");
-CREATE INDEX "Event_occurredAt_idx" ON "Event"("occurredAt");
-CREATE INDEX "Event_actorUserId_idx" ON "Event"("actorUserId");
-CREATE INDEX "Item_name_idx" ON "Item"("name");
+CREATE UNIQUE INDEX staff_user_username_key ON staff_user(username);
+CREATE UNIQUE INDEX material_type_name_key ON material_type(name);
+CREATE INDEX event_event_type_idx ON event(event_type);
+CREATE INDEX event_occurred_at_idx ON event(occurred_at);
+CREATE INDEX event_actor_user_id_idx ON event(actor_user_id);
+CREATE INDEX item_name_idx ON item(name);
