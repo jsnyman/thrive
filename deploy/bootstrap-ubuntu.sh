@@ -17,7 +17,7 @@ DB_NAME="recycling_swap_shop"
 DB_USER=""
 DB_PASSWORD=""
 AUTH_SECRET=""
-LETSENCRYPT_EMAIL="johan_snyman@yahoo.com"
+LETSENCRYPT_EMAIL=""
 SEED_STAFF="yes"
 
 log() {
@@ -95,16 +95,16 @@ validate_identifier() {
 
 collect_inputs() {
   log "Collecting runtime inputs..."
-  #prompt_required DOMAIN "Domain (e.g. shop.example.org.za): "
-  #prompt_required GIT_REPO_URL "Git repository URL: "
+  prompt_required DOMAIN "Domain (e.g. shop.example.org.za): "
+  prompt_required GIT_REPO_URL "Git repository URL: "
   prompt_default GIT_BRANCH "Git branch" "main"
   prompt_default APP_DIR "Application directory" "/opt/recycling-swap-shop"
   prompt_default APP_USER "Application system user" "recycling"
-  #prompt_required DB_NAME "PostgreSQL database name: "
-  #prompt_required DB_USER "PostgreSQL database user: "
-  #prompt_secret DB_PASSWORD "PostgreSQL database password: "
-  #prompt_secret AUTH_SECRET "API AUTH_SECRET: "
-  #read -r -p "Let's Encrypt email (optional, press Enter to skip): " LETSENCRYPT_EMAIL
+  prompt_required DB_NAME "PostgreSQL database name: "
+  prompt_required DB_USER "PostgreSQL database user: "
+  prompt_secret DB_PASSWORD "PostgreSQL database password: "
+  prompt_secret AUTH_SECRET "API AUTH_SECRET: "
+  read -r -p "Let's Encrypt email (optional, press Enter to skip): " LETSENCRYPT_EMAIL
   prompt_default SEED_STAFF "Seed default staff users? (yes/no)" "no"
   if [[ "$SEED_STAFF" != "yes" && "$SEED_STAFF" != "no" ]]; then
     fatal "SEED_STAFF must be 'yes' or 'no'."
@@ -337,6 +337,10 @@ detect_api_entry() {
     printf '%s' "$APP_DIR/apps/api/dist/src/start.js"
     return 0
   fi
+  if [[ -f "$APP_DIR/apps/api/dist/apps/api/src/start.js" ]]; then
+    printf '%s' "$APP_DIR/apps/api/dist/apps/api/src/start.js"
+    return 0
+  fi
   return 1
 }
 
@@ -382,7 +386,21 @@ get_public_ipv4() {
 }
 
 get_domain_ipv4() {
-  getent ahostsv4 "$DOMAIN" | awk '{print $1}' | sort -u
+  local resolved_ips
+
+  resolved_ips="$(getent ahostsv4 "$DOMAIN" 2>/dev/null | awk '{print $1}' | sort -u)" || true
+  if [[ -n "$resolved_ips" ]]; then
+    printf '%s\n' "$resolved_ips"
+    return 0
+  fi
+
+  resolved_ips="$(getent hosts "$DOMAIN" 2>/dev/null | awk '{print $1}' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | sort -u)" || true
+  if [[ -n "$resolved_ips" ]]; then
+    printf '%s\n' "$resolved_ips"
+    return 0
+  fi
+
+  return 1
 }
 
 verify_domain_points_to_server() {
@@ -473,5 +491,7 @@ main() {
   print_summary
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi
 
