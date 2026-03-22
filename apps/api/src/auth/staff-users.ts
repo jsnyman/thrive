@@ -1,8 +1,17 @@
-import type { PrismaClient } from "../generated/prisma/client";
 import type { StaffUserRecord } from "./types";
 
+type StaffUserReader = {
+  staffUser: {
+    findUnique: (args: {
+      where: {
+        username: string;
+      };
+    }) => Promise<StaffUserRecord | null>;
+  };
+};
+
 export const getStaffUserByUsername = async (
-  prisma: PrismaClient,
+  prisma: StaffUserReader,
   username: string,
 ): Promise<StaffUserRecord | null> => {
   const user = await prisma.staffUser.findUnique({

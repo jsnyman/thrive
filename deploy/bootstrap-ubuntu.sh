@@ -19,6 +19,8 @@ DB_PASSWORD=""
 AUTH_SECRET=""
 LETSENCRYPT_EMAIL=""
 SEED_STAFF="yes"
+DNS_CHECK_RETRIES="12"
+DNS_CHECK_DELAY_SECONDS="10"
 
 log() {
   printf '[%s] %s\n' "$SCRIPT_NAME" "$1"
@@ -407,8 +409,28 @@ verify_domain_points_to_server() {
   log "Checking DNS before certificate issuance..."
   local server_ip
   local domain_ips
+  local attempt
+
+  if [[ -z "$DOMAIN" ]]; then
+    fatal "DOMAIN is empty. Set a domain before certificate issuance."
+  fi
+
+  log "Resolving domain ${DOMAIN}..."
   server_ip="$(get_public_ipv4)" || fatal "Unable to determine server public IPv4."
-  domain_ips="$(get_domain_ipv4)" || fatal "Unable to resolve domain IPv4."
+  for ((attempt = 1; attempt <= DNS_CHECK_RETRIES; attempt += 1)); do
+    domain_ips="$(get_domain_ipv4)" || true
+    if [[ -n "$domain_ips" ]]; then
+      break
+    fi
+    if (( attempt < DNS_CHECK_RETRIES )); then
+      log "DNS lookup for ${DOMAIN} returned no IPv4 record yet. Retrying in ${DNS_CHECK_DELAY_SECONDS}s (${attempt}/${DNS_CHECK_RETRIES})..."
+      sleep "$DNS_CHECK_DELAY_SECONDS"
+    fi
+  done
+
+  if [[ -z "$domain_ips" ]]; then
+    fatal "Unable to resolve domain IPv4 for ${DOMAIN}. Check the A record and run: getent hosts ${DOMAIN}"
+  fi
 
   if ! grep -Fxq "$server_ip" <<<"$domain_ips"; then
     printf 'WARNING: Domain %s resolves to:\n%s\n' "$DOMAIN" "$domain_ips" >&2

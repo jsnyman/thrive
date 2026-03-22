@@ -14,7 +14,7 @@ import type {
   SyncResolveConflictRequest,
   SyncResolveConflictResponse,
 } from "../../../../packages/shared/src/domain/sync";
-import type { PrismaClient } from "../generated/prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import { refreshProjections } from "../projections/refresh";
 import { createEventStore, type AppendEventResult } from "./event-store";
 import { projectEventToReadModels } from "./project-event";

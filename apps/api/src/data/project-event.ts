@@ -1,5 +1,5 @@
 import type { Event } from "../../../../packages/shared/src/domain/events";
-import type { PrismaClient } from "../generated/prisma/client";
+import type { PrismaClient } from "@prisma/client";
 
 type ProjectorExecutor = Pick<PrismaClient, "person" | "materialType" | "item">;
 

@@ -2,7 +2,7 @@ import { config as loadEnv } from "dotenv";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "./generated/prisma/client";
+import { PrismaClient } from "@prisma/client";
 
 export type PrismaClientOptions = ConstructorParameters<typeof PrismaClient>[0];
 
