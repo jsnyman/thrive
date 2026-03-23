@@ -50,5 +50,6 @@ describe("createMaterialsClient", () => {
 
     await expect(client.listMaterials()).rejects.toThrow("Materials fetch failed with status 500");
     await expect(client.listMaterials()).rejects.toThrow("Invalid material pointsPerKg");
+    expect(fetchFn.mock.calls[0]?.[0]).toBe("/api/materials");
   });
 });

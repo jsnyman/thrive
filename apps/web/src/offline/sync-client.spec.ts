@@ -68,7 +68,7 @@ describe("createSyncClient", () => {
     await expect(syncStateStore.getCursor()).resolves.toBe("cursor-1");
 
     const pushCall = fetchFn.mock.calls[0];
-    expect(pushCall?.[0]).toBe("/sync/push");
+    expect(pushCall?.[0]).toBe("/api/sync/push");
   });
 
   test("pull advances cursor when queue is empty", async () => {

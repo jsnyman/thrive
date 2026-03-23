@@ -33,6 +33,7 @@ describe("createAuthClient", () => {
     const user = await client.login("manager", "1234");
     expect(user.username).toBe("manager");
     expect(getAuthToken()).toBe("token-1");
+    expect(fetchFn.mock.calls[0]?.[0]).toBe("/api/auth/login");
   });
 
   test("loadSession returns null and clears token on unauthorized", async () => {
@@ -59,6 +60,7 @@ describe("createAuthClient", () => {
 
     expect(user).toBeNull();
     expect(getAuthToken()).toBeNull();
+    expect(meFetch.mock.calls[0]?.[0]).toBe("/api/auth/me");
   });
 
   test("throws deterministic validation errors for invalid payloads", async () => {

@@ -55,5 +55,6 @@ describe("createPeopleClient", () => {
 
     await expect(client.listPeople()).rejects.toThrow("People fetch failed with status 500");
     await expect(client.listPeople()).rejects.toThrow("Invalid person.idNumber");
+    expect(fetchFn.mock.calls[0]?.[0]).toBe("/api/people");
   });
 });

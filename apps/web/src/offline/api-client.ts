@@ -5,6 +5,8 @@ export type ApiClientOptions = {
   fetchFn?: typeof fetch;
 };
 
+const DEFAULT_API_BASE_URL = "/api";
+
 type RequestOptions = {
   method: "GET" | "POST" | "PATCH";
   path: string;
@@ -43,7 +45,7 @@ export const clearAuthToken = (): void => {
 
 export const createApiClient = (options?: ApiClientOptions) => {
   const fetchFn = options?.fetchFn ?? fetch;
-  const baseUrl = options?.baseUrl ?? "";
+  const baseUrl = options?.baseUrl ?? DEFAULT_API_BASE_URL;
 
   const request = async (requestOptions: RequestOptions): Promise<Response> => {
     const headers: Record<string, string> = {};

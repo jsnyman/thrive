@@ -60,4 +60,16 @@ describe("api-client", () => {
       "Invalid JSON from unit test context",
     );
   });
+
+  test("uses /api as the default baseUrl", async () => {
+    const fetchFn = vi.fn<typeof fetch>().mockResolvedValueOnce(jsonResponse({ ok: true }));
+    const client = createApiClient({ fetchFn });
+
+    await client.request({
+      method: "GET",
+      path: "/people",
+    });
+
+    expect(fetchFn.mock.calls[0]?.[0]).toBe("/api/people");
+  });
 });
