@@ -6,7 +6,7 @@ Purpose: document how Prisma is used in `apps/api`, and when to run each command
 
 ### `npm run prisma:generate`
 
-Regenerates the TypeScript client in `apps/api/src/generated/prisma`.
+Regenerates the TypeScript client for `@prisma/client`.
 
 Run this:
 
@@ -16,6 +16,7 @@ Run this:
 Why:
 
 - Keeps typings in sync with the schema definition
+- Refreshes the client consumed by the API code in `apps/api/src`
 
 ### `npm run prisma:migrate`
 
@@ -67,6 +68,7 @@ Current point storage rules:
 ## Keeping Things Healthy
 
 - If Prisma reports that the schema or client is out of date, rerun `npm run prisma:generate`
+- The current schema uses Prisma's default client output for `@prisma/client`; if an old `apps/api/src/generated/prisma` folder exists locally, treat it as stale generated output
 - If migrations fail, inspect the error, fix the schema or data issue, and rerun
 - Do not hand-edit database tables outside migrations
 - In CI, run `npm run prisma:generate` before API builds or tests

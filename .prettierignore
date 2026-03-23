@@ -5,3 +5,5 @@ coverage/
 .vite/
 .cache/
 .tmp/
+apps/api/src/generated/prisma/
+test-results/
