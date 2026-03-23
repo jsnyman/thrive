@@ -82,7 +82,7 @@ describe("bootstrapApp", () => {
       throw new Error("Expected root element");
     }
 
-    void bootstrapApp(rootElement);
+    const bootstrapPromise = bootstrapApp(rootElement);
     await flushPromises();
 
     expect(mockedEventQueueProvider.createDefaultEventQueue).toHaveBeenCalledTimes(1);
@@ -91,15 +91,16 @@ describe("bootstrapApp", () => {
     resolveQueue({
       pendingCount: async () => 0,
     });
-    await flushPromises();
+    await bootstrapPromise;
 
     expect(mockedSyncStateProvider.createDefaultSyncStateStore).toHaveBeenCalledTimes(1);
     expect(mockedPwaModule.registerServiceWorker).toHaveBeenCalledTimes(1);
     expect(mockedRender).toHaveBeenCalled();
   });
 
-  test("renders a startup error when offline initialization fails", async () => {
+  test("falls back to in-memory stores and renders the app when OPFS init fails", async () => {
     mockedEventQueueProvider.createDefaultEventQueue.mockRejectedValue(new Error("OPFS failed"));
+    mockedSyncStateProvider.createDefaultSyncStateStore.mockRejectedValue(new Error("sync failed"));
 
     const { bootstrapApp } = await import("./bootstrap");
     const rootElement = document.getElementById("root");
@@ -109,8 +110,20 @@ describe("bootstrapApp", () => {
 
     await bootstrapApp(rootElement);
 
-    expect(mockedSyncStateProvider.createDefaultSyncStateStore).not.toHaveBeenCalled();
-    expect(mockedPwaModule.registerServiceWorker).not.toHaveBeenCalled();
+    expect(mockedSyncStateProvider.createDefaultSyncStateStore).toHaveBeenCalledTimes(1);
+    expect(mockedPwaModule.registerServiceWorker).toHaveBeenCalledTimes(1);
     expect(mockedRender).toHaveBeenCalled();
+    const renderedElement = mockedRender.mock.calls[0]?.[0] as {
+      props?: {
+        children?: {
+          props?: {
+            startupWarnings?: string[];
+          };
+        };
+      };
+    };
+    expect(renderedElement.props?.children?.props).toMatchObject({
+      startupWarnings: ["OPFS failed", "sync failed"],
+    });
   });
 });

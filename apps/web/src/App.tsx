@@ -1,4 +1,5 @@
 import {
+  Alert,
   AppShell,
   Badge,
   Button,
@@ -64,6 +65,7 @@ import "./app.css";
 type AppProps = {
   queue?: EventQueue | null;
   syncStateStore?: SyncStateStore | null;
+  startupWarnings?: string[];
 };
 
 type SessionStatus = "loading" | "anonymous" | "authenticated";
@@ -521,7 +523,11 @@ const buildInventoryAdjustmentRequestedEvent = (
   },
 });
 
-export const App = ({ queue = null, syncStateStore = null }: AppProps): JSX.Element => {
+export const App = ({
+  queue = null,
+  syncStateStore = null,
+  startupWarnings = [],
+}: AppProps): JSX.Element => {
   const authClient = useMemo(() => createAuthClient(), []);
   const peopleClient = useMemo(() => createPeopleClient(), []);
   const materialsClient = useMemo(() => createMaterialsClient(), []);
@@ -614,6 +620,12 @@ export const App = ({ queue = null, syncStateStore = null }: AppProps): JSX.Elem
   >(null);
   const [pointsLiabilityLoading, setPointsLiabilityLoading] = useState<boolean>(false);
   const [pointsLiabilityError, setPointsLiabilityError] = useState<string | null>(null);
+  const startupWarningBanner =
+    startupWarnings.length > 0 ? (
+      <Alert color="yellow" title="Offline storage fallback active" variant="light">
+        {startupWarnings.join(" ")}
+      </Alert>
+    ) : null;
   const pointsLiabilityRequestRef = useRef<number>(0);
   const [inventoryStatusReportSummary, setInventoryStatusReportSummary] = useState<
     InventoryStatusReportSummaryRow[]
@@ -1950,34 +1962,37 @@ export const App = ({ queue = null, syncStateStore = null }: AppProps): JSX.Elem
       <AppShell padding="md">
         <AppShell.Main className="mainSurface">
           <Container size="sm" py="xl">
-            <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
-              <Stack gap="md">
-                <Title order={3}>Login</Title>
-                <TextInput
-                  label="Username"
-                  value={username}
-                  onChange={(event) => {
-                    setUsername(event.currentTarget.value);
-                  }}
-                />
-                <PasswordInput
-                  label="Passcode"
-                  value={passcode}
-                  onChange={(event) => {
-                    setPasscode(event.currentTarget.value);
-                  }}
-                />
-                {sessionError !== null ? <Text c="red">{sessionError}</Text> : null}
-                <Button
-                  onClick={() => {
-                    void handleLogin();
-                  }}
-                  loading={loginPending || sessionStatus === "loading"}
-                >
-                  Login
-                </Button>
-              </Stack>
-            </Card>
+            <Stack gap="md">
+              {startupWarningBanner}
+              <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                <Stack gap="md">
+                  <Title order={3}>Login</Title>
+                  <TextInput
+                    label="Username"
+                    value={username}
+                    onChange={(event) => {
+                      setUsername(event.currentTarget.value);
+                    }}
+                  />
+                  <PasswordInput
+                    label="Passcode"
+                    value={passcode}
+                    onChange={(event) => {
+                      setPasscode(event.currentTarget.value);
+                    }}
+                  />
+                  {sessionError !== null ? <Text c="red">{sessionError}</Text> : null}
+                  <Button
+                    onClick={() => {
+                      void handleLogin();
+                    }}
+                    loading={loginPending || sessionStatus === "loading"}
+                  >
+                    Login
+                  </Button>
+                </Stack>
+              </Card>
+            </Stack>
           </Container>
         </AppShell.Main>
       </AppShell>
@@ -2025,6 +2040,7 @@ export const App = ({ queue = null, syncStateStore = null }: AppProps): JSX.Elem
       <AppShell.Main className="mainSurface">
         <Container size="lg">
           <Stack gap="xl" py="xl">
+            {startupWarningBanner}
             <div>
               <Title order={2}>Person Registry</Title>
               <Text c="dimmed" size="sm">{`Pending events: ${String(sync.pendingCount)}`}</Text>
