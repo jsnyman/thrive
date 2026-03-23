@@ -30,7 +30,7 @@ type SqliteVfs = {
 
 type SqliteApi = {
   vfs_register: (vfs: SqliteVfs, makeDefault?: boolean) => number;
-  open_v2: (name: string) => Promise<number>;
+  open_v2: (name: string, flags?: number, vfsName?: string) => Promise<number>;
   exec: (
     db: number,
     sql: string,
@@ -42,6 +42,11 @@ type SqliteApi = {
     params: Array<string | number | null>,
   ) => Promise<unknown>;
 };
+
+const SQLITE_OPEN_READWRITE = 0x00000002;
+const SQLITE_OPEN_CREATE = 0x00000004;
+const OPFS_VFS_NAME = "opfs";
+const DATABASE_NAME = "recycling-event-queue.sqlite";
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS queued_event (
@@ -97,7 +102,11 @@ const requireApi = async (): Promise<SqliteApi> => {
 const requireDatabase = async (): Promise<{ api: SqliteApi; db: number }> => {
   const api = await requireApi();
   if (databaseId === null) {
-    const openedDb = await api.open_v2("recycling-event-queue.sqlite");
+    const openedDb = await api.open_v2(
+      DATABASE_NAME,
+      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
+      OPFS_VFS_NAME,
+    );
     databaseId = openedDb;
     await api.exec(openedDb, SCHEMA_SQL);
   }
