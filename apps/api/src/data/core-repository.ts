@@ -835,6 +835,18 @@ export const createCoreRepository = (prisma: PrismaClient) => {
     return toItemRecord(row);
   };
 
+  const getItemByName = async (name: string): Promise<ItemRecord | null> => {
+    const row = await prisma.item.findFirst({
+      where: {
+        name,
+      },
+    });
+    if (row === null) {
+      return null;
+    }
+    return toItemRecord(row);
+  };
+
   const appendEventAndProject = async (event: Event): Promise<AppendEventResult> => {
     const result = await prisma.$transaction(async (tx) => {
       const txEventStore = createEventStore(tx);
@@ -2398,6 +2410,7 @@ export const createCoreRepository = (prisma: PrismaClient) => {
     getPersonById,
     getMaterialById,
     getItemById,
+    getItemByName,
     getInventoryBatchState,
     appendEventAndProject,
     appendEvents,

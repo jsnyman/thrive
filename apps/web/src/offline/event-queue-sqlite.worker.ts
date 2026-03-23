@@ -1,6 +1,6 @@
 /// <reference lib="WebWorker" />
 
-import SQLiteESMFactory from "wa-sqlite/dist/wa-sqlite.mjs";
+import SQLiteESMFactory from "wa-sqlite/dist/wa-sqlite-async.mjs";
 import { Factory as createSqliteApi } from "wa-sqlite";
 import { OriginPrivateFileSystemVFS } from "wa-sqlite/src/examples/OriginPrivateFileSystemVFS.js";
 

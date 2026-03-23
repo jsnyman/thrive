@@ -158,6 +158,17 @@ type ProcurementCreateInput = {
   locationText?: string | null;
 };
 
+type BulkProcurementCreateInput = {
+  supplierName?: string | null;
+  tripDistanceKm?: number | null;
+  rows: Array<{
+    productName: string;
+    quantity: number;
+    lineTotalCost: number;
+  }>;
+  locationText?: string | null;
+};
+
 type ExpenseCreateInput = {
   category: string;
   cashAmount: number;
@@ -332,6 +343,7 @@ type ApiServerDependencies = {
   getPersonById: (personId: string) => Promise<PersonRecord | null>;
   getMaterialById: (materialId: string) => Promise<MaterialRecord | null>;
   getItemById: (itemId: string) => Promise<ItemRecord | null>;
+  getItemByName: (name: string) => Promise<ItemRecord | null>;
   getInventoryBatchState: (inventoryBatchId: string) => Promise<InventoryBatchStateRecord | null>;
   appendEventAndProject: (event: Event) => Promise<AppendEventResult>;
   appendEvents: (
@@ -836,6 +848,63 @@ const parseProcurementCreateRequest = (body: unknown): ProcurementCreateInput | 
     supplierName: supplierName ?? null,
     tripDistanceKm: (tripDistanceKm as number | null | undefined) ?? null,
     lines: parsedLines,
+    locationText: locationText ?? null,
+  };
+};
+
+const parseBulkProcurementCreateRequest = (body: unknown): BulkProcurementCreateInput | null => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+  const record = body as Record<string, unknown>;
+  const supplierName = parseNullableString(record["supplierName"]);
+  const tripDistanceKm = record["tripDistanceKm"];
+  const rows = record["rows"];
+  const locationText = parseNullableString(record["locationText"]);
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return null;
+  }
+  const parsedRows: BulkProcurementCreateInput["rows"] = [];
+  for (const row of rows) {
+    if (typeof row !== "object" || row === null || Array.isArray(row)) {
+      return null;
+    }
+    const rowRecord = row as Record<string, unknown>;
+    const productName = rowRecord["productName"];
+    const quantity = rowRecord["quantity"];
+    const lineTotalCost = rowRecord["lineTotalCost"];
+    if (typeof productName !== "string" || productName.trim().length === 0) {
+      return null;
+    }
+    if (typeof quantity !== "number" || !Number.isInteger(quantity) || quantity <= 0) {
+      return null;
+    }
+    if (typeof lineTotalCost !== "number" || !Number.isFinite(lineTotalCost) || lineTotalCost < 0) {
+      return null;
+    }
+    parsedRows.push({
+      productName: productName.trim(),
+      quantity,
+      lineTotalCost,
+    });
+  }
+  if (supplierName === undefined && record["supplierName"] !== undefined) {
+    return null;
+  }
+  if (
+    tripDistanceKm !== undefined &&
+    tripDistanceKm !== null &&
+    (typeof tripDistanceKm !== "number" || !Number.isFinite(tripDistanceKm) || tripDistanceKm < 0)
+  ) {
+    return null;
+  }
+  if (locationText === undefined && record["locationText"] !== undefined) {
+    return null;
+  }
+  return {
+    supplierName: supplierName ?? null,
+    tripDistanceKm: (tripDistanceKm as number | null | undefined) ?? null,
+    rows: parsedRows,
     locationText: locationText ?? null,
   };
 };
@@ -2092,6 +2161,90 @@ const handleProcurementCreate = async (
   });
 };
 
+const handleBulkProcurementCreate = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "procurement.record");
+  if (actor === null) {
+    return;
+  }
+  const bodyResult = await readJsonBody(req);
+  if (!bodyResult.ok) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const request = parseBulkProcurementCreateRequest(bodyResult.value);
+  if (request === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+
+  const missingRows: Array<{ index: number; productName: string }> = [];
+  const lines: Array<{
+    itemId: string;
+    inventoryBatchId: string;
+    quantity: number;
+    unitCost: number;
+    lineTotalCost: number;
+  }> = [];
+  let cashTotal = 0;
+
+  for (let index = 0; index < request.rows.length; index += 1) {
+    const row = request.rows[index];
+    if (row === undefined) {
+      continue;
+    }
+    const item = await dependencies.getItemByName(row.productName);
+    if (item === null) {
+      missingRows.push({
+        index,
+        productName: row.productName,
+      });
+      continue;
+    }
+    const unitCost = row.lineTotalCost / row.quantity;
+    cashTotal += row.lineTotalCost;
+    lines.push({
+      itemId: item.id,
+      inventoryBatchId: randomUUID(),
+      quantity: row.quantity,
+      unitCost,
+      lineTotalCost: row.lineTotalCost,
+    });
+  }
+
+  if (missingRows.length > 0) {
+    sendJson(res, 400, {
+      error: "ITEM_NOT_FOUND",
+      rows: missingRows,
+    });
+    return;
+  }
+
+  const event: Event = {
+    ...toBaseEventFields(dependencies, actor, req, request.locationText),
+    eventType: "procurement.recorded",
+    payload: {
+      supplierName: request.supplierName ?? null,
+      tripDistanceKm: request.tripDistanceKm ?? null,
+      cashTotal,
+      lines,
+    },
+  };
+  const appendResult = await dependencies.appendEventAndProject(event);
+  if (appendResult.status !== "accepted") {
+    sendJson(res, 400, { error: "BAD_REQUEST", reason: appendResult.reason ?? null });
+    return;
+  }
+  sendJson(res, 201, {
+    eventId: event.eventId,
+    cashTotal,
+    lines,
+  });
+};
+
 const handleExpenseCreate = async (
   req: IncomingMessage,
   res: ServerResponse,
@@ -2642,6 +2795,11 @@ const routeRequest = async (
 
   if (method === "POST" && pathname === "/procurements") {
     await handleProcurementCreate(req, res, dependencies);
+    return;
+  }
+
+  if (method === "POST" && pathname === "/procurements/bulk") {
+    await handleBulkProcurementCreate(req, res, dependencies);
     return;
   }
   if (method === "POST" && pathname === "/expenses") {

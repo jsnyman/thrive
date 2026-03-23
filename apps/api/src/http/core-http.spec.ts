@@ -593,6 +593,7 @@ const createDependencies = (options?: {
     getMaterialById: async (materialId) =>
       materials.find((material) => material.id === materialId) ?? null,
     getItemById: async (itemId) => items.find((item) => item.id === itemId) ?? null,
+    getItemByName: async (name) => items.find((item) => item.name === name) ?? null,
     listInventoryBatches: async () => inventoryBatches,
     listInventoryStatusSummary: async () => {
       const statuses: InventoryStatus[] = [
@@ -1348,6 +1349,97 @@ describe("core HTTP endpoints", () => {
     const rows = afterSummary.body.summary as InventoryStatusSummaryRecord[];
     const storage = rows.find((entry) => entry.status === "storage");
     expect(storage?.totalQuantity).toBe(12);
+  });
+
+  test("POST /procurements/bulk enforces manager role", async () => {
+    const server = createApiServer(createDependencies());
+    const operatorToken = await loginAndGetToken(server, "operator", operatorPasscode);
+
+    const response = await supertest(server)
+      .post("/procurements/bulk")
+      .set("authorization", `Bearer ${operatorToken}`)
+      .send({
+        supplierName: "Makro Online",
+        tripDistanceKm: 0,
+        rows: [{ productName: "Soap", quantity: 2, lineTotalCost: 6 }],
+      });
+
+    expect(response.status).toBe(403);
+  });
+
+  test("POST /procurements/bulk validates row shape, totals, and product resolution", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+
+    const badQuantity = await supertest(server)
+      .post("/procurements/bulk")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({
+        supplierName: "Makro Online",
+        tripDistanceKm: 0,
+        rows: [{ productName: "Soap", quantity: 0, lineTotalCost: 6 }],
+      });
+    expect(badQuantity.status).toBe(400);
+    expect(badQuantity.body.error).toBe("BAD_REQUEST");
+
+    const missingTotal = await supertest(server)
+      .post("/procurements/bulk")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({
+        supplierName: "Makro Online",
+        tripDistanceKm: 0,
+        rows: [{ productName: "Soap", quantity: 2 }],
+      });
+    expect(missingTotal.status).toBe(400);
+    expect(missingTotal.body.error).toBe("BAD_REQUEST");
+
+    const missingItem = await supertest(server)
+      .post("/procurements/bulk")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({
+        supplierName: "Makro Online",
+        tripDistanceKm: 0,
+        rows: [{ productName: "Missing", quantity: 2, lineTotalCost: 6 }],
+      });
+    expect(missingItem.status).toBe(400);
+    expect(missingItem.body.error).toBe("ITEM_NOT_FOUND");
+    expect(missingItem.body.rows).toEqual([{ index: 0, productName: "Missing" }]);
+  });
+
+  test("POST /procurements/bulk resolves names and appends one standard procurement event", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+
+    const response = await supertest(server)
+      .post("/procurements/bulk")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({
+        supplierName: "Makro Online",
+        tripDistanceKm: 0,
+        rows: [
+          { productName: "Soap", quantity: 2, lineTotalCost: 6 },
+          { productName: "Soap", quantity: 1, lineTotalCost: 4.5 },
+        ],
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.eventId).toBeDefined();
+    expect(response.body.cashTotal).toBe(10.5);
+    expect(response.body.lines).toHaveLength(2);
+    expect(response.body.lines[0]).toMatchObject({
+      itemId: "item-1",
+      quantity: 2,
+      unitCost: 3,
+      lineTotalCost: 6,
+    });
+    expect(response.body.lines[1]).toMatchObject({
+      itemId: "item-1",
+      quantity: 1,
+      unitCost: 4.5,
+      lineTotalCost: 4.5,
+    });
+    expect(typeof response.body.lines[0]?.inventoryBatchId).toBe("string");
+    expect(typeof response.body.lines[1]?.inventoryBatchId).toBe("string");
   });
 
   test("POST /expenses requires authorization and manager role", async () => {

@@ -48,6 +48,7 @@ export const startApiServer = async (): Promise<ReturnType<typeof createApiServe
     getMaterialById: async (materialId) =>
       createCoreRepository(getPrismaClient()).getMaterialById(materialId),
     getItemById: async (itemId) => createCoreRepository(getPrismaClient()).getItemById(itemId),
+    getItemByName: async (name) => createCoreRepository(getPrismaClient()).getItemByName(name),
     getInventoryBatchState: async (inventoryBatchId) =>
       createCoreRepository(getPrismaClient()).getInventoryBatchState(inventoryBatchId),
     appendEventAndProject: async (event) =>

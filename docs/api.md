@@ -338,6 +338,7 @@ Notes:
 Endpoints:
 
 - `POST /procurements` for managers only
+- `POST /procurements/bulk` for managers only
 
 #### `POST /procurements`
 
@@ -362,6 +363,44 @@ Errors:
 
 - `400 BAD_REQUEST`: invalid payload
 - `404 ITEM_NOT_FOUND`: unknown `itemId`
+- `401/403`: authentication or permission failures
+
+#### `POST /procurements/bulk`
+
+Request body:
+
+```json
+{
+  "supplierName": "Makro Online",
+  "tripDistanceKm": 0,
+  "rows": [
+    {
+      "productName": "Soap",
+      "quantity": 24,
+      "lineTotalCost": 72
+    }
+  ],
+  "locationText": "Village A"
+}
+```
+
+Notes:
+
+- Designed for spreadsheet-style bulk capture by product name
+- `productName` must match an existing item name exactly
+- Spreadsheet mapping is:
+  - `Units per pack` -> `quantity`
+  - `Cost per pack` -> `lineTotalCost`
+  - `Price per unit` is not accepted by this endpoint
+- `lineTotalCost` is required and recorded as the source-of-truth total paid for the row
+- The server resolves each row to `itemId`, generates `inventoryBatchId`, derives `unitCost = lineTotalCost / quantity`, and appends one standard `procurement.recorded` event
+- `cashTotal` is computed as the sum of provided `lineTotalCost` values across all rows
+- Success `201` returns `eventId`, `cashTotal`, and normalized generated line details
+
+Errors:
+
+- `400 BAD_REQUEST`: invalid payload
+- `400 ITEM_NOT_FOUND`: one or more `productName` values did not resolve; response includes row indexes and names
 - `401/403`: authentication or permission failures
 
 ### Expenses

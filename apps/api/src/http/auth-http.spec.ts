@@ -56,6 +56,7 @@ const createDependencies = (overrides?: Partial<ApiServerDependencies>): ApiServ
   getPersonById: async () => null,
   getMaterialById: async () => null,
   getItemById: async () => null,
+  getItemByName: async () => null,
   getInventoryBatchState: async () => null,
   appendEventAndProject: async () => ({ status: "accepted" }),
   appendEvents: async (events) => events.map(() => ({ status: "accepted" })),

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { Event } from "../../../../packages/shared/src/domain/events";
 import { createEventQueue } from "./event-queue";
 import { createSqliteEventQueueStore } from "./event-queue-sqlite";
+import workerSource from "./event-queue-sqlite.worker.ts?raw";
 
 type WorkerRequest =
   | { id: number; type: "init" }
@@ -124,6 +125,11 @@ afterEach(() => {
 });
 
 describe("createSqliteEventQueueStore", () => {
+  test("uses the async wa-sqlite build in the OPFS worker", async () => {
+    expect(workerSource).toContain("wa-sqlite/dist/wa-sqlite-async.mjs");
+    expect(workerSource).not.toContain("wa-sqlite/dist/wa-sqlite.mjs");
+  });
+
   test("persists enqueue/dequeue/ack semantics in insertion order", async () => {
     const queue = createEventQueue(await createSqliteEventQueueStore());
     await queue.enqueue(buildEvent("event-1"));
