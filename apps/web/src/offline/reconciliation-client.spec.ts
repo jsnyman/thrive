@@ -48,7 +48,7 @@ describe("createReconciliationClient", () => {
 
     expect(response.summary.totalIssues).toBe(1);
     expect(fetchFn.mock.calls[0]?.[0]).toBe(
-      "/sync/reconciliation/report?limit=10&code=POINTS_BALANCE_MISMATCH&repairableOnly=true",
+      "/api/sync/reconciliation/report?limit=10&code=POINTS_BALANCE_MISMATCH&repairableOnly=true",
     );
   });
 
@@ -65,7 +65,7 @@ describe("createReconciliationClient", () => {
 
     expect(response.repairKind).toBe("projection_rebuild");
     expect(fetchFn.mock.calls[0]?.[0]).toBe(
-      "/sync/reconciliation/issues/PROJECTION_CURSOR_DRIFT%3Adefault/repair",
+      "/api/sync/reconciliation/issues/PROJECTION_CURSOR_DRIFT%3Adefault/repair",
     );
   });
 });
