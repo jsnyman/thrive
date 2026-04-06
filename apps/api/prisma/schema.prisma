@@ -78,9 +78,8 @@ model Item {
 }
 
 enum StaffRole {
-  collector
-  shop_operator
-  manager
+  user
+  administrator
 }
 
 enum EventType {

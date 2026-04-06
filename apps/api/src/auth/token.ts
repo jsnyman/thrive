@@ -28,7 +28,7 @@ const parseClaims = (value: string): AuthTokenClaims | null => {
     ) {
       return null;
     }
-    if (role !== "collector" && role !== "shop_operator" && role !== "manager") {
+    if (role !== "user" && role !== "administrator") {
       return null;
     }
     return {

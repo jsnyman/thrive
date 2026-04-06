@@ -3,21 +3,21 @@ import type { Event } from "../../../../packages/shared/src/domain/events";
 import { createPasscodeHash, type AuthConfig, type StaffUserRecord } from "../auth";
 import { createApiServer, type ApiServerDependencies } from "./server";
 
-const managerPasscode = "1234";
-const collectorPasscode = "9999";
+const administratorPasscode = "1234";
+const userPasscode = "9999";
 
 const users: StaffUserRecord[] = [
   {
     id: "2772c203-5df5-4967-9341-09e391f4cb90",
-    username: "manager",
-    passcodeHash: createPasscodeHash(managerPasscode),
-    role: "manager",
+    username: "administrator",
+    passcodeHash: createPasscodeHash(administratorPasscode),
+    role: "administrator",
   },
   {
     id: "4145d4dd-8421-4f5f-806b-fb4ccbd6596f",
-    username: "collector",
-    passcodeHash: createPasscodeHash(collectorPasscode),
-    role: "collector",
+    username: "user",
+    passcodeHash: createPasscodeHash(userPasscode),
+    role: "user",
   },
 ];
 
@@ -154,13 +154,13 @@ describe("auth HTTP endpoints", () => {
     const server = createApiServer(createDependencies());
 
     const response = await supertest(server).post("/auth/login").send({
-      username: "manager",
-      passcode: managerPasscode,
+      username: "administrator",
+      passcode: administratorPasscode,
     });
 
     expect(response.status).toBe(200);
-    expect(response.body.user.username).toBe("manager");
-    expect(response.body.user.role).toBe("manager");
+    expect(response.body.user.username).toBe("administrator");
+    expect(response.body.user.role).toBe("administrator");
     expect(typeof response.body.token).toBe("string");
   });
 
@@ -168,7 +168,7 @@ describe("auth HTTP endpoints", () => {
     const server = createApiServer(createDependencies());
 
     const response = await supertest(server).post("/auth/login").send({
-      username: "manager",
+      username: "administrator",
       passcode: "bad-passcode",
     });
 
@@ -207,8 +207,8 @@ describe("auth HTTP endpoints", () => {
     );
 
     const login = await supertest(server).post("/auth/login").send({
-      username: "manager",
-      passcode: managerPasscode,
+      username: "administrator",
+      passcode: administratorPasscode,
     });
     const token = login.body.token as string;
 
@@ -225,8 +225,8 @@ describe("auth HTTP endpoints", () => {
     const server = createApiServer(createDependencies());
 
     const login = await supertest(server).post("/auth/login").send({
-      username: "manager",
-      passcode: managerPasscode,
+      username: "administrator",
+      passcode: administratorPasscode,
     });
     const token = login.body.token as string;
 
@@ -235,7 +235,7 @@ describe("auth HTTP endpoints", () => {
       .set("authorization", `Bearer ${token}`);
 
     expect(response.status).toBe(200);
-    expect(response.body.user.username).toBe("manager");
+    expect(response.body.user.username).toBe("administrator");
   });
 
   test("GET /auth/me returns 403 when role is forbidden for required action", async () => {
@@ -246,8 +246,8 @@ describe("auth HTTP endpoints", () => {
     );
 
     const login = await supertest(server).post("/auth/login").send({
-      username: "collector",
-      passcode: collectorPasscode,
+      username: "user",
+      passcode: userPasscode,
     });
     const token = login.body.token as string;
 

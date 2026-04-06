@@ -150,6 +150,23 @@ describe("validateEventPayload", () => {
     });
   });
 
+  test("rejects legacy staff roles in staff user events", () => {
+    const result = validateEventPayload("staff_user.created", {
+      userId: "user-1",
+      username: "legacy",
+      role: "manager",
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("Expected payload validation to fail");
+    }
+    expect(result.issues).toContainEqual({
+      path: "payload.role",
+      message: "Expected staff role",
+    });
+  });
+
   test("rejects procurement payload when line totals and cash total do not add up", () => {
     const result = validateEventPayload("procurement.recorded", {
       supplierName: "Supplier A",

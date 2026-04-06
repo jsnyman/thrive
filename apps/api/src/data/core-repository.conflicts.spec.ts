@@ -102,8 +102,8 @@ describe("core repository conflict queries", () => {
       },
       {
         id: "2772c203-5df5-4967-9341-09e391f4cb90",
-        username: "manager",
-        role: "manager",
+        username: "administrator",
+        role: "administrator",
       },
     );
 

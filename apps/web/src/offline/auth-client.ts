@@ -3,7 +3,7 @@ import { clearAuthToken, createApiClient, getAuthToken, setAuthToken } from "./a
 export type AuthUser = {
   id: string;
   username: string;
-  role: "collector" | "shop_operator" | "manager";
+  role: "user" | "administrator";
 };
 
 type LoginResponse = {
@@ -24,7 +24,7 @@ const parseAuthUser = (value: unknown): AuthUser => {
   if (typeof id !== "string" || typeof username !== "string") {
     throw new Error("Invalid auth user");
   }
-  if (role !== "collector" && role !== "shop_operator" && role !== "manager") {
+  if (role !== "user" && role !== "administrator") {
     throw new Error("Invalid auth user role");
   }
   return {

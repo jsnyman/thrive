@@ -48,6 +48,7 @@ export type PermissionAction =
   | "person.update"
   | "intake.record"
   | "sale.record"
+  | "inventory.read"
   | "inventory.move"
   | "item.manage"
   | "procurement.record"

@@ -6,13 +6,13 @@ Offline-first software for a mobile recycling swap-shop that moves between villa
 
 - Support work without connectivity on laptops, cellphones, and tablets.
 - Keep points and inventory accurate with immutable, auditable event logs.
-- Enable role-based workflows for collectors, shop operators, and managers.
+- Enable role-based workflows for users and administrators.
 
 **Primary Users**
 
-- Collector: person registration and intake events
-- Shop operator: points-only sales
-- Manager: inventory, procurement, expenses, reporting, and adjustments
+- User: person registration and intake events
+- User: points-only sales
+- Administrator: inventory, procurement, expenses, reporting, and adjustments
 
 **Core Workflows**
 
@@ -29,7 +29,7 @@ Offline-first software for a mobile recycling swap-shop that moves between villa
 - Points are pegged to currency with no cents (rounded down).
 - ID numbers and phone numbers are stored but not displayed during interactions.
 - All financial and points-related changes are immutable events.
-- Adjustments require a logged request and manager approval.
+- Adjustments require a logged request and administrator approval.
 
 **Recommended Tech Stack**
 
@@ -46,7 +46,7 @@ Offline-first software for a mobile recycling swap-shop that moves between villa
 
 - Offline-first PWA to support intermittent connectivity.
 - Append-only event log retained indefinitely, with projections for reporting.
-- Conflicts are flagged for manager review and resolutions are logged.
+- Conflicts are flagged for administrator review and resolutions are logged.
 
 **Roadmap**
 
@@ -70,10 +70,10 @@ Offline-first software for a mobile recycling swap-shop that moves between villa
 - Baseline date: March 10, 2026.
 - Phase 0: mostly done (repo, standards, architecture docs, CI quality gates).
 - Phase 1: partial (auth/RBAC, event model, event-first writes for people/materials/items/intake/sales, projection freshness metadata).
-- Phase 2: done for sync spine tasks 1-6 (responsive web shell, OPFS SQLite `queued_event` + `sync_state`, push/ack/pull/status orchestration, merge/conflict detection, manager conflict resolution, and audit/immutability validation endpoints plus checks).
-- Phase 3: done. Tasks 1-7 are complete: person registry, multi-line intake, points ledger/balance view with negative-balance prevention on sales (`INSUFFICIENT_POINTS`), inventory status change/adjustment request workflows, sales checkout with FIFO inventory-batch linkage to sold status, procurement event capture with inventory batch additions, and manager expense capture (`expense.recorded`) via queue-first sync flow.
+- Phase 2: done for sync spine tasks 1-6 (responsive web shell, OPFS SQLite `queued_event` + `sync_state`, push/ack/pull/status orchestration, merge/conflict detection, administrator conflict resolution, and audit/immutability validation endpoints plus checks).
+- Phase 3: done. Tasks 1-7 are complete: person registry, multi-line intake, points ledger/balance view with negative-balance prevention on sales (`INSUFFICIENT_POINTS`), inventory status change/adjustment request workflows, sales checkout with FIFO inventory-batch linkage to sold status, procurement event capture with inventory batch additions, and administrator expense capture (`expense.recorded`) via queue-first sync flow.
 - Coverage and quality: unit suites now include explicit coverage commands and enforced thresholds for web/api/shared configs.
-- Phase 4: in progress. Task 1 is complete: manager-only Materials Collected report (`GET /reports/materials-collected`) with grouped totals by day/material/location and default last-30-days filtering.
+- Phase 4: in progress. Task 1 is complete: administrator-only Materials Collected report (`GET /reports/materials-collected`) with grouped totals by day/material/location and default last-30-days filtering.
 - Phase 5: not started for hardening/pilot-prep scope.
 
 **Getting Started**

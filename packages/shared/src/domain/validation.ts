@@ -159,7 +159,7 @@ const INVENTORY_ADJUSTMENT_STATUSES: InventoryAdjustmentStatus[] = [
   "missing",
 ];
 
-const STAFF_ROLES: StaffRole[] = ["collector", "shop_operator", "manager"];
+const STAFF_ROLES: StaffRole[] = ["user", "administrator"];
 
 const EVENT_TYPES: EventType[] = [
   "person.created",

@@ -84,7 +84,7 @@ export const EVENT_TYPES: EventType[] = [
 
 const INVENTORY_STATUSES = ["storage", "shop", "sold", "spoiled", "damaged", "missing"];
 const INVENTORY_ADJUSTMENT_STATUSES = ["spoiled", "damaged", "missing"];
-const STAFF_ROLES = ["collector", "shop_operator", "manager"];
+const STAFF_ROLES = ["user", "administrator"];
 
 const eventTypeSchema = stringSchema({ enum: EVENT_TYPES });
 const inventoryStatusSchema = stringSchema({ enum: INVENTORY_STATUSES });

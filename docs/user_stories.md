@@ -20,13 +20,12 @@ Acceptance criteria:
 
 ### US-2
 
-As a manager, I want role-based permissions so that users can only access actions relevant to their role.
+As an administrator, I want role-based permissions so that users can only access actions relevant to their role.
 
 Acceptance criteria:
 
-- Collector can register persons and record intake events
-- Shop operator can record sales
-- Manager can manage procurement, expenses, reports, and administration
+- User can register and edit persons, search for persons, view person details and points ledger, record intake, record sales, and submit points or inventory adjustment requests
+- Administrator retains access to all current operational, reporting, administration, and reconciliation actions
 
 ---
 
@@ -34,7 +33,7 @@ Acceptance criteria:
 
 ### US-3
 
-As a collector, I want to register a person with name and surname so that I can credit them for recycling.
+As a user, I want to register a person with name and surname so that I can credit them for recycling.
 
 Acceptance criteria:
 
@@ -43,7 +42,7 @@ Acceptance criteria:
 
 ### US-4
 
-As a collector, I want to store optional ID number, phone, address, and notes so that I can identify and assist people.
+As a user, I want to store optional ID number, phone, address, and notes so that I can identify and assist people.
 
 Acceptance criteria:
 
@@ -67,7 +66,7 @@ Acceptance criteria:
 
 ### US-6
 
-As a collector, I want to create an intake event with date/time and location so that the system records where materials are collected.
+As a user, I want to create an intake event with date/time and location so that the system records where materials are collected.
 
 Acceptance criteria:
 
@@ -76,7 +75,7 @@ Acceptance criteria:
 
 ### US-7
 
-As a collector, I want to add one or more material lines with type and weight so that points can be calculated.
+As a user, I want to add one or more material lines with type and weight so that points can be calculated.
 
 Acceptance criteria:
 
@@ -85,7 +84,7 @@ Acceptance criteria:
 
 ### US-8
 
-As a collector, I want points calculated as `weight * points_per_kg`, rounded down to the nearest `0.1` point, so that rewards match the rules.
+As a user, I want points calculated as `weight * points_per_kg`, rounded down to the nearest `0.1` point, so that rewards match the rules.
 
 Acceptance criteria:
 
@@ -94,7 +93,7 @@ Acceptance criteria:
 
 ### US-9
 
-As a collector, I want points to be credited to the person's account so that they can redeem them later.
+As a user, I want points to be credited to the person's account so that they can redeem them later.
 
 Acceptance criteria:
 
@@ -117,7 +116,7 @@ Acceptance criteria:
 
 ### US-11
 
-As a manager, I want each points change to reference its source event so that I can audit balances.
+As an administrator, I want each points change to reference its source event so that I can audit balances.
 
 Acceptance criteria:
 
@@ -130,7 +129,7 @@ Acceptance criteria:
 
 ### US-12
 
-As a manager, I want to create items with points price and cost price so that I can manage stock and value.
+As an administrator, I want to create items with points price and cost price so that I can manage stock and value.
 
 Acceptance criteria:
 
@@ -139,7 +138,7 @@ Acceptance criteria:
 
 ### US-13
 
-As a manager, I want to track stock status (`storage`, `shop`, `sold`, `spoiled`, `damaged`, `missing`) so that I know what is available.
+As an administrator, I want to track stock status (`storage`, `shop`, `sold`, `spoiled`, `damaged`, `missing`) so that I know what is available.
 
 Acceptance criteria:
 
@@ -148,7 +147,7 @@ Acceptance criteria:
 - Stock can be marked as spoiled, damaged, or missing with an adjustment event
 - Partial quantities can be moved to spoiled, damaged, or missing
 - Each status change records date/time, staff user, quantity, and a free-text reason
-- Only managers can perform inventory adjustments
+- Only administrators can perform inventory adjustments
 
 ---
 
@@ -156,7 +155,7 @@ Acceptance criteria:
 
 ### US-14
 
-As a shop operator, I want to record a sale using points only so that redemption is tracked correctly.
+As a user, I want to record a sale using points only so that redemption is tracked correctly.
 
 Acceptance criteria:
 
@@ -165,7 +164,7 @@ Acceptance criteria:
 
 ### US-15
 
-As a shop operator, I want sales to debit the person's points balance so that the ledger stays accurate.
+As a user, I want sales to debit the person's points balance so that the ledger stays accurate.
 
 Acceptance criteria:
 
@@ -174,7 +173,7 @@ Acceptance criteria:
 
 ### US-16
 
-As a shop operator, I want sales to reduce stock and mark items as sold so that inventory stays accurate.
+As a user, I want sales to reduce stock and mark items as sold so that inventory stays accurate.
 
 Acceptance criteria:
 
@@ -187,7 +186,7 @@ Acceptance criteria:
 
 ### US-17
 
-As a manager, I want to record procurement events with date, location, and supplier so that I can track stock sources.
+As an administrator, I want to record procurement events with date, location, and supplier so that I can track stock sources.
 
 Acceptance criteria:
 
@@ -196,7 +195,7 @@ Acceptance criteria:
 
 ### US-18
 
-As a manager, I want to record procurement lines with item, quantity, and unit cost so that I know the cost basis.
+As an administrator, I want to record procurement lines with item, quantity, and unit cost so that I know the cost basis.
 
 Acceptance criteria:
 
@@ -205,7 +204,7 @@ Acceptance criteria:
 
 ### US-19
 
-As a manager, I want procurement to increase stock so that inventory reflects new items.
+As an administrator, I want procurement to increase stock so that inventory reflects new items.
 
 Acceptance criteria:
 
@@ -214,7 +213,7 @@ Acceptance criteria:
 
 ### US-20
 
-As a manager, I want to record trip distance so that I can understand logistical costs.
+As an administrator, I want to record trip distance so that I can understand logistical costs.
 
 Acceptance criteria:
 
@@ -227,7 +226,7 @@ Acceptance criteria:
 
 ### US-21
 
-As a manager, I want to record non-inventory expenses so that total cash outflows are tracked.
+As an administrator, I want to record non-inventory expenses so that total cash outflows are tracked.
 
 Acceptance criteria:
 
@@ -236,7 +235,7 @@ Acceptance criteria:
 
 ### US-21a
 
-As a staff user, I want to log an adjustment request so that a manager can correct a mistake.
+As a user, I want to log an adjustment request so that an administrator can correct a mistake.
 
 Acceptance criteria:
 
@@ -246,11 +245,11 @@ Acceptance criteria:
 
 ### US-21b
 
-As a manager, I want to approve and apply adjustments so that corrections are controlled.
+As an administrator, I want to approve and apply adjustments so that corrections are controlled.
 
 Acceptance criteria:
 
-- Only managers can apply adjustments
+- Only administrators can apply adjustments
 - Approved adjustments are logged with date/time and reason
 
 ---
@@ -259,7 +258,7 @@ Acceptance criteria:
 
 ### US-22
 
-As a manager, I want a materials collected report by type, location, and date so that I can measure recycling activity.
+As an administrator, I want a materials collected report by type, location, and date so that I can measure recycling activity.
 
 Acceptance criteria:
 
@@ -268,7 +267,7 @@ Acceptance criteria:
 
 ### US-23
 
-As a manager, I want a points liability report so that I can see outstanding obligations.
+As an administrator, I want a points liability report so that I can see outstanding obligations.
 
 Acceptance criteria:
 
@@ -277,7 +276,7 @@ Acceptance criteria:
 
 ### US-24
 
-As a manager, I want an inventory report by status and value so that I can manage stock.
+As an administrator, I want an inventory report by status and value so that I can manage stock.
 
 Acceptance criteria:
 
@@ -286,7 +285,7 @@ Acceptance criteria:
 
 ### US-24a
 
-As a manager, I want a status change log for inventory batches so that I can audit losses and movements.
+As an administrator, I want a status change log for inventory batches so that I can audit losses and movements.
 
 Acceptance criteria:
 
@@ -296,7 +295,7 @@ Acceptance criteria:
 
 ### US-25
 
-As a manager, I want a sales report by item, location, and date so that I can track redemption activity.
+As an administrator, I want a sales report by item, location, and date so that I can track redemption activity.
 
 Acceptance criteria:
 
@@ -305,7 +304,7 @@ Acceptance criteria:
 
 ### US-26
 
-As a manager, I want a cashflow report so that I can compare sales value and expenses.
+As an administrator, I want a cashflow report so that I can compare sales value and expenses.
 
 Acceptance criteria:
 
@@ -315,12 +314,12 @@ Acceptance criteria:
 
 ### US-26a
 
-As a manager, I want to export report data so that I can share or review it outside the app.
+As an administrator, I want to export report data so that I can share or review it outside the app.
 
 Acceptance criteria:
 
 - The currently loaded report rows can be exported to CSV
-- Export is available from each manager report panel
+- Export is available from each administrator report panel
 - Export preserves the visible report structure for offline review
 
 ---
@@ -338,7 +337,7 @@ Acceptance criteria:
 
 ### US-28
 
-As a manager, I want devices to sync asynchronously so that data is shared across users.
+As an administrator, I want devices to sync asynchronously so that data is shared across users.
 
 Acceptance criteria:
 
@@ -347,33 +346,33 @@ Acceptance criteria:
 
 ### US-29
 
-As a manager, I want an event-log merge with audit so that conflicts are resolved and changes are traceable.
+As an administrator, I want an event-log merge with audit so that conflicts are resolved and changes are traceable.
 
 Acceptance criteria:
 
 - Conflicts produce an audit trail
 - The system keeps all original events
-- Overlapping edits are flagged for manager review
-- Manager resolutions are logged with a free-text reason
+- Overlapping edits are flagged for administrator review
+- Administrator resolutions are logged with a free-text reason
 
 ### US-30
 
-As a manager, I want reconciliation tooling that compares projections with the event log so that I can detect drift and apply audited corrective repairs.
+As an administrator, I want reconciliation tooling that compares projections with the event log so that I can detect drift and apply audited corrective repairs.
 
 Acceptance criteria:
 
-- The system exposes a manager-only reconciliation report
+- The system exposes an administrator-only reconciliation report
 - Reported issues include points balance mismatches, inventory summary mismatches, negative replay-derived inventory quantities, and projection cursor drift
-- Repairable issues show a suggested fix and require manager notes before the repair runs
+- Repairable issues show a suggested fix and require administrator notes before the repair runs
 - Points and inventory repairs append immutable adjustment events instead of mutating history
 - Projection repairs reuse the existing projection rebuild flow
 
 ### US-31
 
-As a manager using a low-end device, I want report and reconciliation panels to load only when I open them so that login stays responsive.
+As an administrator using a low-end device, I want report and reconciliation panels to load only when I open them so that login stays responsive.
 
 Acceptance criteria:
 
-- Manager login does not automatically fetch report or reconciliation endpoints
-- Opening a manager report or reconciliation panel triggers its first load
-- Reopening an already loaded panel does not refetch until the manager explicitly runs or refreshes it
+- Administrator login does not automatically fetch report or reconciliation endpoints
+- Opening an administrator report or reconciliation panel triggers its first load
+- Reopening an already loaded panel does not refetch until the administrator explicitly runs or refreshes it

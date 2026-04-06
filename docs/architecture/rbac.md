@@ -4,35 +4,36 @@ This document defines the initial role-based access control rules for staff user
 
 ## Roles
 
-| Role          | Description                                                                            |
-| ------------- | -------------------------------------------------------------------------------------- |
-| Collector     | Registers people and records material intake.                                          |
-| Shop operator | Records sales and handles shop transactions.                                           |
-| Manager       | Full operational control, including procurement, expenses, reporting, and adjustments. |
+| Role          | Description                                                                                                                                              |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| User          | Can create, edit, and search people; view person details and points ledger; record intake and sales; and submit points or inventory adjustment requests. |
+| Administrator | Has full operational control, including inventory moves and adjustments, procurement, expenses, reports, reconciliation, and user administration.        |
 
 ## Permission Matrix
 
-| Action                              | Collector | Shop operator | Manager |
-| ----------------------------------- | --------- | ------------- | ------- |
-| Log in                              | Yes       | Yes           | Yes     |
-| Read person list                    | Yes       | Yes           | Yes     |
-| Register person                     | Yes       | Yes           | Yes     |
-| Update person profile               | Yes       | Yes           | Yes     |
-| Record intake                       | Yes       | No            | Yes     |
-| Record sale                         | No        | Yes           | Yes     |
-| Move stock between storage and shop | No        | Yes           | Yes     |
-| Create or update items              | No        | No            | Yes     |
-| Record procurement                  | No        | No            | Yes     |
-| Record expenses                     | No        | No            | Yes     |
-| View reports                        | No        | No            | Yes     |
-| Request points adjustment           | Yes       | Yes           | Yes     |
-| Apply points adjustment             | No        | No            | Yes     |
-| Request inventory adjustment        | Yes       | Yes           | Yes     |
-| Apply inventory adjustment          | No        | No            | Yes     |
-| View sync conflicts                 | No        | No            | Yes     |
-| Resolve sync conflicts              | No        | No            | Yes     |
-| View sync audit report/event        | No        | No            | Yes     |
-| Manage users and roles              | No        | No            | Yes     |
+| Action                              | User | Administrator |
+| ----------------------------------- | ---- | ------------- |
+| Log in                              | Yes  | Yes           |
+| Read person list and person detail  | Yes  | Yes           |
+| Register person                     | Yes  | Yes           |
+| Update person profile               | Yes  | Yes           |
+| View points ledger                  | Yes  | Yes           |
+| Record intake                       | Yes  | Yes           |
+| Record sale                         | Yes  | Yes           |
+| Read inventory batches and summary  | Yes  | Yes           |
+| Request points adjustment           | Yes  | Yes           |
+| Apply points adjustment             | No   | Yes           |
+| Request inventory adjustment        | Yes  | Yes           |
+| Move stock between storage and shop | No   | Yes           |
+| Apply inventory adjustment          | No   | Yes           |
+| Create or update items              | No   | Yes           |
+| Record procurement                  | No   | Yes           |
+| Record expenses                     | No   | Yes           |
+| View reports                        | No   | Yes           |
+| View sync conflicts                 | No   | Yes           |
+| Resolve sync conflicts              | No   | Yes           |
+| View sync audit report/event        | No   | Yes           |
+| Manage users and roles              | No   | Yes           |
 
 ## Enforcement Notes
 

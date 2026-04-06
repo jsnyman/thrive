@@ -4,14 +4,14 @@ describe("parseSeedUsers", () => {
   test("returns default users when env input is missing", () => {
     const users = parseSeedUsers(undefined);
     expect(users.length).toBeGreaterThan(0);
-    expect(users[0]?.username).toBe("manager");
+    expect(users[0]?.username).toBe("administrator");
   });
 
   test("parses explicit seed json", () => {
     const users = parseSeedUsers(
-      JSON.stringify([{ username: "ops", passcode: "4567", role: "shop_operator" }]),
+      JSON.stringify([{ username: "ops", passcode: "4567", role: "user" }]),
     );
-    expect(users).toEqual([{ username: "ops", passcode: "4567", role: "shop_operator" }]);
+    expect(users).toEqual([{ username: "ops", passcode: "4567", role: "user" }]);
   });
 });
 
@@ -27,7 +27,7 @@ describe("seedStaffUsers", () => {
           },
         },
       },
-      [{ username: "manager", passcode: "1234", role: "manager" }],
+      [{ username: "administrator", passcode: "1234", role: "administrator" }],
     );
 
     expect(capturedHashes).toHaveLength(1);

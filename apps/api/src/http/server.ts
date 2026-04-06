@@ -128,6 +128,14 @@ type InventoryAdjustmentRequestInput = {
   locationText?: string | null;
 };
 
+type PointsAdjustmentRequestInput = {
+  personId: string;
+  deltaPoints: number;
+  reason: string;
+  notes?: string | null;
+  locationText?: string | null;
+};
+
 type IntakeCreateInput = {
   personId: string;
   lines: Array<{
@@ -1034,6 +1042,40 @@ const parseInventoryAdjustmentRequest = (body: unknown): InventoryAdjustmentRequ
   };
 };
 
+const parsePointsAdjustmentRequest = (body: unknown): PointsAdjustmentRequestInput | null => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+  const record = body as Record<string, unknown>;
+  const personId = record["personId"];
+  const deltaPoints = record["deltaPoints"];
+  const reason = record["reason"];
+  const notes = parseNullableString(record["notes"]);
+  const locationText = parseNullableString(record["locationText"]);
+  if (typeof personId !== "string" || personId.trim().length === 0) {
+    return null;
+  }
+  if (typeof deltaPoints !== "number" || !isTenthsPointValue(deltaPoints) || deltaPoints === 0) {
+    return null;
+  }
+  if (typeof reason !== "string" || reason.trim().length === 0) {
+    return null;
+  }
+  if (notes === undefined && record["notes"] !== undefined) {
+    return null;
+  }
+  if (locationText === undefined && record["locationText"] !== undefined) {
+    return null;
+  }
+  return {
+    personId,
+    deltaPoints,
+    reason,
+    notes: notes ?? null,
+    locationText: locationText ?? null,
+  };
+};
+
 const parseSyncPushRequest = (body: unknown): SyncPushRequest | null => {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return null;
@@ -1727,7 +1769,7 @@ const handleInventoryStatusSummary = async (
   res: ServerResponse,
   dependencies: ApiServerDependencies,
 ): Promise<void> => {
-  const actor = requireAuthorization(req, res, dependencies, "inventory.move");
+  const actor = requireAuthorization(req, res, dependencies, "inventory.read");
   if (actor === null) {
     return;
   }
@@ -1740,7 +1782,7 @@ const handleInventoryBatches = async (
   res: ServerResponse,
   dependencies: ApiServerDependencies,
 ): Promise<void> => {
-  const actor = requireAuthorization(req, res, dependencies, "inventory.move");
+  const actor = requireAuthorization(req, res, dependencies, "inventory.read");
   if (actor === null) {
     return;
   }
@@ -1837,6 +1879,50 @@ const handleInventoryAdjustmentRequest = async (
       inventoryBatchId: request.inventoryBatchId,
       requestedStatus: request.requestedStatus,
       quantity: request.quantity,
+      reason: request.reason,
+      notes: request.notes ?? null,
+    },
+  };
+  const appendResult = await dependencies.appendEventAndProject(event);
+  if (appendResult.status !== "accepted") {
+    sendJson(res, 400, { error: "BAD_REQUEST", reason: appendResult.reason ?? null });
+    return;
+  }
+  sendJson(res, 201, {
+    requestEventId: event.eventId,
+  });
+};
+
+const handlePointsAdjustmentRequest = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "points.adjustment.request");
+  if (actor === null) {
+    return;
+  }
+  const bodyResult = await readJsonBody(req);
+  if (!bodyResult.ok) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const request = parsePointsAdjustmentRequest(bodyResult.value);
+  if (request === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const person = await dependencies.getPersonById(request.personId);
+  if (person === null) {
+    sendJson(res, 404, { error: "PERSON_NOT_FOUND" });
+    return;
+  }
+  const event: Event = {
+    ...toBaseEventFields(dependencies, actor, req, request.locationText),
+    eventType: "points.adjustment_requested",
+    payload: {
+      personId: request.personId,
+      deltaPoints: request.deltaPoints,
       reason: request.reason,
       notes: request.notes ?? null,
     },
@@ -2780,6 +2866,11 @@ const routeRequest = async (
 
   if (method === "POST" && pathname === "/inventory/adjustments/requests") {
     await handleInventoryAdjustmentRequest(req, res, dependencies);
+    return;
+  }
+
+  if (method === "POST" && pathname === "/points/adjustments/requests") {
+    await handlePointsAdjustmentRequest(req, res, dependencies);
     return;
   }
 

@@ -43,7 +43,7 @@ const readNestedNumberField = (value: unknown, parentField: string, childField: 
 test("login -> person create -> intake -> balance", async ({ request }) => {
   const login = await request.post(`${apiBaseUrl}/auth/login`, {
     data: {
-      username: "manager",
+      username: "administrator",
       passcode: "1234",
     },
   });

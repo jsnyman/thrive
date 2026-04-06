@@ -104,8 +104,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -135,7 +135,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
 
@@ -158,8 +158,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -261,7 +261,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
     await waitFor(() => {
@@ -296,8 +296,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -400,7 +400,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
 
@@ -433,7 +433,7 @@ describe("App person registry", () => {
         <App />
       </MantineProvider>,
     );
-    await userEvent.type(firstView.getByLabelText("Username"), "manager");
+    await userEvent.type(firstView.getByLabelText("Username"), "administrator");
     await userEvent.type(firstView.getByLabelText("Passcode"), "bad");
     await userEvent.click(firstView.getByRole("button", { name: "Login" }));
     await waitFor(() => {
@@ -447,8 +447,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -491,7 +491,7 @@ describe("App person registry", () => {
         <App queue={queue} syncStateStore={syncStateStore} />
       </MantineProvider>,
     );
-    await userEvent.type(secondView.getByLabelText("Username"), "manager");
+    await userEvent.type(secondView.getByLabelText("Username"), "administrator");
     await userEvent.type(secondView.getByLabelText("Passcode"), "1234");
     await userEvent.click(secondView.getByRole("button", { name: "Login" }));
     await waitFor(() => {
@@ -520,8 +520,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -638,7 +638,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
 
@@ -691,8 +691,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -761,7 +761,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
 
@@ -797,8 +797,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -827,7 +827,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
 
@@ -854,8 +854,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -919,7 +919,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
 
@@ -946,8 +946,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -1010,7 +1010,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
 
@@ -1033,8 +1033,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -1108,7 +1108,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
     await waitFor(() => {
@@ -1131,7 +1131,7 @@ describe("App person registry", () => {
     expect(body.events[0]?.eventType).toBe("inventory.status_changed");
   });
 
-  test("inventory adjustment request enqueues event and syncs", async () => {
+  test("inventory adjustment request enqueues event and syncs for user", async () => {
     stubResizeObserver();
     const queue = createEventQueue(createMemoryEventQueueStore());
     const syncStateStore = createMemorySyncStateStore();
@@ -1143,8 +1143,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "user",
+            role: "user",
           },
           token: "token-1",
         });
@@ -1212,15 +1212,15 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
-    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.type(view.getByLabelText("Username"), "user");
+    await userEvent.type(view.getByLabelText("Passcode"), "9999");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
     await waitFor(() => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
 
-    await userEvent.type(view.getAllByLabelText("Quantity")[1]!, "1");
-    await userEvent.type(view.getAllByLabelText("Reason")[1]!, "damage");
+    await userEvent.type(view.getByLabelText("Quantity"), "1");
+    await userEvent.type(view.getByLabelText("Reason"), "damage");
     await userEvent.click(view.getByRole("button", { name: "Submit Adjustment Request" }));
 
     const body = capturedPushBody as {
@@ -1229,6 +1229,99 @@ describe("App person registry", () => {
       }>;
     };
     expect(body.events[0]?.eventType).toBe("inventory.adjustment_requested");
+  });
+
+  test("points adjustment request enqueues event and syncs for user", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    let capturedPushBody: unknown = null;
+
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: {
+            id: "user-1",
+            username: "user",
+            role: "user",
+          },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({
+          people: [{ id: "person-1", name: "Jane", surname: "Doe" }],
+        });
+      }
+      if (url.includes("/materials")) {
+        return jsonResponse({ materials: [] });
+      }
+      if (url.includes("/items")) {
+        return jsonResponse({ items: [] });
+      }
+      if (url.includes("/inventory/status-summary")) {
+        return jsonResponse({ summary: [] });
+      }
+      if (url.includes("/inventory/batches")) {
+        return jsonResponse({ batches: [] });
+      }
+      if (url.includes("/ledger/person-1/balance")) {
+        return jsonResponse({ balance: { personId: "person-1", balancePoints: 10 } });
+      }
+      if (url.includes("/ledger/person-1/entries")) {
+        return jsonResponse({ entries: [] });
+      }
+      if (url.includes("/sync/push")) {
+        if (typeof init?.body === "string") {
+          capturedPushBody = JSON.parse(init.body) as unknown;
+        }
+        const acknowledgements = extractEventIdsFromPushBody(capturedPushBody).map((eventId) => ({
+          eventId,
+          status: "accepted" as const,
+        }));
+        return jsonResponse({
+          acknowledgements,
+          latestCursor: "cursor-2",
+        });
+      }
+      if (url.includes("/sync/pull")) {
+        return jsonResponse({ events: [], nextCursor: "cursor-2" });
+      }
+      if (url.includes("/sync/status")) {
+        return jsonResponse({
+          latestCursor: "cursor-2",
+          projectionRefreshedAt: "2026-03-08T09:02:00.000Z",
+          projectionCursor: "cursor-2",
+        });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App queue={queue} syncStateStore={syncStateStore} />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "user");
+    await userEvent.type(view.getByLabelText("Passcode"), "9999");
+    await userEvent.click(view.getByRole("button", { name: "Login" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.type(view.getByLabelText("Adjustment Points"), "2.5");
+    await userEvent.type(view.getByLabelText("Adjustment Reason"), "manual correction");
+    await userEvent.click(view.getByRole("button", { name: "Submit Points Adjustment Request" }));
+
+    const body = capturedPushBody as {
+      events: Array<{
+        eventType: string;
+      }>;
+    };
+    expect(body.events[0]?.eventType).toBe("points.adjustment_requested");
   });
 
   test("sale flow enqueues FIFO-expanded lines, syncs, and refreshes ledger", async () => {
@@ -1243,8 +1336,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -1368,7 +1461,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
 
@@ -1417,8 +1510,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -1505,7 +1598,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
 
@@ -1544,7 +1637,7 @@ describe("App person registry", () => {
     expect(typeof pushBody.events[0]?.payload.lines[0]?.inventoryBatchId).toBe("string");
   });
 
-  test("procurement panel is hidden for non-manager", async () => {
+  test("procurement panel is hidden for non-administrator", async () => {
     stubResizeObserver();
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
       const url = String(input);
@@ -1552,8 +1645,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-2",
-            username: "operator",
-            role: "shop_operator",
+            username: "user",
+            role: "user",
           },
           token: "token-2",
         });
@@ -1586,8 +1679,8 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "operator");
-    await userEvent.type(view.getByLabelText("Passcode"), "3333");
+    await userEvent.type(view.getByLabelText("Username"), "user");
+    await userEvent.type(view.getByLabelText("Passcode"), "9999");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
 
     await waitFor(() => {
@@ -1595,6 +1688,9 @@ describe("App person registry", () => {
     });
     expect(view.queryByRole("heading", { name: "Record Procurement" })).not.toBeInTheDocument();
     expect(view.queryByRole("heading", { name: "Record Expense" })).not.toBeInTheDocument();
+    expect(
+      view.queryByRole("heading", { name: "Inventory Status Change" }),
+    ).not.toBeInTheDocument();
     expect(
       view.queryByRole("heading", { name: "Materials Collected Report" }),
     ).not.toBeInTheDocument();
@@ -1621,8 +1717,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -1668,7 +1764,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
 
@@ -1697,8 +1793,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -1731,7 +1827,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
 
@@ -1752,8 +1848,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -1797,7 +1893,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
 
@@ -1832,8 +1928,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -1903,7 +1999,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
 
@@ -1938,8 +2034,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -2002,7 +2098,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
 
@@ -2024,8 +2120,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -2093,7 +2189,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
 
@@ -2124,8 +2220,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -2203,7 +2299,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
 
@@ -2225,8 +2321,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -2295,7 +2391,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
 
@@ -2315,8 +2411,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -2410,7 +2506,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
 
@@ -2443,8 +2539,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -2539,7 +2635,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
 
@@ -2581,8 +2677,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -2688,7 +2784,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
 
@@ -2715,8 +2811,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -2832,7 +2928,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
 
@@ -2871,8 +2967,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -3001,7 +3097,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
 
@@ -3029,8 +3125,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -3166,7 +3262,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
 
@@ -3204,8 +3300,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -3357,7 +3453,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
 
@@ -3398,8 +3494,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -3543,7 +3639,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
 
@@ -3571,8 +3667,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -3627,7 +3723,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
 
@@ -3674,8 +3770,8 @@ describe("App person registry", () => {
         return jsonResponse({
           user: {
             id: "user-1",
-            username: "manager",
-            role: "manager",
+            username: "administrator",
+            role: "administrator",
           },
           token: "token-1",
         });
@@ -3711,7 +3807,7 @@ describe("App person registry", () => {
       </MantineProvider>,
     );
 
-    await userEvent.type(view.getByLabelText("Username"), "manager");
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
     await waitFor(() => {

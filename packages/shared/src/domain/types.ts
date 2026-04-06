@@ -9,7 +9,7 @@ export type EventId = string;
 export type DeviceId = string;
 export type ConflictId = string;
 
-export type StaffRole = "collector" | "shop_operator" | "manager";
+export type StaffRole = "user" | "administrator";
 
 export type InventoryStatus = "storage" | "shop" | "sold" | "spoiled" | "damaged" | "missing";
 export type InventoryAdjustmentStatus = "spoiled" | "damaged" | "missing";

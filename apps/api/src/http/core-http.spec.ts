@@ -126,28 +126,21 @@ type CashflowExpenseCategoryRow = {
   expenseCount: number;
 };
 
-const managerPasscode = "1234";
-const collectorPasscode = "9999";
-const operatorPasscode = "3333";
+const administratorPasscode = "1234";
+const userPasscode = "9999";
 
 const users: StaffUserRecord[] = [
   {
     id: "2772c203-5df5-4967-9341-09e391f4cb90",
-    username: "manager",
-    passcodeHash: createPasscodeHash(managerPasscode),
-    role: "manager",
+    username: "administrator",
+    passcodeHash: createPasscodeHash(administratorPasscode),
+    role: "administrator",
   },
   {
     id: "4145d4dd-8421-4f5f-806b-fb4ccbd6596f",
-    username: "collector",
-    passcodeHash: createPasscodeHash(collectorPasscode),
-    role: "collector",
-  },
-  {
-    id: "4ef81db9-02b7-4a8a-be78-e8896a172df7",
-    username: "operator",
-    passcodeHash: createPasscodeHash(operatorPasscode),
-    role: "shop_operator",
+    username: "user",
+    passcodeHash: createPasscodeHash(userPasscode),
+    role: "user",
   },
 ];
 
@@ -922,11 +915,11 @@ describe("core HTTP endpoints", () => {
     expect(response.status).toBe(401);
   });
 
-  test("GET /people allows collector, operator, and manager and masks sensitive fields", async () => {
+  test("GET /people allows user, operator, and manager and masks sensitive fields", async () => {
     const server = createApiServer(createDependencies());
-    const collectorToken = await loginAndGetToken(server, "collector", collectorPasscode);
-    const operatorToken = await loginAndGetToken(server, "operator", operatorPasscode);
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const collectorToken = await loginAndGetToken(server, "user", userPasscode);
+    const operatorToken = await loginAndGetToken(server, "user", userPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const collectorResponse = await supertest(server)
       .get("/people")
@@ -945,9 +938,9 @@ describe("core HTTP endpoints", () => {
     }
   });
 
-  test("POST /people allows collector", async () => {
+  test("POST /people allows user", async () => {
     const server = createApiServer(createDependencies());
-    const token = await loginAndGetToken(server, "collector", collectorPasscode);
+    const token = await loginAndGetToken(server, "user", userPasscode);
     const response = await supertest(server)
       .post("/people")
       .set("authorization", `Bearer ${token}`)
@@ -966,7 +959,7 @@ describe("core HTTP endpoints", () => {
 
   test("POST /people keeps null sensitive fields as null in responses", async () => {
     const server = createApiServer(createDependencies());
-    const token = await loginAndGetToken(server, "collector", collectorPasscode);
+    const token = await loginAndGetToken(server, "user", userPasscode);
     const response = await supertest(server)
       .post("/people")
       .set("authorization", `Bearer ${token}`)
@@ -989,10 +982,10 @@ describe("core HTTP endpoints", () => {
     expect(response.status).toBe(401);
   });
 
-  test("PATCH /people/:personId allows collector and manager", async () => {
+  test("PATCH /people/:personId allows user and manager", async () => {
     const server = createApiServer(createDependencies());
-    const collectorToken = await loginAndGetToken(server, "collector", collectorPasscode);
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const collectorToken = await loginAndGetToken(server, "user", userPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const collectorResponse = await supertest(server)
       .patch("/people/person-a")
@@ -1021,7 +1014,7 @@ describe("core HTTP endpoints", () => {
 
   test("PATCH /people/:personId returns 404 for unknown person", async () => {
     const server = createApiServer(createDependencies());
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
     const response = await supertest(server)
       .patch("/people/person-missing")
       .set("authorization", `Bearer ${managerToken}`)
@@ -1036,7 +1029,7 @@ describe("core HTTP endpoints", () => {
 
   test("PATCH /people/:personId returns 400 for invalid payload", async () => {
     const server = createApiServer(createDependencies());
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const emptyUpdate = await supertest(server)
       .patch("/people/person-a")
@@ -1059,8 +1052,8 @@ describe("core HTTP endpoints", () => {
 
   test("POST /materials rejects collector and allows manager", async () => {
     const server = createApiServer(createDependencies());
-    const collectorToken = await loginAndGetToken(server, "collector", collectorPasscode);
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const collectorToken = await loginAndGetToken(server, "user", userPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const denied = await supertest(server)
       .post("/materials")
@@ -1078,8 +1071,8 @@ describe("core HTTP endpoints", () => {
 
   test("POST /items rejects shop operator and allows manager", async () => {
     const server = createApiServer(createDependencies());
-    const operatorToken = await loginAndGetToken(server, "operator", operatorPasscode);
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const operatorToken = await loginAndGetToken(server, "user", userPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const denied = await supertest(server)
       .post("/items")
@@ -1097,7 +1090,7 @@ describe("core HTTP endpoints", () => {
 
   test("POST /intakes calculates floored tenths points and credits ledger", async () => {
     const server = createApiServer(createDependencies());
-    const token = await loginAndGetToken(server, "collector", collectorPasscode);
+    const token = await loginAndGetToken(server, "user", userPasscode);
 
     const intake = await supertest(server)
       .post("/intakes")
@@ -1119,10 +1112,15 @@ describe("core HTTP endpoints", () => {
 
   test("POST /sales blocks insufficient points", async () => {
     const server = createApiServer(createDependencies());
-    const token = await loginAndGetToken(server, "operator", operatorPasscode);
+    const token = await loginAndGetToken(server, "user", userPasscode);
+    const administratorToken = await loginAndGetToken(
+      server,
+      "administrator",
+      administratorPasscode,
+    );
     const stockMove = await supertest(server)
       .post("/inventory/status-changes")
-      .set("authorization", `Bearer ${token}`)
+      .set("authorization", `Bearer ${administratorToken}`)
       .send({
         inventoryBatchId: "batch-1",
         fromStatus: "storage",
@@ -1182,7 +1180,7 @@ describe("core HTTP endpoints", () => {
       ],
     });
     const server = createApiServer(dependencies);
-    const token = await loginAndGetToken(server, "manager", managerPasscode);
+    const token = await loginAndGetToken(server, "administrator", administratorPasscode);
     const intake = await supertest(server)
       .post("/intakes")
       .set("authorization", `Bearer ${token}`)
@@ -1232,7 +1230,7 @@ describe("core HTTP endpoints", () => {
       ],
     });
     const server = createApiServer(dependencies);
-    const token = await loginAndGetToken(server, "operator", operatorPasscode);
+    const token = await loginAndGetToken(server, "user", userPasscode);
 
     const response = await supertest(server)
       .post("/sales")
@@ -1264,7 +1262,7 @@ describe("core HTTP endpoints", () => {
       ],
     });
     const server = createApiServer(dependencies);
-    const token = await loginAndGetToken(server, "operator", operatorPasscode);
+    const token = await loginAndGetToken(server, "user", userPasscode);
 
     const response = await supertest(server)
       .post("/sales")
@@ -1283,7 +1281,7 @@ describe("core HTTP endpoints", () => {
 
   test("POST /procurements enforces manager role", async () => {
     const server = createApiServer(createDependencies());
-    const operatorToken = await loginAndGetToken(server, "operator", operatorPasscode);
+    const operatorToken = await loginAndGetToken(server, "user", userPasscode);
 
     const response = await supertest(server)
       .post("/procurements")
@@ -1297,7 +1295,7 @@ describe("core HTTP endpoints", () => {
 
   test("POST /procurements validates payload and unknown items", async () => {
     const server = createApiServer(createDependencies());
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const badPayload = await supertest(server)
       .post("/procurements")
@@ -1319,7 +1317,7 @@ describe("core HTTP endpoints", () => {
 
   test("POST /procurements appends event and increases storage inventory", async () => {
     const server = createApiServer(createDependencies());
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const beforeSummary = await supertest(server)
       .get("/inventory/status-summary")
@@ -1353,7 +1351,7 @@ describe("core HTTP endpoints", () => {
 
   test("POST /procurements/bulk enforces manager role", async () => {
     const server = createApiServer(createDependencies());
-    const operatorToken = await loginAndGetToken(server, "operator", operatorPasscode);
+    const operatorToken = await loginAndGetToken(server, "user", userPasscode);
 
     const response = await supertest(server)
       .post("/procurements/bulk")
@@ -1369,7 +1367,7 @@ describe("core HTTP endpoints", () => {
 
   test("POST /procurements/bulk validates row shape, totals, and product resolution", async () => {
     const server = createApiServer(createDependencies());
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const badQuantity = await supertest(server)
       .post("/procurements/bulk")
@@ -1408,7 +1406,7 @@ describe("core HTTP endpoints", () => {
 
   test("POST /procurements/bulk resolves names and appends one standard procurement event", async () => {
     const server = createApiServer(createDependencies());
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const response = await supertest(server)
       .post("/procurements/bulk")
@@ -1444,7 +1442,7 @@ describe("core HTTP endpoints", () => {
 
   test("POST /expenses requires authorization and manager role", async () => {
     const server = createApiServer(createDependencies());
-    const operatorToken = await loginAndGetToken(server, "operator", operatorPasscode);
+    const operatorToken = await loginAndGetToken(server, "user", userPasscode);
 
     const unauthorized = await supertest(server).post("/expenses").send({
       category: "Fuel",
@@ -1464,7 +1462,7 @@ describe("core HTTP endpoints", () => {
 
   test("POST /expenses validates payload", async () => {
     const server = createApiServer(createDependencies());
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const missingCategory = await supertest(server)
       .post("/expenses")
@@ -1498,7 +1496,7 @@ describe("core HTTP endpoints", () => {
 
   test("POST /expenses appends expense.recorded event", async () => {
     const server = createApiServer(createDependencies());
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const response = await supertest(server)
       .post("/expenses")
@@ -1520,7 +1518,7 @@ describe("core HTTP endpoints", () => {
 
   test("GET /inventory/status-summary returns totals for authorized user", async () => {
     const server = createApiServer(createDependencies());
-    const token = await loginAndGetToken(server, "operator", operatorPasscode);
+    const token = await loginAndGetToken(server, "user", userPasscode);
 
     const response = await supertest(server)
       .get("/inventory/status-summary")
@@ -1536,8 +1534,8 @@ describe("core HTTP endpoints", () => {
 
   test("GET /reports/materials-collected requires manager role", async () => {
     const server = createApiServer(createDependencies());
-    const operatorToken = await loginAndGetToken(server, "operator", operatorPasscode);
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const operatorToken = await loginAndGetToken(server, "user", userPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const unauthorized = await supertest(server).get("/reports/materials-collected");
     expect(unauthorized.status).toBe(401);
@@ -1556,7 +1554,7 @@ describe("core HTTP endpoints", () => {
 
   test("GET /reports/materials-collected validates date filters and range", async () => {
     const server = createApiServer(createDependencies());
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const invalidFromDate = await supertest(server)
       .get("/reports/materials-collected?fromDate=2026-99-01")
@@ -1571,7 +1569,7 @@ describe("core HTTP endpoints", () => {
 
   test("GET /reports/materials-collected returns grouped rows with applied filters", async () => {
     const server = createApiServer(createDependencies());
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const filtered = await supertest(server)
       .get(
@@ -1607,8 +1605,8 @@ describe("core HTTP endpoints", () => {
 
   test("GET /reports/points-liability requires manager role", async () => {
     const server = createApiServer(createDependencies());
-    const operatorToken = await loginAndGetToken(server, "operator", operatorPasscode);
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const operatorToken = await loginAndGetToken(server, "user", userPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const unauthorized = await supertest(server).get("/reports/points-liability");
     expect(unauthorized.status).toBe(401);
@@ -1627,7 +1625,7 @@ describe("core HTTP endpoints", () => {
 
   test("GET /reports/points-liability returns positive balances and filtered summary", async () => {
     const server = createApiServer(createDependencies());
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const defaultReport = await supertest(server)
       .get("/reports/points-liability")
@@ -1674,8 +1672,8 @@ describe("core HTTP endpoints", () => {
 
   test("GET /reports/inventory-status requires manager role", async () => {
     const server = createApiServer(createDependencies());
-    const operatorToken = await loginAndGetToken(server, "operator", operatorPasscode);
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const operatorToken = await loginAndGetToken(server, "user", userPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const unauthorized = await supertest(server).get("/reports/inventory-status");
     expect(unauthorized.status).toBe(401);
@@ -1695,7 +1693,7 @@ describe("core HTTP endpoints", () => {
 
   test("GET /reports/inventory-status returns zero summary statuses and positive detail rows", async () => {
     const server = createApiServer(createDependencies());
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const response = await supertest(server)
       .get("/reports/inventory-status")
@@ -1740,8 +1738,8 @@ describe("core HTTP endpoints", () => {
 
   test("GET /reports/inventory-status-log requires manager role", async () => {
     const server = createApiServer(createDependencies());
-    const operatorToken = await loginAndGetToken(server, "operator", operatorPasscode);
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const operatorToken = await loginAndGetToken(server, "user", userPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const unauthorized = await supertest(server).get("/reports/inventory-status-log");
     expect(unauthorized.status).toBe(401);
@@ -1760,7 +1758,7 @@ describe("core HTTP endpoints", () => {
 
   test("GET /reports/inventory-status-log validates filters and applies default date range", async () => {
     const server = createApiServer(createDependencies());
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const invalidDate = await supertest(server)
       .get("/reports/inventory-status-log?fromDate=2026-99-01")
@@ -1791,7 +1789,7 @@ describe("core HTTP endpoints", () => {
 
   test("GET /reports/inventory-status-log returns applied rows with resolved batch context", async () => {
     const server = createApiServer(createDependencies());
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const response = await supertest(server)
       .get(
@@ -1825,8 +1823,8 @@ describe("core HTTP endpoints", () => {
 
   test("GET /reports/sales requires manager role", async () => {
     const server = createApiServer(createDependencies());
-    const operatorToken = await loginAndGetToken(server, "operator", operatorPasscode);
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const operatorToken = await loginAndGetToken(server, "user", userPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const unauthorized = await supertest(server).get("/reports/sales");
     expect(unauthorized.status).toBe(401);
@@ -1845,7 +1843,7 @@ describe("core HTTP endpoints", () => {
 
   test("GET /reports/sales validates filters and applies default date range", async () => {
     const server = createApiServer(createDependencies());
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const invalidDate = await supertest(server)
       .get("/reports/sales?fromDate=2026-99-01")
@@ -1871,7 +1869,7 @@ describe("core HTTP endpoints", () => {
 
   test("GET /reports/sales returns grouped rows with filtered summary", async () => {
     const server = createApiServer(createDependencies());
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const response = await supertest(server)
       .get(
@@ -1906,8 +1904,8 @@ describe("core HTTP endpoints", () => {
 
   test("GET /reports/cashflow requires manager role", async () => {
     const server = createApiServer(createDependencies());
-    const operatorToken = await loginAndGetToken(server, "operator", operatorPasscode);
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const operatorToken = await loginAndGetToken(server, "user", userPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const unauthorized = await supertest(server).get("/reports/cashflow");
     expect(unauthorized.status).toBe(401);
@@ -1927,7 +1925,7 @@ describe("core HTTP endpoints", () => {
 
   test("GET /reports/cashflow validates filters and applies default date range", async () => {
     const server = createApiServer(createDependencies());
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const invalidDate = await supertest(server)
       .get("/reports/cashflow?fromDate=2026-99-01")
@@ -1952,7 +1950,7 @@ describe("core HTTP endpoints", () => {
 
   test("GET /reports/cashflow returns filtered rows, summary, and expense categories", async () => {
     const server = createApiServer(createDependencies());
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const response = await supertest(server)
       .get("/reports/cashflow?fromDate=2026-03-01&toDate=2026-03-05&locationText=village%20a")
@@ -1998,13 +1996,30 @@ describe("core HTTP endpoints", () => {
     ]);
   });
 
-  test("POST /inventory/status-changes enforces underflow and applies valid moves", async () => {
+  test("POST /inventory/status-changes denies user and applies valid moves for administrator", async () => {
     const server = createApiServer(createDependencies());
-    const operatorToken = await loginAndGetToken(server, "operator", operatorPasscode);
+    const userToken = await loginAndGetToken(server, "user", userPasscode);
+    const administratorToken = await loginAndGetToken(
+      server,
+      "administrator",
+      administratorPasscode,
+    );
+
+    const forbidden = await supertest(server)
+      .post("/inventory/status-changes")
+      .set("authorization", `Bearer ${userToken}`)
+      .send({
+        inventoryBatchId: "batch-1",
+        fromStatus: "storage",
+        toStatus: "shop",
+        quantity: 1,
+        reason: "move to shop",
+      });
+    expect(forbidden.status).toBe(403);
 
     const underflow = await supertest(server)
       .post("/inventory/status-changes")
-      .set("authorization", `Bearer ${operatorToken}`)
+      .set("authorization", `Bearer ${administratorToken}`)
       .send({
         inventoryBatchId: "batch-1",
         fromStatus: "storage",
@@ -2018,7 +2033,7 @@ describe("core HTTP endpoints", () => {
 
     const success = await supertest(server)
       .post("/inventory/status-changes")
-      .set("authorization", `Bearer ${operatorToken}`)
+      .set("authorization", `Bearer ${administratorToken}`)
       .send({
         inventoryBatchId: "batch-1",
         fromStatus: "storage",
@@ -2030,7 +2045,7 @@ describe("core HTTP endpoints", () => {
 
     const summary = await supertest(server)
       .get("/inventory/status-summary")
-      .set("authorization", `Bearer ${operatorToken}`);
+      .set("authorization", `Bearer ${userToken}`);
     expect(summary.status).toBe(200);
     const summaryRows = summary.body.summary as InventoryStatusSummaryRecord[];
     const storage = summaryRows.find(
@@ -2041,9 +2056,9 @@ describe("core HTTP endpoints", () => {
     expect(shop?.totalQuantity).toBe(4);
   });
 
-  test("POST /inventory/adjustments/requests allows collector and records request event", async () => {
+  test("POST /inventory/adjustments/requests allows user and records request event", async () => {
     const server = createApiServer(createDependencies());
-    const collectorToken = await loginAndGetToken(server, "collector", collectorPasscode);
+    const collectorToken = await loginAndGetToken(server, "user", userPasscode);
 
     const response = await supertest(server)
       .post("/inventory/adjustments/requests")
@@ -2059,9 +2074,26 @@ describe("core HTTP endpoints", () => {
     expect(response.body.requestEventId).toBeDefined();
   });
 
+  test("POST /points/adjustments/requests allows user and records request event", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "user", userPasscode);
+
+    const response = await supertest(server)
+      .post("/points/adjustments/requests")
+      .set("authorization", `Bearer ${token}`)
+      .send({
+        personId: "person-a",
+        deltaPoints: 2.5,
+        reason: "manual correction request",
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.requestEventId).toBeDefined();
+  });
+
   test("GET /ledger/:personId/entries returns projected entries", async () => {
     const server = createApiServer(createDependencies());
-    const token = await loginAndGetToken(server, "operator", operatorPasscode);
+    const token = await loginAndGetToken(server, "user", userPasscode);
 
     const response = await supertest(server)
       .get("/ledger/person-a/entries")
@@ -2072,7 +2104,7 @@ describe("core HTTP endpoints", () => {
 
   test("sync push and pull work with cursor", async () => {
     const server = createApiServer(createDependencies());
-    const token = await loginAndGetToken(server, "manager", managerPasscode);
+    const token = await loginAndGetToken(server, "administrator", administratorPasscode);
     const eventId = "88a02142-9ba0-49cc-9f01-b4b4726d1e44";
 
     const push = await supertest(server)
@@ -2124,7 +2156,7 @@ describe("core HTTP endpoints", () => {
         });
       },
     });
-    const token = await loginAndGetToken(server, "manager", managerPasscode);
+    const token = await loginAndGetToken(server, "administrator", administratorPasscode);
     const cursor = "eyJyZWNvcmRlZEF0IjoiMjAyNi0wMy0wNVQxMjowMDowMC4wMDBaIiwiZXZlbnRJZCI6ImUxIn0";
 
     const push = await supertest(server)
@@ -2183,8 +2215,8 @@ describe("core HTTP endpoints", () => {
 
   test("GET /sync/conflicts requires manager role", async () => {
     const server = createApiServer(createDependencies());
-    const collectorToken = await loginAndGetToken(server, "collector", collectorPasscode);
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const collectorToken = await loginAndGetToken(server, "user", userPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const denied = await supertest(server)
       .get("/sync/conflicts?status=open&limit=10")
@@ -2202,7 +2234,7 @@ describe("core HTTP endpoints", () => {
 
   test("POST /sync/conflicts/:id/resolve resolves open conflict for manager", async () => {
     const server = createApiServer(createDependencies());
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const response = await supertest(server)
       .post("/sync/conflicts/conflict-open/resolve")
@@ -2219,7 +2251,7 @@ describe("core HTTP endpoints", () => {
 
   test("POST /sync/conflicts/:id/resolve returns 404 for unknown conflict", async () => {
     const server = createApiServer(createDependencies());
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const response = await supertest(server)
       .post("/sync/conflicts/conflict-missing/resolve")
@@ -2235,8 +2267,8 @@ describe("core HTTP endpoints", () => {
 
   test("GET /sync/audit/report requires manager role and returns report", async () => {
     const server = createApiServer(createDependencies());
-    const collectorToken = await loginAndGetToken(server, "collector", collectorPasscode);
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const collectorToken = await loginAndGetToken(server, "user", userPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const unauthorized = await supertest(server).get("/sync/audit/report?limit=10");
     expect(unauthorized.status).toBe(401);
@@ -2256,8 +2288,8 @@ describe("core HTTP endpoints", () => {
 
   test("GET /sync/reconciliation/report requires manager role and validates filters", async () => {
     const server = createApiServer(createDependencies());
-    const collectorToken = await loginAndGetToken(server, "collector", collectorPasscode);
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const collectorToken = await loginAndGetToken(server, "user", userPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const unauthorized = await supertest(server).get("/sync/reconciliation/report?limit=10");
     expect(unauthorized.status).toBe(401);
@@ -2287,7 +2319,7 @@ describe("core HTTP endpoints", () => {
 
   test("POST /sync/reconciliation/issues/:issueId/repair validates request and returns repair result", async () => {
     const server = createApiServer(createDependencies());
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const missingNotes = await supertest(server)
       .post("/sync/reconciliation/issues/POINTS_BALANCE_MISMATCH:person-a/repair")
@@ -2312,7 +2344,7 @@ describe("core HTTP endpoints", () => {
 
   test("GET /sync/audit/event/:eventId returns 404 for unknown event", async () => {
     const server = createApiServer(createDependencies());
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const missing = await supertest(server)
       .get("/sync/audit/event/missing-event")
@@ -2322,7 +2354,7 @@ describe("core HTTP endpoints", () => {
 
   test("GET /sync/audit/event/:eventId returns linked metadata", async () => {
     const server = createApiServer(createDependencies());
-    const managerToken = await loginAndGetToken(server, "manager", managerPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
     const eventId = "e2cfd0ff-f35e-442e-8694-f6fc8533a400";
 
     await supertest(server)

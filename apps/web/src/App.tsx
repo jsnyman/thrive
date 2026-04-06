@@ -523,6 +523,32 @@ const buildInventoryAdjustmentRequestedEvent = (
   },
 });
 
+const buildPointsAdjustmentRequestedEvent = (
+  actor: AuthUser,
+  payload: {
+    personId: string;
+    deltaPoints: number;
+    reason: string;
+    notes?: string | null;
+  },
+): Event => ({
+  eventId: crypto.randomUUID(),
+  eventType: "points.adjustment_requested",
+  occurredAt: new Date().toISOString(),
+  actorUserId: actor.id,
+  deviceId: "web-registry",
+  schemaVersion: 1,
+  correlationId: null,
+  causationId: null,
+  locationText: null,
+  payload: {
+    personId: payload.personId,
+    deltaPoints: payload.deltaPoints,
+    reason: payload.reason,
+    notes: payload.notes ?? null,
+  },
+});
+
 export const App = ({
   queue = null,
   syncStateStore = null,
@@ -718,6 +744,12 @@ export const App = ({
   const [statusChangeNotes, setStatusChangeNotes] = useState<string>("");
   const [statusChangePending, setStatusChangePending] = useState<boolean>(false);
   const [statusChangeError, setStatusChangeError] = useState<string | null>(null);
+  const [pointsAdjustmentPersonId, setPointsAdjustmentPersonId] = useState<string | null>(null);
+  const [pointsAdjustmentDelta, setPointsAdjustmentDelta] = useState<string>("");
+  const [pointsAdjustmentReason, setPointsAdjustmentReason] = useState<string>("");
+  const [pointsAdjustmentNotes, setPointsAdjustmentNotes] = useState<string>("");
+  const [pointsAdjustmentPending, setPointsAdjustmentPending] = useState<boolean>(false);
+  const [pointsAdjustmentError, setPointsAdjustmentError] = useState<string | null>(null);
   const [adjustmentBatchId, setAdjustmentBatchId] = useState<string | null>(null);
   const [adjustmentStatus, setAdjustmentStatus] = useState<InventoryAdjustmentStatus>("spoiled");
   const [adjustmentQuantity, setAdjustmentQuantity] = useState<string>("");
@@ -737,10 +769,11 @@ export const App = ({
     }
     return people.find((person) => person.id === selectedPersonId) ?? null;
   }, [people, selectedPersonId]);
-  const canRecordSales = sessionUser?.role === "shop_operator" || sessionUser?.role === "manager";
-  const canRecordProcurement = sessionUser?.role === "manager";
-  const canRecordExpenses = sessionUser?.role === "manager";
-  const canViewReports = sessionUser?.role === "manager";
+  const canRecordSales = sessionUser?.role === "user" || sessionUser?.role === "administrator";
+  const canManageInventory = sessionUser?.role === "administrator";
+  const canRecordProcurement = sessionUser?.role === "administrator";
+  const canRecordExpenses = sessionUser?.role === "administrator";
+  const canViewReports = sessionUser?.role === "administrator";
   const isManagerPanelOpen = (panel: ManagerPanelKey): boolean => openManagerPanels[panel];
   const selectedReconciliationIssue = useMemo(
     () =>
@@ -1206,7 +1239,10 @@ export const App = ({
     if (salePersonId === null) {
       setSalePersonId(firstPerson.id);
     }
-  }, [intakePersonId, ledgerPersonId, people, salePersonId]);
+    if (pointsAdjustmentPersonId === null) {
+      setPointsAdjustmentPersonId(firstPerson.id);
+    }
+  }, [intakePersonId, ledgerPersonId, people, pointsAdjustmentPersonId, salePersonId]);
 
   useEffect(() => {
     if (sessionStatus !== "authenticated" || ledgerPersonId === null) {
@@ -1860,6 +1896,10 @@ export const App = ({
   };
 
   const handleInventoryStatusChange = async (): Promise<void> => {
+    if (!canManageInventory) {
+      setStatusChangeError("You do not have permission to move inventory");
+      return;
+    }
     if (queue === null || sessionUser === null) {
       setStatusChangeError("Queue is unavailable");
       return;
@@ -1954,6 +1994,49 @@ export const App = ({
       setAdjustmentError(message);
     } finally {
       setAdjustmentPending(false);
+    }
+  };
+
+  const handlePointsAdjustmentRequest = async (): Promise<void> => {
+    if (queue === null || sessionUser === null) {
+      setPointsAdjustmentError("Queue is unavailable");
+      return;
+    }
+    if (pointsAdjustmentPersonId === null) {
+      setPointsAdjustmentError("Person is required");
+      return;
+    }
+    const deltaPoints = Number.parseFloat(pointsAdjustmentDelta);
+    if (!Number.isFinite(deltaPoints) || deltaPoints === 0) {
+      setPointsAdjustmentError("Adjustment points must be a non-zero number");
+      return;
+    }
+    if (pointsAdjustmentReason.trim().length === 0) {
+      setPointsAdjustmentError("Reason is required");
+      return;
+    }
+    setPointsAdjustmentPending(true);
+    setPointsAdjustmentError(null);
+    try {
+      await queue.enqueue(
+        buildPointsAdjustmentRequestedEvent(sessionUser, {
+          personId: pointsAdjustmentPersonId,
+          deltaPoints,
+          reason: pointsAdjustmentReason.trim(),
+          notes: toNullableOrUndefined(pointsAdjustmentNotes) ?? null,
+        }),
+      );
+      await sync.syncNow();
+      await loadLedger(pointsAdjustmentPersonId);
+      setLedgerPersonId(pointsAdjustmentPersonId);
+      setPointsAdjustmentDelta("");
+      setPointsAdjustmentReason("");
+      setPointsAdjustmentNotes("");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setPointsAdjustmentError(message);
+    } finally {
+      setPointsAdjustmentPending(false);
     }
   };
 
@@ -3536,101 +3619,151 @@ export const App = ({
             </Card>
 
             <SimpleGrid cols={{ base: 1, lg: 2 }}>
+              {canManageInventory ? (
+                <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                  <Stack gap="sm">
+                    <Title order={4}>Inventory Status Change</Title>
+                    <Group align="flex-end">
+                      <Button
+                        variant="default"
+                        size="xs"
+                        onClick={() => {
+                          void loadInventory();
+                        }}
+                        loading={inventoryLoading}
+                      >
+                        Refresh Inventory
+                      </Button>
+                    </Group>
+                    {inventoryError !== null ? <Text c="red">{inventoryError}</Text> : null}
+                    <Stack gap="xs">
+                      {inventorySummary.map((entry) => (
+                        <Text
+                          key={entry.status}
+                          size="sm"
+                          c="dimmed"
+                        >{`${entry.status}: ${String(entry.totalQuantity)}`}</Text>
+                      ))}
+                      {inventorySummary.length === 0 && !inventoryLoading ? (
+                        <Text size="sm" c="dimmed">
+                          No inventory summary loaded.
+                        </Text>
+                      ) : null}
+                    </Stack>
+                    <Select
+                      label="Batch"
+                      data={inventoryBatches.map((batch) => ({
+                        value: batch.inventoryBatchId,
+                        label: `${batch.inventoryBatchId}${batch.itemId !== null ? ` (${batch.itemId})` : ""}`,
+                      }))}
+                      value={statusChangeBatchId}
+                      onChange={setStatusChangeBatchId}
+                      searchable
+                    />
+                    <Select
+                      label="From Status"
+                      data={inventoryStatuses.map((status) => ({
+                        value: status,
+                        label: status,
+                      }))}
+                      value={statusChangeFromStatus}
+                      onChange={(value) => {
+                        if (value !== null) {
+                          setStatusChangeFromStatus(value as InventoryStatus);
+                        }
+                      }}
+                    />
+                    <Select
+                      label="To Status"
+                      data={inventoryStatuses.map((status) => ({
+                        value: status,
+                        label: status,
+                      }))}
+                      value={statusChangeToStatus}
+                      onChange={(value) => {
+                        if (value !== null) {
+                          setStatusChangeToStatus(value as InventoryStatus);
+                        }
+                      }}
+                    />
+                    <TextInput
+                      label="Quantity"
+                      value={statusChangeQuantity}
+                      onChange={(event) => {
+                        setStatusChangeQuantity(event.currentTarget.value);
+                      }}
+                    />
+                    <TextInput
+                      label="Reason"
+                      value={statusChangeReason}
+                      onChange={(event) => {
+                        setStatusChangeReason(event.currentTarget.value);
+                      }}
+                    />
+                    <Textarea
+                      label="Notes"
+                      value={statusChangeNotes}
+                      onChange={(event) => {
+                        setStatusChangeNotes(event.currentTarget.value);
+                      }}
+                    />
+                    {statusChangeError !== null ? <Text c="red">{statusChangeError}</Text> : null}
+                    <Button
+                      onClick={() => {
+                        void handleInventoryStatusChange();
+                      }}
+                      loading={statusChangePending}
+                    >
+                      Move Inventory
+                    </Button>
+                  </Stack>
+                </Card>
+              ) : null}
+
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
-                  <Title order={4}>Inventory Status Change</Title>
-                  <Group align="flex-end">
-                    <Button
-                      variant="default"
-                      size="xs"
-                      onClick={() => {
-                        void loadInventory();
-                      }}
-                      loading={inventoryLoading}
-                    >
-                      Refresh Inventory
-                    </Button>
-                  </Group>
-                  {inventoryError !== null ? <Text c="red">{inventoryError}</Text> : null}
-                  <Stack gap="xs">
-                    {inventorySummary.map((entry) => (
-                      <Text
-                        key={entry.status}
-                        size="sm"
-                        c="dimmed"
-                      >{`${entry.status}: ${String(entry.totalQuantity)}`}</Text>
-                    ))}
-                    {inventorySummary.length === 0 && !inventoryLoading ? (
-                      <Text size="sm" c="dimmed">
-                        No inventory summary loaded.
-                      </Text>
-                    ) : null}
-                  </Stack>
+                  <Title order={4}>Points Adjustment Request</Title>
                   <Select
-                    label="Batch"
-                    data={inventoryBatches.map((batch) => ({
-                      value: batch.inventoryBatchId,
-                      label: `${batch.inventoryBatchId}${batch.itemId !== null ? ` (${batch.itemId})` : ""}`,
+                    label="Person"
+                    data={people.map((person) => ({
+                      value: person.id,
+                      label: `${person.name} ${person.surname}`,
                     }))}
-                    value={statusChangeBatchId}
-                    onChange={setStatusChangeBatchId}
+                    value={pointsAdjustmentPersonId}
+                    onChange={setPointsAdjustmentPersonId}
                     searchable
                   />
-                  <Select
-                    label="From Status"
-                    data={inventoryStatuses.map((status) => ({
-                      value: status,
-                      label: status,
-                    }))}
-                    value={statusChangeFromStatus}
-                    onChange={(value) => {
-                      if (value !== null) {
-                        setStatusChangeFromStatus(value as InventoryStatus);
-                      }
-                    }}
-                  />
-                  <Select
-                    label="To Status"
-                    data={inventoryStatuses.map((status) => ({
-                      value: status,
-                      label: status,
-                    }))}
-                    value={statusChangeToStatus}
-                    onChange={(value) => {
-                      if (value !== null) {
-                        setStatusChangeToStatus(value as InventoryStatus);
-                      }
+                  <TextInput
+                    label="Adjustment Points"
+                    value={pointsAdjustmentDelta}
+                    onChange={(event) => {
+                      setPointsAdjustmentDelta(event.currentTarget.value);
                     }}
                   />
                   <TextInput
-                    label="Quantity"
-                    value={statusChangeQuantity}
+                    label="Adjustment Reason"
+                    value={pointsAdjustmentReason}
                     onChange={(event) => {
-                      setStatusChangeQuantity(event.currentTarget.value);
-                    }}
-                  />
-                  <TextInput
-                    label="Reason"
-                    value={statusChangeReason}
-                    onChange={(event) => {
-                      setStatusChangeReason(event.currentTarget.value);
+                      setPointsAdjustmentReason(event.currentTarget.value);
                     }}
                   />
                   <Textarea
                     label="Notes"
-                    value={statusChangeNotes}
+                    value={pointsAdjustmentNotes}
                     onChange={(event) => {
-                      setStatusChangeNotes(event.currentTarget.value);
+                      setPointsAdjustmentNotes(event.currentTarget.value);
                     }}
                   />
-                  {statusChangeError !== null ? <Text c="red">{statusChangeError}</Text> : null}
+                  {pointsAdjustmentError !== null ? (
+                    <Text c="red">{pointsAdjustmentError}</Text>
+                  ) : null}
                   <Button
                     onClick={() => {
-                      void handleInventoryStatusChange();
+                      void handlePointsAdjustmentRequest();
                     }}
-                    loading={statusChangePending}
+                    loading={pointsAdjustmentPending}
                   >
-                    Move Inventory
+                    Submit Points Adjustment Request
                   </Button>
                 </Stack>
               </Card>

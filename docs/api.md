@@ -19,7 +19,7 @@ Request body:
 
 ```json
 {
-  "username": "manager",
+  "username": "administrator",
   "passcode": "1234"
 }
 ```
@@ -30,8 +30,8 @@ Success `200`:
 {
   "user": {
     "id": "uuid",
-    "username": "manager",
-    "role": "manager"
+    "username": "administrator",
+    "role": "administrator"
   },
   "token": "..."
 }
@@ -52,8 +52,8 @@ Success `200`:
 {
   "user": {
     "id": "uuid",
-    "username": "manager",
-    "role": "manager"
+    "username": "administrator",
+    "role": "administrator"
   }
 }
 ```
@@ -81,6 +81,7 @@ Notes:
 
 - Requires `person.read` permission
 - Supports optional case-insensitive name/surname search
+- `person.read` covers person search, person detail display, and ledger access in the standard user flows
 - Returns masked `idNumber` and `phone` values by default in standard person responses
 - Does not expose raw sensitive person fields in normal interaction flows
 
@@ -133,7 +134,7 @@ Notes:
 Endpoints:
 
 - `GET /materials`
-- `POST /materials` for managers only
+- `POST /materials` for administrators only
 
 #### `POST /materials`
 
@@ -151,7 +152,7 @@ Request body:
 Endpoints:
 
 - `GET /items`
-- `POST /items` for managers only
+- `POST /items` for administrators only
 
 #### `POST /items`
 
@@ -170,10 +171,11 @@ Request body:
 
 Endpoints:
 
-- `GET /inventory/status-summary` for shop operators and managers
-- `GET /inventory/batches` for shop operators and managers
-- `POST /inventory/status-changes` for shop operators and managers
-- `POST /inventory/adjustments/requests` for collectors, shop operators, and managers
+- `GET /inventory/status-summary` for users and administrators
+- `GET /inventory/batches` for users and administrators
+- `POST /inventory/status-changes` for administrators only
+- `POST /inventory/adjustments/requests` for users and administrators
+- `POST /points/adjustments/requests` for users and administrators
 
 #### `GET /inventory/status-summary`
 
@@ -250,12 +252,34 @@ Request body:
 }
 ```
 
+#### `POST /points/adjustments/requests`
+
+Request body:
+
+```json
+{
+  "personId": "uuid",
+  "deltaPoints": 2.5,
+  "reason": "Manual correction request",
+  "notes": null
+}
+```
+
+Notes:
+
+- Users and administrators may submit points adjustment requests
+- Only administrators may apply points adjustments
+
 ### Ledger
 
 Endpoints:
 
 - `GET /ledger/:personId/balance`
 - `GET /ledger/:personId/entries`
+
+Notes:
+
+- Ledger endpoints require `person.read`
 
 #### `GET /ledger/:personId/balance`
 
@@ -293,7 +317,7 @@ Success `200`:
 
 Endpoints:
 
-- `POST /intakes` for collectors and managers
+- `POST /intakes` for users and administrators
 
 #### `POST /intakes`
 
@@ -311,7 +335,7 @@ Request body:
 
 Endpoints:
 
-- `POST /sales` for shop operators and managers
+- `POST /sales` for users and administrators
 
 #### `POST /sales`
 
@@ -337,8 +361,8 @@ Notes:
 
 Endpoints:
 
-- `POST /procurements` for managers only
-- `POST /procurements/bulk` for managers only
+- `POST /procurements` for administrators only
+- `POST /procurements/bulk` for administrators only
 
 #### `POST /procurements`
 
@@ -407,7 +431,7 @@ Errors:
 
 Endpoints:
 
-- `POST /expenses` for managers only
+- `POST /expenses` for administrators only
 
 #### `POST /expenses`
 
@@ -437,12 +461,12 @@ Errors:
 
 Endpoints:
 
-- `GET /reports/materials-collected` for managers only, requires `reports.view`
-- `GET /reports/points-liability` for managers only, requires `reports.view`
-- `GET /reports/sales` for managers only, requires `reports.view`
-- `GET /reports/cashflow` for managers only, requires `reports.view`
-- `GET /reports/inventory-status` for managers only, requires `reports.view`
-- `GET /reports/inventory-status-log` for managers only, requires `reports.view`
+- `GET /reports/materials-collected` for administrators only, requires `reports.view`
+- `GET /reports/points-liability` for administrators only, requires `reports.view`
+- `GET /reports/sales` for administrators only, requires `reports.view`
+- `GET /reports/cashflow` for administrators only, requires `reports.view`
+- `GET /reports/inventory-status` for administrators only, requires `reports.view`
+- `GET /reports/inventory-status-log` for administrators only, requires `reports.view`
 
 Query params:
 
@@ -752,12 +776,12 @@ Endpoints:
 - `POST /sync/push`
 - `GET /sync/pull?cursor=<cursor>&limit=<n>`
 - `GET /sync/status`
-- `GET /sync/conflicts?status=open|all&limit=<n>&cursor=<cursor>` for managers only
-- `POST /sync/conflicts/:conflictId/resolve` for managers only
-- `GET /sync/audit/report?limit=<n>&cursor=<cursor>` for managers only
-- `GET /sync/audit/event/:eventId` for managers only
-- `GET /sync/reconciliation/report?limit=<n>&cursor=<cursor>&code=<issueCode>&repairableOnly=true|false` for managers only
-- `POST /sync/reconciliation/issues/:issueId/repair` for managers only
+- `GET /sync/conflicts?status=open|all&limit=<n>&cursor=<cursor>` for administrators only
+- `POST /sync/conflicts/:conflictId/resolve` for administrators only
+- `GET /sync/audit/report?limit=<n>&cursor=<cursor>` for administrators only
+- `GET /sync/audit/event/:eventId` for administrators only
+- `GET /sync/reconciliation/report?limit=<n>&cursor=<cursor>&code=<issueCode>&repairableOnly=true|false` for administrators only
+- `POST /sync/reconciliation/issues/:issueId/repair` for administrators only
 
 #### `POST /sync/push`
 
@@ -906,7 +930,7 @@ Success `200` for rebuild repairs:
 
 Notes:
 
-- Repair requests are manager-confirmed and require non-empty `notes`
+- Repair requests are administrator-confirmed and require non-empty `notes`
 - The server recomputes the targeted issue before applying the repair
 - Business-data repairs append immutable `points.adjustment_applied` or `inventory.adjustment_applied` events
 - Projection repairs reuse the existing projection refresh path
@@ -927,14 +951,13 @@ Errors:
 
 Default seed set, used when `STAFF_SEED_JSON` is not provided:
 
-- `manager / 1234 / manager`
-- `collector / 1234 / collector`
-- `operator / 1234 / shop_operator`
+- `administrator / 1234 / administrator`
+- `user / 1234 / user`
 
 Custom seed input:
 
 ```powershell
-$env:STAFF_SEED_JSON='[{"username":"admin","passcode":"9876","role":"manager"}]'
+$env:STAFF_SEED_JSON='[{"username":"admin","passcode":"9876","role":"administrator"}]'
 npm run seed:staff
 ```
 

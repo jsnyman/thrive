@@ -4,24 +4,19 @@ import type { Prisma } from "@prisma/client";
 export type SeedUser = {
   username: string;
   passcode: string;
-  role: "collector" | "shop_operator" | "manager";
+  role: "user" | "administrator";
 };
 
 export const defaultSeedUsers: SeedUser[] = [
   {
-    username: "manager",
+    username: "administrator",
     passcode: "1234",
-    role: "manager",
+    role: "administrator",
   },
   {
-    username: "collector",
+    username: "user",
     passcode: "1234",
-    role: "collector",
-  },
-  {
-    username: "operator",
-    passcode: "1234",
-    role: "shop_operator",
+    role: "user",
   },
 ];
 
@@ -48,8 +43,8 @@ export const parseSeedUsers = (input: string | undefined): SeedUser[] => {
     if (typeof passcode !== "string" || passcode.trim().length === 0) {
       throw new Error("Seed passcode must be a non-empty string");
     }
-    if (role !== "collector" && role !== "shop_operator" && role !== "manager") {
-      throw new Error("Seed role must be collector, shop_operator, or manager");
+    if (role !== "user" && role !== "administrator") {
+      throw new Error("Seed role must be user or administrator");
     }
     users.push({
       username,

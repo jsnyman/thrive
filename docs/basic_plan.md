@@ -71,8 +71,8 @@ The system also needs to keep track of all recyclable material. It should record
 - Items can only be bought with points; no cash sales
 - Locations are free-form text; there is no fixed list
 - No negative point balances; sales are blocked if points are insufficient
-- Adjustments require a logged request; only managers can approve and apply them
-- Overlapping edits are flagged for manager resolution
+- Adjustments require a logged request; only administrators can approve and apply them
+- Overlapping edits are flagged for administrator resolution
 
 ### Tech Stack Notes
 
@@ -85,9 +85,8 @@ The system also needs to keep track of all recyclable material. It should record
 
 ### Primary Actors
 
-- Collector: intake
-- Shop operator: sales
-- Manager: stock, procurement, expenses, reporting
+- User: person registry, intake, sales, and adjustment requests
+- Administrator: all user workflows plus inventory control, procurement, expenses, reporting, reconciliation, and staff administration
 
 ### Core Entities
 

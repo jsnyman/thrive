@@ -2,29 +2,23 @@ import type { StaffRole } from "../../../../packages/shared/src/domain/types";
 import type { PermissionAction } from "./types";
 
 const permissionMap: Record<StaffRole, PermissionAction[]> = {
-  collector: [
-    "person.read",
-    "person.create",
-    "person.update",
-    "intake.record",
-    "points.adjustment.request",
-    "inventory.adjustment.request",
-  ],
-  shop_operator: [
-    "person.read",
-    "person.create",
-    "person.update",
-    "sale.record",
-    "inventory.move",
-    "points.adjustment.request",
-    "inventory.adjustment.request",
-  ],
-  manager: [
+  user: [
     "person.read",
     "person.create",
     "person.update",
     "intake.record",
     "sale.record",
+    "inventory.read",
+    "points.adjustment.request",
+    "inventory.adjustment.request",
+  ],
+  administrator: [
+    "person.read",
+    "person.create",
+    "person.update",
+    "intake.record",
+    "sale.record",
+    "inventory.read",
     "inventory.move",
     "item.manage",
     "procurement.record",

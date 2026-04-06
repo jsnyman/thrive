@@ -34,7 +34,7 @@ Server
 
 - Conflicts are detected when overlapping edits target the same entity in a way that violates business rules.
 - The server records `conflict.detected` events that reference the conflicting events.
-- Resolution is a manager action recorded as `conflict.resolved` with a free-text reason.
+- Resolution is a administrator action recorded as `conflict.resolved` with a free-text reason.
 - The system never drops original events; resolutions are additive.
 
 ## Failure Handling

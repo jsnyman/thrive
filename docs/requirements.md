@@ -59,9 +59,8 @@ The system is:
 
 - Authenticated by username and passcode
 - Roles:
-  - Collector: intake and person registration
-  - Shop operator: sales
-  - Manager: procurement, expenses, reporting, administration
+  - User: person create, person edit, person search, person detail and ledger view, intake, sales, points adjustment requests, and inventory adjustment requests
+  - Administrator: full access to all current system functions, including procurement, expenses, reporting, administration, adjustments, and reconciliation
 
 ### 2.2 Persons (Community Members)
 
@@ -100,14 +99,14 @@ The system is:
   - `missing`
 - Sales decrease stock immediately
 - Status changes must be logged with a reason and staff user
-- Only managers can perform inventory adjustments, including damage, spoilage, or missing stock
+- Only administrators can perform inventory adjustments, including damage, spoilage, or missing stock
 
 ### 3.4 Auditability
 
 - All financial and points-related changes must be recorded as immutable events
 - Sync uses event-log merge with audit trails
 - Event logs are retained indefinitely, initially
-- Overlapping edits are flagged for manager resolution
+- Overlapping edits are flagged for administrator resolution
 - ID numbers and phone numbers must not be displayed during interactions
 
 ---
@@ -140,8 +139,8 @@ The system is:
 - `FR-12`: Each ledger entry must reference its source event
 - `FR-13`: The system must show the current point balance for a person
 - `FR-13a`: The system must block transactions that would result in a negative balance
-- `FR-13b`: Only managers can perform point adjustments
-- `FR-13c`: Non-managers can log a point adjustment request with a free-text reason
+- `FR-13b`: Only administrators can perform point adjustments
+- `FR-13c`: Users can log a point adjustment request with a free-text reason
 
 ### 4.5 Inventory and Stock
 
@@ -156,8 +155,8 @@ The system is:
 - `FR-16`: Users can move stock between storage and shop
 - `FR-16a`: Users can record status changes for partial quantities such as spoiled, damaged, or missing
 - `FR-16b`: Each status change must record date/time, staff user, quantity, and a free-text reason
-- `FR-16c`: Only managers can perform inventory adjustments, including spoiled, damaged, or missing stock
-- `FR-16d`: Non-managers can log an inventory adjustment request with a free-text reason
+- `FR-16c`: Only administrators can perform inventory adjustments, including spoiled, damaged, or missing stock
+- `FR-16d`: Users can log an inventory adjustment request with a free-text reason
 
 ### 4.6 Sales (Points Only)
 
@@ -185,16 +184,16 @@ The system is:
 - `FR-28a`: Inventory status change report by batch, date, and reason
 - `FR-29`: Sales report by item, location, and date
 - `FR-30`: Cashflow report showing sales value in points-as-rand vs expenses
-- `FR-30a`: Managers can export the currently loaded report data to CSV for offline sharing and review
+- `FR-30a`: Administrators can export the currently loaded report data to CSV for offline sharing and review
 
 ### 4.10 Sync and Audit
 
 - `FR-31`: The system must work offline and queue events
 - `FR-32`: The system must sync asynchronously between devices
 - `FR-33`: Conflicts must be resolved by event-log merge with audit history
-- `FR-33a`: Overlapping edits must be flagged for manager review
-- `FR-33b`: Manager resolutions must be logged with a free-text reason
-- `FR-33c`: Managers must be able to review reconciliation issues derived from projection-versus-event-log checks and apply append-only corrective repairs with required notes
+- `FR-33a`: Overlapping edits must be flagged for administrator review
+- `FR-33b`: Administrator resolutions must be logged with a free-text reason
+- `FR-33c`: Administrators must be able to review reconciliation issues derived from projection-versus-event-log checks and apply append-only corrective repairs with required notes
 
 ---
 
@@ -205,7 +204,7 @@ The system is:
 - `NFR-3`: All events must be timestamped and attributable to a staff user
 - `NFR-4`: Data integrity must be maintained across sync
 - `NFR-5`: UI must be usable in low-connectivity, mobile contexts
-- `NFR-5a`: Manager reporting and reconciliation surfaces should lazy-load on demand so low-end devices do not pay the startup cost for all report panels at login
+- `NFR-5a`: Administrator reporting and reconciliation surfaces should lazy-load on demand so low-end devices do not pay the startup cost for all report panels at login
 - `NFR-5b`: Pilot readiness must include field-validation scenarios that exercise offline trading, intermittent connectivity, and the same-day points sync rule
 - `NFR-6`: Event logs must be retained indefinitely, initially
 - `NFR-7`: ID numbers and phone numbers must not be displayed during interactions, and server-side response masking must enforce that default visibility rule

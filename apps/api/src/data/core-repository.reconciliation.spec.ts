@@ -178,8 +178,8 @@ describe("core repository reconciliation", () => {
       "checked ledger",
       {
         id: "2772c203-5df5-4967-9341-09e391f4cb90",
-        username: "manager",
-        role: "manager",
+        username: "administrator",
+        role: "administrator",
       },
     );
 
@@ -248,8 +248,8 @@ describe("core repository reconciliation", () => {
       "rebuild now",
       {
         id: "2772c203-5df5-4967-9341-09e391f4cb90",
-        username: "manager",
-        role: "manager",
+        username: "administrator",
+        role: "administrator",
       },
     );
 

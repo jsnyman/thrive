@@ -1,6 +1,6 @@
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
-CREATE TYPE "StaffRole" AS ENUM ('collector', 'shop_operator', 'manager');
+CREATE TYPE "StaffRole" AS ENUM ('user', 'administrator');
 CREATE TYPE "EventType" AS ENUM (
   'person.created',
   'person.profile_updated',
@@ -83,3 +83,4 @@ CREATE INDEX event_event_type_idx ON event(event_type);
 CREATE INDEX event_occurred_at_idx ON event(occurred_at);
 CREATE INDEX event_actor_user_id_idx ON event(actor_user_id);
 CREATE INDEX item_name_idx ON item(name);
+

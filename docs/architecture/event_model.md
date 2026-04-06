@@ -96,8 +96,8 @@ Projections are read models derived from the event log.
 
 Corrections are handled via explicit adjustment events.
 
-- A request event captures the intent and reason from a non-manager.
-- An applied event captures the manager decision and the exact delta.
+- A request event captures the intent and reason from a user.
+- An applied event captures the administrator decision and the exact delta.
 - No event is deleted or mutated. The audit trail remains intact.
 
 ## PII Handling

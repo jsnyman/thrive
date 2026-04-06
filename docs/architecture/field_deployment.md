@@ -11,9 +11,9 @@ This document defines the recommended field layout for swap-shop days where conn
 
 ## Device Layout
 
-### Collector Phone
+### Intake Phone
 
-- Role: `collector`
+- Typical role: `user`
 - Primary workflows:
   - person lookup and registration
   - intake event capture
@@ -21,14 +21,14 @@ This document defines the recommended field layout for swap-shop days where conn
   - must work fully offline
   - syncs when mobile data is available
 
-### Shop Phone
+### Sales Phone
 
-- Role: `shop_operator`
+- Typical role: `user`
 - Primary workflows:
   - person lookup
   - points balance checks based on last successful sync
   - sales capture
-  - inventory movement capture when needed
+  - inventory adjustment request capture when needed
 - Connectivity expectation:
   - must work fully offline
   - syncs when mobile data is available
@@ -56,34 +56,34 @@ This document defines the recommended field layout for swap-shop days where conn
 
 ### Before Departure
 
-- Sync the collector phone to pull the latest people and configuration data.
-- Sync the shop phone to pull the latest balances, items, prices, and inventory state.
+- Sync the intake phone to pull the latest people and configuration data.
+- Sync the sales phone to pull the latest balances, items, prices, and inventory state.
 - Refresh the tablet catalog so that product images and prices are cached locally.
 - Confirm the server is reachable and both phones show a recent successful sync timestamp.
 
 ### During the Day
 
-- The collector phone records intake offline.
-- The shop phone records sales offline.
+- The intake phone records intake offline.
+- The sales phone records sales offline.
 - The tablet stays read-only and uses the locally cached catalog.
 - Staff may trigger `Sync Now` on either phone when signal briefly becomes available, but trading must not depend on that sync succeeding.
 
 ### End of Day
 
 - Move both phones to a location with signal if the field site has none.
-- Sync the collector phone.
-- Sync the shop phone.
+- Sync the intake phone.
+- Sync the sales phone.
 - Repeat a second sync cycle on both phones if required to pull newly accepted remote events from the other device.
 - Refresh the tablet catalog only after the phones have completed end-of-day sync.
 
 ## Critical Business Rule
 
-The shop phone must not assume it knows about points earned on the collector phone after the last successful sync.
+The sales phone must not assume it knows about points earned on the intake phone after the last successful sync.
 
 That means:
 
-- a customer can spend points that are visible on the shop phone at its last sync
-- a customer cannot reliably spend points earned earlier that same day unless the collector phone and shop phone have both synced with the server
+- a customer can spend points that are visible on the sales phone at its last sync
+- a customer cannot reliably spend points earned earlier that same day unless the intake phone and sales phone have both synced with the server
 
 This rule is required because the recommended deployment does not rely on direct peer-to-peer device communication, local Wi-Fi, or a field server.
 
@@ -92,7 +92,7 @@ This rule is required because the recommended deployment does not rely on direct
 - The web client already follows an offline-first PWA model.
 - Each device has local queue and sync-state persistence in OPFS-backed SQLite.
 - Sync is append-only and asynchronous against an internet-hosted server.
-- Staff roles already split naturally between collection and shop workflows.
+- Staff can still separate intake and sales workflows across devices even though the RBAC model is now just `user` and `administrator`.
 - The tablet can remain outside the transactional workflow and therefore does not add conflict or audit complexity.
 
 ## Risks and Mitigations
@@ -103,14 +103,14 @@ Mitigation:
 
 - make this an explicit staff operating rule
 - attempt midday sync only when signal is available
-- train staff to treat the shop phone's last synced balance as authoritative for sales
+- train staff to treat the sales phone's last synced balance as authoritative for sales
 
 ### Risk: stale stock view on the tablet
 
 Mitigation:
 
 - treat the tablet as promotional/catalog display only
-- record actual stock decisions on the shop phone
+- record actual stock decisions on the sales phone
 - refresh the tablet before opening and after close, not continuously
 
 ### Risk: incomplete end-of-day data upload
@@ -125,11 +125,11 @@ Mitigation:
 
 1. Morning: sync both phones and refresh the tablet catalog.
 2. Trading hours: work offline-first; do not depend on live connectivity.
-3. Same-day points: allow spending only if those points are visible on the shop phone.
-4. Closing: sync collector phone, then shop phone, then repeat if necessary.
+3. Same-day points: allow spending only if those points are visible on the sales phone.
+4. Closing: sync intake phone, then sales phone, then repeat if necessary.
 
 For a shorter staff-facing procedure, see `docs/operations/field_staff_checklist.md`.
-For a manager-facing pilot checklist, see `docs/operations/manager_pilot_readiness_checklist.md`.
+For a administrator-facing pilot checklist, see `docs/operations/manager_pilot_readiness_checklist.md`.
 For structured pilot scenario execution and evidence capture, see `docs/operations/field_test_plan.md`, `docs/operations/field_test_execution_sheet.md`, and `docs/operations/field_test_findings_log.md`.
 
 ## Documentation Layout

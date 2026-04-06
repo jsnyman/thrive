@@ -22,16 +22,16 @@ describe("createAuthClient", () => {
       jsonResponse({
         user: {
           id: "user-1",
-          username: "manager",
-          role: "manager",
+          username: "administrator",
+          role: "administrator",
         },
         token: "token-1",
       }),
     );
     const client = createAuthClient({ fetchFn });
 
-    const user = await client.login("manager", "1234");
-    expect(user.username).toBe("manager");
+    const user = await client.login("administrator", "1234");
+    expect(user.username).toBe("administrator");
     expect(getAuthToken()).toBe("token-1");
     expect(fetchFn.mock.calls[0]?.[0]).toBe("/api/auth/login");
   });
@@ -42,14 +42,14 @@ describe("createAuthClient", () => {
       jsonResponse({
         user: {
           id: "user-1",
-          username: "collector",
-          role: "collector",
+          username: "user",
+          role: "user",
         },
         token: "token-2",
       }),
     );
     const loginClient = createAuthClient({ fetchFn: loginFetch });
-    await loginClient.login("collector", "1234");
+    await loginClient.login("user", "1234");
     expect(getAuthToken()).toBe("token-2");
 
     const meFetch = vi
