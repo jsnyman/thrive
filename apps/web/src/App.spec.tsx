@@ -70,6 +70,32 @@ const openManagerPanel = async (view: RenderResult, buttonName: string): Promise
 };
 
 describe("App person registry", () => {
+  test("login inputs use a fixed sensible maximum width", () => {
+    stubResizeObserver();
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    const usernameField = view.getByLabelText("Username");
+    const passcodeField = view.getByLabelText("Passcode");
+    const usernameWrapper = usernameField.closest("div[style*='max-width: 300px']");
+    const passcodeWrapper = passcodeField.closest("div[style*='max-width: 300px']");
+
+    expect(usernameWrapper).not.toBeNull();
+    expect(passcodeWrapper).not.toBeNull();
+    expect(usernameWrapper).toHaveStyle({
+      maxWidth: "300px",
+      width: "100%",
+    });
+    expect(passcodeWrapper).toHaveStyle({
+      maxWidth: "300px",
+      width: "100%",
+    });
+  });
+
   test("login success stores token and shows registry view", async () => {
     stubResizeObserver();
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {

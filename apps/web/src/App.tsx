@@ -1970,6 +1970,7 @@ export const App = ({
                   <TextInput
                     label="Username"
                     value={username}
+                    style={{ width: "100%", maxWidth: "300px" }}
                     onChange={(event) => {
                       setUsername(event.currentTarget.value);
                     }}
@@ -1977,6 +1978,7 @@ export const App = ({
                   <PasswordInput
                     label="Passcode"
                     value={passcode}
+                    style={{ width: "100%", maxWidth: "300px" }}
                     onChange={(event) => {
                       setPasscode(event.currentTarget.value);
                     }}
