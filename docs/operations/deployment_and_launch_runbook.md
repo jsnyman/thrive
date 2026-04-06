@@ -1,8 +1,15 @@
 # Deployment and Launch Runbook
 
-Use this runbook to prepare, deploy, validate, and hand over the pilot launch of the Recycling Swap-Shop system.
+Use this runbook to execute a real deployment of the Recycling Swap-Shop system with concrete commands.
 
-This document is the primary operator guide for release execution. It should be used together with:
+This runbook assumes:
+
+- Ubuntu host
+- NGINX + systemd runtime
+- PostgreSQL local to the host
+- app source deployed from this repository
+
+Use together with:
 
 - `docs/operations/go_live_checklist.md`
 - `docs/operations/rollback_checklist.md`
@@ -10,165 +17,233 @@ This document is the primary operator guide for release execution. It should be 
 - `docs/operations/manager_pilot_readiness_checklist.md`
 - `docs/operations/field_test_plan.md`
 
-## Purpose
-
-The launch process must ensure that:
-
-- the hosted web/API deployment is reachable and correctly configured
-- the database schema and runtime version are aligned
-- backup and recovery controls are verified before cutover
-- the first field devices can log in and sync successfully
-- managers can sign off on pilot readiness using a repeatable process
-
 ## Roles
 
-| Role             | Responsibility                                                               |
-| ---------------- | ---------------------------------------------------------------------------- |
-| Release operator | Executes the deployment steps and records the release result                 |
-| Named maintainer | Approves production changes, rollback decisions, and recovery escalation     |
-| Manager on duty  | Confirms pilot-readiness checks, first-device validation, and field handover |
+| Role             | Responsibility                                                           |
+| ---------------- | ------------------------------------------------------------------------ |
+| Release operator | Executes commands below and records release results                      |
+| Named maintainer | Approves production changes, rollback decisions, and recovery escalation |
+| Manager on duty  | Confirms pilot readiness and field handover                              |
 
-## Release Inputs
+## Release Inputs (record before starting)
 
-Before deployment, record:
-
-- release identifier or version tag
+- release identifier (`<tag-or-commit>`)
 - operator name
-- environment
-- deployment date and start time
-- target API base URL
-- target web URL
-- schema or migration version being deployed
+- deployment date/time
+- target domain (`<domain>`)
+- web URL (`https://<domain>`)
+- API URL (`https://<domain>/api`)
+- database name/user
 - last known good release identifier
+- latest backup/snapshot identifier
 
-## Launch Prerequisites
+## 0) Pre-Deploy Safety Checks
 
-Before any production cutover:
+Run these from your local machine or bastion:
 
-- hosting environment is ready and reachable
-- TLS is valid and the public hostname resolves correctly
-- staff accounts are seeded and validated
-- automated backups are healthy
-- the latest restore drill has been completed and recorded
-- field devices are assigned and named
-- training for collector, shop operator, and manager roles is complete
-- the field test pack has been reviewed and any blocking findings are closed or accepted
-- the current rollback owner is identified
+```bash
+# Confirm DNS and HTTPS endpoint are reachable
+nslookup <domain>
+curl -I https://<domain>
 
-Reference documents:
+# Confirm SSH access to server
+ssh <admin-user>@<server-ip-or-domain> "hostname && uname -a"
+```
 
-- hosting: `docs/operations/hosted_server_requirements.md`
-- recovery: `docs/operations/backup_and_recovery_runbook.md`
-- field validation: `docs/operations/field_test_plan.md`
-- training: `docs/operations/staff_training_program.md`
+On server, confirm rollback inputs exist and health is green:
 
-## Deployment Sequence
+```bash
+sudo systemctl status nginx --no-pager
+sudo systemctl status recycling-api.service --no-pager || true
+```
 
-### 1. Pre-Deploy Safety Checks
+If backup checks are scripted in your environment, run them now and record the snapshot ID before continuing.
 
-- Confirm the latest production backup succeeded.
-- Confirm the backup identifier or snapshot ID is recorded.
-- Confirm rollback inputs are available:
-  - last known good release
-  - backup or PITR target
-  - responsible approver
-- Open `docs/operations/go_live_checklist.md` and record the release start.
+## 1) First-Time Server Bootstrap (new host)
 
-### 2. Apply Schema Changes
+Use this once per fresh server. It installs OS/runtime dependencies, configures NGINX, systemd, PostgreSQL, Prisma migration deploy, projections, optional seed data, and TLS certificate.
 
-- Apply production migrations in the controlled deployment sequence used by the environment.
-- Stop and investigate if any migration fails.
-- Do not proceed to application cutover if schema state is uncertain.
+```bash
+ssh <admin-user>@<server-ip-or-domain>
+cd /tmp
+git clone <repo-url> recycling-deploy
+cd recycling-deploy
+sudo bash deploy/bootstrap-ubuntu.sh
+```
 
-### 3. Deploy Web and API Release
+During prompts, provide:
 
-- Deploy the API release.
-- Deploy the web client assets.
-- Restart or roll the runtime in the standard production sequence.
-- Record the deployed release identifier.
+- domain (`<domain>`)
+- repo URL (`<repo-url>`)
+- branch (`main` unless approved otherwise)
+- app dir (`/opt/recycling-swap-shop`)
+- DB name/user/password
+- `AUTH_SECRET`
+- whether to seed staff (`yes` for first pilot setup only)
 
-### 4. Immediate Technical Validation
+After completion:
 
-Validate at minimum:
+```bash
+sudo systemctl status recycling-api.service --no-pager
+sudo systemctl status nginx --no-pager
+curl -I https://<domain>
+curl -sS https://<domain>/api/sync/status
+```
 
-- public web app loads over HTTPS
-- `POST /auth/login`
-- `GET /sync/status`
-- `GET /people`
-- `GET /inventory/status-summary`
-- one manager report endpoint
-- one reconciliation or audit endpoint
+## 2) Standard Release Deploy (existing host)
 
-Also confirm:
+Run for each release on an already bootstrapped host.
 
-- standard person responses still return masked ID and phone values
-- manager-only endpoints still enforce access correctly
-- sync status and projection freshness look reasonable
+```bash
+ssh <admin-user>@<server-ip-or-domain>
+sudo su - recycling -s /bin/bash
+cd /opt/recycling-swap-shop
+```
 
-### 5. Pilot Cutover Validation
+### 2.1 Pull release
 
-Using real pilot devices:
+```bash
+git fetch origin
+git checkout main
+git pull --ff-only origin main
+git rev-parse --short HEAD
+```
 
-- log in on collector phone
-- log in on shop phone
-- confirm tablet catalog opens
-- run first sync on collector phone
-- run first sync on shop phone
-- confirm manager can access reports and reconciliation
-- confirm field-day rules are restated to staff:
-  - same-day points require collector sync first, then shop sync
-  - tablet is display-only
-  - do not clear browser data if sync fails
+If deploying a specific tag:
 
-### 6. Manager Sign-Off
+```bash
+git fetch --tags
+git checkout <tag-or-commit>
+git rev-parse --short HEAD
+```
 
-The manager on duty must confirm:
+### 2.2 Install dependencies and build
 
-- core devices can log in
-- first sync works on both phones, or exceptions are explicitly accepted
-- tablet is ready for display use
-- no blocking issue remains from deployment validation
-- field team has the correct day-of-operation documents
+```bash
+npm ci
+npm run prisma:generate
+npm run build:web
+npm run build:api
+```
 
-## Day-One Monitoring
+### 2.3 Apply schema and projection updates
 
-After go-live, monitor:
+```bash
+npm run prisma:migrate:deploy
+npm run projections:install
+```
 
-- sync failures or repeated retries
+### 2.4 Restart API service
+
+```bash
+exit  # back to admin user if needed
+sudo systemctl restart recycling-api.service
+sudo systemctl status recycling-api.service --no-pager
+```
+
+## 3) Immediate Technical Validation
+
+Run these checks right after deploy:
+
+```bash
+# Web
+curl -I https://<domain>
+
+# API liveness / sync
+curl -sS https://<domain>/api/sync/status
+```
+
+Optional authenticated checks (replace token):
+
+```bash
+TOKEN="<bearer-token>"
+curl -sS -H "Authorization: Bearer $TOKEN" https://<domain>/api/people
+curl -sS -H "Authorization: Bearer $TOKEN" https://<domain>/api/inventory/status-summary
+```
+
+Service and logs:
+
+```bash
+sudo journalctl -u recycling-api.service -n 100 --no-pager
+sudo nginx -t
+```
+
+Minimum acceptance criteria:
+
+- web loads over HTTPS
+- `GET /api/sync/status` succeeds
+- login works from client UI (`POST /api/auth/login`)
+- people and inventory endpoints return successful responses with valid auth
+- no startup/runtime error loop in `recycling-api.service`
+
+## 4) Pilot Cutover Validation (real devices)
+
+Execute in order:
+
+1. collector phone login and first sync
+2. shop phone login and first sync
+3. tablet catalog opens (display only)
+4. manager report/reconciliation access confirmed
+
+Restate operating rules to staff:
+
+- same-day points require collector sync first, then shop sync
+- tablet is display-only
+- do not clear browser data when sync fails; escalate first
+
+## 5) Rollback Trigger and Quick Actions
+
+If severe regression is confirmed (auth failure, sync failure, broken projections):
+
+```bash
+ssh <admin-user>@<server-ip-or-domain>
+sudo su - recycling -s /bin/bash
+cd /opt/recycling-swap-shop
+git log --oneline -n 5
+git checkout <last-known-good-tag-or-commit>
+npm ci
+npm run prisma:generate
+npm run build:web
+npm run build:api
+exit
+sudo systemctl restart recycling-api.service
+sudo systemctl status recycling-api.service --no-pager
+```
+
+Then follow full process in `docs/operations/rollback_checklist.md`.
+
+## 6) Day-One Monitoring Commands
+
+```bash
+# API logs (live)
+sudo journalctl -u recycling-api.service -f
+
+# NGINX logs
+sudo tail -f /var/log/nginx/access.log /var/log/nginx/error.log
+
+# Service status snapshot
+sudo systemctl status recycling-api.service --no-pager
+sudo systemctl status nginx --no-pager
+```
+
+Watch for:
+
+- repeated sync retries/failures
+- auth/login failures
 - projection freshness lag
-- reconciliation issues
-- backup success after launch
-- login failures
-- any rejected events or unexpected balance reports from the field
+- reconciliation anomalies
+- unexpected event rejection patterns
 
-If a release issue is suspected:
+## 7) Post-Launch Recording
 
-- pause new rollout activity
-- decide whether the issue is operationally tolerable for the pilot
-- use `docs/operations/rollback_checklist.md` if rollback is needed
+Record before closing window:
 
-## Post-Launch Recording
-
-Record the following before closing the launch window:
-
-- release identifier
-- operator
-- deployment start and end time
-- migration result
-- validation result
-- manager sign-off result
-- incidents or warnings observed
-- rollback decision, if any
-- follow-up actions and owners
-
-## Handover to Field Operations
-
-Before the first field day after launch:
-
-- provide `docs/operations/field_staff_checklist.md` to staff
-- provide `docs/operations/manager_pilot_readiness_checklist.md` to the manager
-- confirm `docs/operations/field_test_execution_sheet.md` is ready if a pilot validation day is being run
-- confirm the recovery owner is reachable during the pilot window
+- deployed release identifier (`git rev-parse --short HEAD`)
+- start/end timestamps
+- migration result (`prisma:migrate:deploy`)
+- validation and pilot sign-off result
+- incidents/warnings and owners
+- rollback decision (if any)
 
 ## Related Documents
 
