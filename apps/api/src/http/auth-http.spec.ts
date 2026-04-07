@@ -129,6 +129,19 @@ const createDependencies = (overrides?: Partial<ApiServerDependencies>): ApiServ
     rows: [],
   }),
   listInventoryStatusLogReport: async () => [],
+  listAdjustmentRequests: async () => ({
+    requests: [],
+    nextCursor: null,
+  }),
+  listStaffUsers: async () => [],
+  createStaffUser: async () => ({
+    ok: false,
+    error: "CONFLICT",
+  }),
+  updateStaffUser: async () => ({
+    ok: false,
+    error: "NOT_FOUND",
+  }),
   listSalesReport: async () => ({
     rows: [],
     summary: {

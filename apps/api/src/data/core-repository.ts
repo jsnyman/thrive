@@ -218,6 +218,47 @@ type InventoryStatusLogReportRow = {
   notes: string | null;
 };
 
+type InventoryAdjustmentStatus = "spoiled" | "damaged" | "missing";
+type AdjustmentRequestType = "points" | "inventory";
+type AdjustmentRequestStatus = "pending" | "approved" | "rejected";
+type StaffRole = "user" | "administrator";
+
+type AdjustmentRequestFilter = {
+  requestType: AdjustmentRequestType | null;
+  status: AdjustmentRequestStatus | null;
+  limit: number;
+  cursor: string | null;
+};
+
+type AdjustmentRequestRecord = {
+  requestEventId: string;
+  requestType: AdjustmentRequestType;
+  status: AdjustmentRequestStatus;
+  requestedAt: string;
+  requestedByUserId: string;
+  personId: string | null;
+  inventoryBatchId: string | null;
+  requestedStatus: InventoryAdjustmentStatus | null;
+  deltaPoints: number | null;
+  quantity: number;
+  reason: string;
+  notes: string | null;
+  resolvedByUserId: string | null;
+  resolvedAt: string | null;
+  resolutionNotes: string | null;
+};
+
+type AdjustmentRequestListResult = {
+  requests: AdjustmentRequestRecord[];
+  nextCursor: string | null;
+};
+
+type StaffUserListRecord = {
+  id: string;
+  username: string;
+  role: StaffRole;
+};
+
 type PullEventsResult = {
   events: Event[];
   nextCursor: SyncCursor | null;
@@ -1844,6 +1885,293 @@ export const createCoreRepository = (prisma: PrismaClient) => {
     });
   };
 
+  const listAdjustmentRequests = async (
+    filters: AdjustmentRequestFilter,
+  ): Promise<AdjustmentRequestListResult> => {
+    const limit =
+      Number.isInteger(filters.limit) && filters.limit > 0 ? Math.min(filters.limit, 200) : 50;
+    const cursorDate = filters.cursor === null ? null : new Date(filters.cursor);
+    const hasCursor = cursorDate !== null && !Number.isNaN(cursorDate.getTime());
+    const whereTypeSql =
+      filters.requestType === null
+        ? ""
+        : "and req.request_type = " +
+          (filters.requestType === "points" ? "'points'" : "'inventory'");
+    const whereStatusSql = filters.status === null ? "" : `and req.status = '${filters.status}'`;
+    const cursorSql = hasCursor ? "and req.requested_at < $2::timestamptz" : "";
+    const limitSql = hasCursor ? "$3" : "$2";
+    const query = `
+      with requests as (
+        select
+          e.event_id::text as request_event_id,
+          case
+            when e.event_type = 'points.adjustment_requested' then 'points'
+            else 'inventory'
+          end as request_type,
+          e.occurred_at as requested_at,
+          e.actor_user_id as requested_by_user_id,
+          case
+            when e.event_type = 'points.adjustment_requested' then e.payload ->> 'personId'
+            else null
+          end as person_id,
+          case
+            when e.event_type = 'inventory.adjustment_requested' then e.payload ->> 'inventoryBatchId'
+            else null
+          end as inventory_batch_id,
+          case
+            when e.event_type = 'inventory.adjustment_requested' then e.payload ->> 'requestedStatus'
+            else null
+          end as requested_status,
+          case
+            when e.event_type = 'points.adjustment_requested' then (e.payload ->> 'deltaPoints')::numeric(12, 1)
+            else null
+          end as delta_points,
+          (e.payload ->> 'quantity')::int as inventory_quantity,
+          e.payload ->> 'reason' as reason,
+          e.payload ->> 'notes' as notes
+        from event e
+        where e.event_type in ('points.adjustment_requested', 'inventory.adjustment_requested')
+      ),
+      latest_applied as (
+        select distinct on ((e.payload ->> 'requestEventId'))
+          e.payload ->> 'requestEventId' as request_event_id,
+          e.actor_user_id as resolved_by_user_id,
+          e.occurred_at as resolved_at,
+          e.payload ->> 'notes' as resolution_notes
+        from event e
+        where e.event_type in ('points.adjustment_applied', 'inventory.adjustment_applied')
+          and e.payload ->> 'requestEventId' is not null
+        order by (e.payload ->> 'requestEventId'), e.occurred_at desc, e.event_id desc
+      ),
+      merged as (
+        select
+          req.request_event_id,
+          req.request_type,
+          req.requested_at,
+          req.requested_by_user_id,
+          req.person_id,
+          req.inventory_batch_id,
+          req.requested_status,
+          req.delta_points,
+          req.inventory_quantity,
+          req.reason,
+          req.notes,
+          case when app.request_event_id is null then 'pending' else 'approved' end as status,
+          app.resolved_by_user_id,
+          app.resolved_at,
+          app.resolution_notes
+        from requests req
+        left join latest_applied app on app.request_event_id = req.request_event_id
+      )
+      select
+        request_event_id,
+        request_type,
+        requested_at,
+        requested_by_user_id,
+        person_id,
+        inventory_batch_id,
+        requested_status,
+        delta_points,
+        inventory_quantity,
+        reason,
+        notes,
+        status,
+        resolved_by_user_id,
+        resolved_at,
+        resolution_notes
+      from merged req
+      where 1 = 1
+      ${whereTypeSql}
+      ${whereStatusSql}
+      ${cursorSql}
+      order by req.requested_at desc, req.request_event_id desc
+      limit ${limitSql}
+    `;
+
+    type AdjustmentRequestRow = {
+      request_event_id: string;
+      request_type: AdjustmentRequestType;
+      requested_at: Date;
+      requested_by_user_id: string;
+      person_id: string | null;
+      inventory_batch_id: string | null;
+      requested_status: InventoryAdjustmentStatus | null;
+      delta_points: number | null;
+      inventory_quantity: number | null;
+      reason: string;
+      notes: string | null;
+      status: AdjustmentRequestStatus;
+      resolved_by_user_id: string | null;
+      resolved_at: Date | null;
+      resolution_notes: string | null;
+    };
+
+    const rows = hasCursor
+      ? await prisma.$queryRawUnsafe<AdjustmentRequestRow[]>(
+          query,
+          limit,
+          cursorDate?.toISOString(),
+          limit,
+        )
+      : await prisma.$queryRawUnsafe<AdjustmentRequestRow[]>(query, limit, limit);
+    const requests = rows.map((row) => ({
+      requestEventId: row.request_event_id,
+      requestType: row.request_type,
+      status: row.status,
+      requestedAt: row.requested_at.toISOString(),
+      requestedByUserId: row.requested_by_user_id,
+      personId: row.person_id,
+      inventoryBatchId: row.inventory_batch_id,
+      requestedStatus: row.requested_status,
+      deltaPoints: row.delta_points,
+      quantity:
+        row.request_type === "points"
+          ? Math.abs(row.delta_points ?? 0)
+          : (row.inventory_quantity ?? 0),
+      reason: row.reason,
+      notes: row.notes,
+      resolvedByUserId: row.resolved_by_user_id,
+      resolvedAt: row.resolved_at === null ? null : row.resolved_at.toISOString(),
+      resolutionNotes: row.resolution_notes,
+    }));
+    const lastRow = rows[rows.length - 1];
+    return {
+      requests,
+      nextCursor:
+        rows.length < limit || lastRow === undefined ? null : lastRow.requested_at.toISOString(),
+    };
+  };
+
+  const listStaffUsers = async (): Promise<StaffUserListRecord[]> => {
+    const users = await prisma.staffUser.findMany({
+      orderBy: {
+        username: "asc",
+      },
+    });
+    return users.map((user) => ({
+      id: user.id,
+      username: user.username,
+      role: user.role,
+    }));
+  };
+
+  const createStaffUser = async (
+    input: { id: string; username: string; role: StaffRole; passcodeHash: string },
+    actor: StaffIdentity,
+  ): Promise<{ ok: true; value: StaffUserListRecord } | { ok: false; error: "CONFLICT" }> =>
+    prisma.$transaction(async (tx) => {
+      const existing = await tx.staffUser.findUnique({
+        where: {
+          username: input.username,
+        },
+      });
+      if (existing !== null) {
+        return { ok: false as const, error: "CONFLICT" as const };
+      }
+      await tx.staffUser.create({
+        data: {
+          id: input.id,
+          username: input.username,
+          role: input.role,
+          passcodeHash: input.passcodeHash,
+        },
+      });
+      const eventStore = createEventStore(tx);
+      const event: Event = {
+        eventId: randomUUID(),
+        eventType: "staff_user.created",
+        occurredAt: new Date().toISOString(),
+        actorUserId: actor.id,
+        deviceId: "api-server",
+        locationText: null,
+        schemaVersion: 1,
+        correlationId: null,
+        causationId: null,
+        payload: {
+          userId: input.id,
+          username: input.username,
+          role: input.role,
+        },
+      };
+      await eventStore.appendEvent(event);
+      return {
+        ok: true as const,
+        value: {
+          id: input.id,
+          username: input.username,
+          role: input.role,
+        },
+      };
+    });
+
+  const updateStaffUser = async (
+    userId: string,
+    input: { username?: string; role?: StaffRole; passcodeHash?: string },
+    actor: StaffIdentity,
+  ): Promise<
+    { ok: true; value: StaffUserListRecord } | { ok: false; error: "NOT_FOUND" | "CONFLICT" }
+  > =>
+    prisma.$transaction(async (tx) => {
+      const existing = await tx.staffUser.findUnique({
+        where: {
+          id: userId,
+        },
+      });
+      if (existing === null) {
+        return { ok: false as const, error: "NOT_FOUND" as const };
+      }
+      if (input.username !== undefined && input.username !== existing.username) {
+        const duplicate = await tx.staffUser.findUnique({
+          where: {
+            username: input.username,
+          },
+        });
+        if (duplicate !== null) {
+          return { ok: false as const, error: "CONFLICT" as const };
+        }
+      }
+      const nextRole = input.role ?? existing.role;
+      const nextUsername = input.username ?? existing.username;
+      await tx.staffUser.update({
+        where: {
+          id: userId,
+        },
+        data: {
+          ...(input.username !== undefined ? { username: input.username } : {}),
+          ...(input.role !== undefined ? { role: input.role } : {}),
+          ...(input.passcodeHash !== undefined ? { passcodeHash: input.passcodeHash } : {}),
+        },
+      });
+      if (input.role !== undefined && input.role !== existing.role) {
+        const eventStore = createEventStore(tx);
+        const roleEvent: Event = {
+          eventId: randomUUID(),
+          eventType: "staff_user.role_changed",
+          occurredAt: new Date().toISOString(),
+          actorUserId: actor.id,
+          deviceId: "api-server",
+          locationText: null,
+          schemaVersion: 1,
+          correlationId: null,
+          causationId: null,
+          payload: {
+            userId,
+            fromRole: existing.role,
+            toRole: input.role,
+          },
+        };
+        await eventStore.appendEvent(roleEvent);
+      }
+      return {
+        ok: true as const,
+        value: {
+          id: userId,
+          username: nextUsername,
+          role: nextRole,
+        },
+      };
+    });
+
   const pullEvents = async (cursor: string | null, limit: number): Promise<PullEventsResult> =>
     eventStore.pullEvents(cursor, limit);
 
@@ -2423,6 +2751,10 @@ export const createCoreRepository = (prisma: PrismaClient) => {
     listPointsLiabilityReport,
     listInventoryStatusReport,
     listInventoryStatusLogReport,
+    listAdjustmentRequests,
+    listStaffUsers,
+    createStaffUser,
+    updateStaffUser,
     pullEvents,
     getSyncStatus,
     listSyncConflicts,

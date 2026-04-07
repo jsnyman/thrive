@@ -41,7 +41,7 @@ describe("createConflictClient", () => {
 
     expect(response.conflicts).toHaveLength(1);
     const call = fetchFn.mock.calls[0];
-    expect(call?.[0]).toBe("/sync/conflicts?status=open&limit=50");
+    expect(call?.[0]).toBe("/api/sync/conflicts?status=open&limit=50");
   });
 
   test("resolves conflict with deterministic error on failure", async () => {

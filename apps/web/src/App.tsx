@@ -54,6 +54,12 @@ import {
   type SalesReportRow,
 } from "./offline/reports-client";
 import { createReconciliationClient } from "./offline/reconciliation-client";
+import {
+  createAdjustmentsClient,
+  type AdjustmentRequestRecord,
+  type InventoryStatus as AdjustmentInventoryStatus,
+} from "./offline/adjustments-client";
+import { createUsersClient, type StaffUserRecord } from "./offline/users-client";
 import type {
   SyncReconciliationIssue,
   SyncReconciliationReportResponse,
@@ -126,6 +132,21 @@ type ManagerPanelKey =
   | "inventoryStatusLog"
   | "salesReport"
   | "cashflowReport";
+
+type NavViewKey =
+  | "person-search"
+  | "person-create"
+  | "person-edit"
+  | "collection-log"
+  | "shop-log"
+  | "adjustments-points-request"
+  | "adjustments-inventory-request"
+  | "adjustments-points-apply"
+  | "adjustments-inventory-apply"
+  | "reporting"
+  | "users-list"
+  | "users-create"
+  | "users-edit";
 
 const inventoryStatuses: InventoryStatus[] = [
   "storage",
@@ -465,90 +486,6 @@ const buildExpenseRecordedEvent = (actor: AuthUser, payload: ExpenseRecordedInpu
   },
 });
 
-const buildInventoryStatusChangedEvent = (
-  actor: AuthUser,
-  payload: {
-    inventoryBatchId: string;
-    fromStatus: InventoryStatus;
-    toStatus: InventoryStatus;
-    quantity: number;
-    reason?: string | null;
-    notes?: string | null;
-  },
-): Event => ({
-  eventId: crypto.randomUUID(),
-  eventType: "inventory.status_changed",
-  occurredAt: new Date().toISOString(),
-  actorUserId: actor.id,
-  deviceId: "web-registry",
-  schemaVersion: 1,
-  correlationId: null,
-  causationId: null,
-  locationText: null,
-  payload: {
-    inventoryBatchId: payload.inventoryBatchId,
-    fromStatus: payload.fromStatus,
-    toStatus: payload.toStatus,
-    quantity: payload.quantity,
-    reason: payload.reason ?? null,
-    notes: payload.notes ?? null,
-  },
-});
-
-const buildInventoryAdjustmentRequestedEvent = (
-  actor: AuthUser,
-  payload: {
-    inventoryBatchId: string;
-    requestedStatus: InventoryAdjustmentStatus;
-    quantity: number;
-    reason: string;
-    notes?: string | null;
-  },
-): Event => ({
-  eventId: crypto.randomUUID(),
-  eventType: "inventory.adjustment_requested",
-  occurredAt: new Date().toISOString(),
-  actorUserId: actor.id,
-  deviceId: "web-registry",
-  schemaVersion: 1,
-  correlationId: null,
-  causationId: null,
-  locationText: null,
-  payload: {
-    inventoryBatchId: payload.inventoryBatchId,
-    requestedStatus: payload.requestedStatus,
-    quantity: payload.quantity,
-    reason: payload.reason,
-    notes: payload.notes ?? null,
-  },
-});
-
-const buildPointsAdjustmentRequestedEvent = (
-  actor: AuthUser,
-  payload: {
-    personId: string;
-    deltaPoints: number;
-    reason: string;
-    notes?: string | null;
-  },
-): Event => ({
-  eventId: crypto.randomUUID(),
-  eventType: "points.adjustment_requested",
-  occurredAt: new Date().toISOString(),
-  actorUserId: actor.id,
-  deviceId: "web-registry",
-  schemaVersion: 1,
-  correlationId: null,
-  causationId: null,
-  locationText: null,
-  payload: {
-    personId: payload.personId,
-    deltaPoints: payload.deltaPoints,
-    reason: payload.reason,
-    notes: payload.notes ?? null,
-  },
-});
-
 export const App = ({
   queue = null,
   syncStateStore = null,
@@ -562,6 +499,8 @@ export const App = ({
   const ledgerClient = useMemo(() => createLedgerClient(), []);
   const reportsClient = useMemo(() => createReportsClient(), []);
   const reconciliationClient = useMemo(() => createReconciliationClient(), []);
+  const adjustmentsClient = useMemo(() => createAdjustmentsClient(), []);
+  const usersClient = useMemo(() => createUsersClient(), []);
 
   const [sessionStatus, setSessionStatus] = useState<SessionStatus>("loading");
   const [sessionUser, setSessionUser] = useState<AuthUser | null>(null);
@@ -732,18 +671,11 @@ export const App = ({
   const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[]>([]);
   const [ledgerLoading, setLedgerLoading] = useState<boolean>(false);
   const [ledgerError, setLedgerError] = useState<string | null>(null);
-  const [inventorySummary, setInventorySummary] = useState<InventoryStatusSummary[]>([]);
+  const [, setInventorySummary] = useState<InventoryStatusSummary[]>([]);
   const [inventoryBatches, setInventoryBatches] = useState<InventoryBatchState[]>([]);
-  const [inventoryLoading, setInventoryLoading] = useState<boolean>(false);
-  const [inventoryError, setInventoryError] = useState<string | null>(null);
+  const [, setInventoryLoading] = useState<boolean>(false);
+  const [, setInventoryError] = useState<string | null>(null);
   const [statusChangeBatchId, setStatusChangeBatchId] = useState<string | null>(null);
-  const [statusChangeFromStatus, setStatusChangeFromStatus] = useState<InventoryStatus>("storage");
-  const [statusChangeToStatus, setStatusChangeToStatus] = useState<InventoryStatus>("shop");
-  const [statusChangeQuantity, setStatusChangeQuantity] = useState<string>("");
-  const [statusChangeReason, setStatusChangeReason] = useState<string>("");
-  const [statusChangeNotes, setStatusChangeNotes] = useState<string>("");
-  const [statusChangePending, setStatusChangePending] = useState<boolean>(false);
-  const [statusChangeError, setStatusChangeError] = useState<string | null>(null);
   const [pointsAdjustmentPersonId, setPointsAdjustmentPersonId] = useState<string | null>(null);
   const [pointsAdjustmentDelta, setPointsAdjustmentDelta] = useState<string>("");
   const [pointsAdjustmentReason, setPointsAdjustmentReason] = useState<string>("");
@@ -757,6 +689,46 @@ export const App = ({
   const [adjustmentNotes, setAdjustmentNotes] = useState<string>("");
   const [adjustmentPending, setAdjustmentPending] = useState<boolean>(false);
   const [adjustmentError, setAdjustmentError] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<NavViewKey>("person-search");
+  const [pendingAdjustmentRequests, setPendingAdjustmentRequests] = useState<
+    AdjustmentRequestRecord[]
+  >([]);
+  const [pendingRequestsLoading, setPendingRequestsLoading] = useState<boolean>(false);
+  const [pendingRequestsError, setPendingRequestsError] = useState<string | null>(null);
+  const [applyPointsRequestEventId, setApplyPointsRequestEventId] = useState<string | null>(null);
+  const [applyInventoryRequestEventId, setApplyInventoryRequestEventId] = useState<string | null>(
+    null,
+  );
+  const [applyPointsPersonId, setApplyPointsPersonId] = useState<string | null>(null);
+  const [applyPointsDelta, setApplyPointsDelta] = useState<string>("");
+  const [applyPointsReason, setApplyPointsReason] = useState<string>("");
+  const [applyPointsNotes, setApplyPointsNotes] = useState<string>("");
+  const [applyPointsPending, setApplyPointsPending] = useState<boolean>(false);
+  const [applyPointsError, setApplyPointsError] = useState<string | null>(null);
+  const [applyInventoryBatchId, setApplyInventoryBatchId] = useState<string | null>(null);
+  const [applyInventoryFromStatus, setApplyInventoryFromStatus] =
+    useState<AdjustmentInventoryStatus>("shop");
+  const [applyInventoryToStatus, setApplyInventoryToStatus] =
+    useState<AdjustmentInventoryStatus>("damaged");
+  const [applyInventoryQuantity, setApplyInventoryQuantity] = useState<string>("");
+  const [applyInventoryReason, setApplyInventoryReason] = useState<string>("");
+  const [applyInventoryNotes, setApplyInventoryNotes] = useState<string>("");
+  const [applyInventoryPending, setApplyInventoryPending] = useState<boolean>(false);
+  const [applyInventoryError, setApplyInventoryError] = useState<string | null>(null);
+  const [staffUsers, setStaffUsers] = useState<StaffUserRecord[]>([]);
+  const [staffUsersLoading, setStaffUsersLoading] = useState<boolean>(false);
+  const [staffUsersError, setStaffUsersError] = useState<string | null>(null);
+  const [createUserUsername, setCreateUserUsername] = useState<string>("");
+  const [createUserRole, setCreateUserRole] = useState<"user" | "administrator">("user");
+  const [createUserPasscode, setCreateUserPasscode] = useState<string>("");
+  const [createUserPending, setCreateUserPending] = useState<boolean>(false);
+  const [createUserError, setCreateUserError] = useState<string | null>(null);
+  const [editUserId, setEditUserId] = useState<string | null>(null);
+  const [editUserUsername, setEditUserUsername] = useState<string>("");
+  const [editUserRole, setEditUserRole] = useState<"user" | "administrator">("user");
+  const [editUserPasscode, setEditUserPasscode] = useState<string>("");
+  const [editUserPending, setEditUserPending] = useState<boolean>(false);
+  const [editUserError, setEditUserError] = useState<string | null>(null);
 
   const sync = useSync({
     queue: sessionStatus === "authenticated" ? queue : null,
@@ -774,6 +746,7 @@ export const App = ({
   const canRecordProcurement = sessionUser?.role === "administrator";
   const canRecordExpenses = sessionUser?.role === "administrator";
   const canViewReports = sessionUser?.role === "administrator";
+  const canManageUsers = sessionUser?.role === "administrator";
   const isManagerPanelOpen = (panel: ManagerPanelKey): boolean => openManagerPanels[panel];
   const selectedReconciliationIssue = useMemo(
     () =>
@@ -933,6 +906,37 @@ export const App = ({
       setInventoryError(message);
     } finally {
       setInventoryLoading(false);
+    }
+  };
+
+  const loadPendingAdjustmentRequests = async (): Promise<void> => {
+    setPendingRequestsLoading(true);
+    setPendingRequestsError(null);
+    try {
+      const response = await adjustmentsClient.listRequests({
+        status: "pending",
+        limit: 100,
+      });
+      setPendingAdjustmentRequests(response.requests);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setPendingRequestsError(message);
+    } finally {
+      setPendingRequestsLoading(false);
+    }
+  };
+
+  const loadStaffUsers = async (): Promise<void> => {
+    setStaffUsersLoading(true);
+    setStaffUsersError(null);
+    try {
+      const users = await usersClient.listUsers();
+      setStaffUsers(users);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setStaffUsersError(message);
+    } finally {
+      setStaffUsersLoading(false);
     }
   };
 
@@ -1217,6 +1221,22 @@ export const App = ({
   }, [sessionStatus]);
 
   useEffect(() => {
+    if (sessionStatus !== "authenticated") {
+      return;
+    }
+    if (sessionUser?.role === "administrator") {
+      setActiveView("person-search");
+      void loadPendingAdjustmentRequests();
+      void loadStaffUsers();
+      return;
+    }
+    setActiveView("person-search");
+    setPendingAdjustmentRequests([]);
+    setStaffUsers([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionStatus, sessionUser?.role]);
+
+  useEffect(() => {
     if (sessionStatus !== "authenticated" || !canViewReports) {
       return;
     }
@@ -1243,6 +1263,15 @@ export const App = ({
       setPointsAdjustmentPersonId(firstPerson.id);
     }
   }, [intakePersonId, ledgerPersonId, people, pointsAdjustmentPersonId, salePersonId]);
+
+  useEffect(() => {
+    const selected = staffUsers.find((user) => user.id === editUserId) ?? null;
+    if (selected === null) {
+      return;
+    }
+    setEditUserUsername(selected.username);
+    setEditUserRole(selected.role);
+  }, [editUserId, staffUsers]);
 
   useEffect(() => {
     if (sessionStatus !== "authenticated" || ledgerPersonId === null) {
@@ -1895,70 +1924,7 @@ export const App = ({
     }
   };
 
-  const handleInventoryStatusChange = async (): Promise<void> => {
-    if (!canManageInventory) {
-      setStatusChangeError("You do not have permission to move inventory");
-      return;
-    }
-    if (queue === null || sessionUser === null) {
-      setStatusChangeError("Queue is unavailable");
-      return;
-    }
-    if (statusChangeBatchId === null) {
-      setStatusChangeError("Inventory batch is required");
-      return;
-    }
-    if (statusChangeFromStatus === statusChangeToStatus) {
-      setStatusChangeError("From status and to status must differ");
-      return;
-    }
-    const quantity = Number.parseInt(statusChangeQuantity, 10);
-    if (!Number.isInteger(quantity) || quantity <= 0) {
-      setStatusChangeError("Quantity must be a positive integer");
-      return;
-    }
-    const batch =
-      inventoryBatches.find((entry) => entry.inventoryBatchId === statusChangeBatchId) ?? null;
-    if (batch === null) {
-      setStatusChangeError("Inventory batch not found");
-      return;
-    }
-    const available = batch.quantities[statusChangeFromStatus];
-    if (available < quantity) {
-      setStatusChangeError("Requested quantity exceeds available stock");
-      return;
-    }
-    setStatusChangePending(true);
-    setStatusChangeError(null);
-    try {
-      await queue.enqueue(
-        buildInventoryStatusChangedEvent(sessionUser, {
-          inventoryBatchId: statusChangeBatchId,
-          fromStatus: statusChangeFromStatus,
-          toStatus: statusChangeToStatus,
-          quantity,
-          reason: toNullableOrUndefined(statusChangeReason) ?? null,
-          notes: toNullableOrUndefined(statusChangeNotes) ?? null,
-        }),
-      );
-      await sync.syncNow();
-      await loadInventory();
-      setStatusChangeQuantity("");
-      setStatusChangeReason("");
-      setStatusChangeNotes("");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setStatusChangeError(message);
-    } finally {
-      setStatusChangePending(false);
-    }
-  };
-
   const handleInventoryAdjustmentRequest = async (): Promise<void> => {
-    if (queue === null || sessionUser === null) {
-      setAdjustmentError("Queue is unavailable");
-      return;
-    }
     if (adjustmentBatchId === null) {
       setAdjustmentError("Inventory batch is required");
       return;
@@ -1975,17 +1941,14 @@ export const App = ({
     setAdjustmentPending(true);
     setAdjustmentError(null);
     try {
-      await queue.enqueue(
-        buildInventoryAdjustmentRequestedEvent(sessionUser, {
-          inventoryBatchId: adjustmentBatchId,
-          requestedStatus: adjustmentStatus,
-          quantity,
-          reason: adjustmentReason.trim(),
-          notes: toNullableOrUndefined(adjustmentNotes) ?? null,
-        }),
-      );
-      await sync.syncNow();
-      await loadInventory();
+      await adjustmentsClient.requestInventoryAdjustment({
+        inventoryBatchId: adjustmentBatchId,
+        requestedStatus: adjustmentStatus,
+        quantity,
+        reason: adjustmentReason.trim(),
+        notes: toNullableOrUndefined(adjustmentNotes) ?? null,
+      });
+      await loadPendingAdjustmentRequests();
       setAdjustmentQuantity("");
       setAdjustmentReason("");
       setAdjustmentNotes("");
@@ -1998,10 +1961,6 @@ export const App = ({
   };
 
   const handlePointsAdjustmentRequest = async (): Promise<void> => {
-    if (queue === null || sessionUser === null) {
-      setPointsAdjustmentError("Queue is unavailable");
-      return;
-    }
     if (pointsAdjustmentPersonId === null) {
       setPointsAdjustmentError("Person is required");
       return;
@@ -2018,17 +1977,13 @@ export const App = ({
     setPointsAdjustmentPending(true);
     setPointsAdjustmentError(null);
     try {
-      await queue.enqueue(
-        buildPointsAdjustmentRequestedEvent(sessionUser, {
-          personId: pointsAdjustmentPersonId,
-          deltaPoints,
-          reason: pointsAdjustmentReason.trim(),
-          notes: toNullableOrUndefined(pointsAdjustmentNotes) ?? null,
-        }),
-      );
-      await sync.syncNow();
-      await loadLedger(pointsAdjustmentPersonId);
-      setLedgerPersonId(pointsAdjustmentPersonId);
+      await adjustmentsClient.requestPointsAdjustment({
+        personId: pointsAdjustmentPersonId,
+        deltaPoints,
+        reason: pointsAdjustmentReason.trim(),
+        notes: toNullableOrUndefined(pointsAdjustmentNotes) ?? null,
+      });
+      await loadPendingAdjustmentRequests();
       setPointsAdjustmentDelta("");
       setPointsAdjustmentReason("");
       setPointsAdjustmentNotes("");
@@ -2039,6 +1994,160 @@ export const App = ({
       setPointsAdjustmentPending(false);
     }
   };
+
+  const handlePointsAdjustmentApply = async (): Promise<void> => {
+    if (!canManageInventory) {
+      setApplyPointsError("You do not have permission to adjust points");
+      return;
+    }
+    if (applyPointsPersonId === null) {
+      setApplyPointsError("Person is required");
+      return;
+    }
+    const delta = Number.parseFloat(applyPointsDelta);
+    if (!Number.isFinite(delta) || delta === 0) {
+      setApplyPointsError("Adjustment points must be a non-zero number");
+      return;
+    }
+    if (applyPointsReason.trim().length === 0) {
+      setApplyPointsError("Reason is required");
+      return;
+    }
+    setApplyPointsPending(true);
+    setApplyPointsError(null);
+    try {
+      await adjustmentsClient.applyPointsAdjustment({
+        requestEventId: applyPointsRequestEventId,
+        personId: applyPointsPersonId,
+        deltaPoints: delta,
+        reason: applyPointsReason.trim(),
+        notes: toNullableOrUndefined(applyPointsNotes) ?? null,
+      });
+      await Promise.all([loadPendingAdjustmentRequests(), loadLedger(applyPointsPersonId)]);
+      setApplyPointsDelta("");
+      setApplyPointsReason("");
+      setApplyPointsNotes("");
+      setApplyPointsRequestEventId(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setApplyPointsError(message);
+    } finally {
+      setApplyPointsPending(false);
+    }
+  };
+
+  const handleInventoryAdjustmentApply = async (): Promise<void> => {
+    if (!canManageInventory) {
+      setApplyInventoryError("You do not have permission to adjust inventory");
+      return;
+    }
+    if (applyInventoryBatchId === null) {
+      setApplyInventoryError("Inventory batch is required");
+      return;
+    }
+    if (applyInventoryFromStatus === applyInventoryToStatus) {
+      setApplyInventoryError("From status and to status must differ");
+      return;
+    }
+    const quantity = Number.parseInt(applyInventoryQuantity, 10);
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      setApplyInventoryError("Quantity must be a positive integer");
+      return;
+    }
+    if (applyInventoryReason.trim().length === 0) {
+      setApplyInventoryError("Reason is required");
+      return;
+    }
+    setApplyInventoryPending(true);
+    setApplyInventoryError(null);
+    try {
+      await adjustmentsClient.applyInventoryAdjustment({
+        requestEventId: applyInventoryRequestEventId,
+        inventoryBatchId: applyInventoryBatchId,
+        fromStatus: applyInventoryFromStatus,
+        toStatus: applyInventoryToStatus,
+        quantity,
+        reason: applyInventoryReason.trim(),
+        notes: toNullableOrUndefined(applyInventoryNotes) ?? null,
+      });
+      await Promise.all([loadPendingAdjustmentRequests(), loadInventory()]);
+      setApplyInventoryQuantity("");
+      setApplyInventoryReason("");
+      setApplyInventoryNotes("");
+      setApplyInventoryRequestEventId(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setApplyInventoryError(message);
+    } finally {
+      setApplyInventoryPending(false);
+    }
+  };
+
+  const handleCreateUser = async (): Promise<void> => {
+    if (!canManageUsers) {
+      setCreateUserError("You do not have permission to manage users");
+      return;
+    }
+    if (createUserUsername.trim().length === 0 || createUserPasscode.trim().length === 0) {
+      setCreateUserError("Username and passcode are required");
+      return;
+    }
+    setCreateUserPending(true);
+    setCreateUserError(null);
+    try {
+      await usersClient.createUser({
+        username: createUserUsername.trim(),
+        role: createUserRole,
+        passcode: createUserPasscode.trim(),
+      });
+      await loadStaffUsers();
+      setCreateUserUsername("");
+      setCreateUserPasscode("");
+      setCreateUserRole("user");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setCreateUserError(message);
+    } finally {
+      setCreateUserPending(false);
+    }
+  };
+
+  const handleUpdateUser = async (): Promise<void> => {
+    if (!canManageUsers) {
+      setEditUserError("You do not have permission to manage users");
+      return;
+    }
+    if (editUserId === null) {
+      setEditUserError("Select a user");
+      return;
+    }
+    if (editUserUsername.trim().length === 0) {
+      setEditUserError("Username is required");
+      return;
+    }
+    setEditUserPending(true);
+    setEditUserError(null);
+    try {
+      await usersClient.updateUser(editUserId, {
+        username: editUserUsername.trim(),
+        role: editUserRole,
+        ...(editUserPasscode.trim().length > 0 ? { passcode: editUserPasscode.trim() } : {}),
+      });
+      await loadStaffUsers();
+      setEditUserPasscode("");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setEditUserError(message);
+    } finally {
+      setEditUserPending(false);
+    }
+  };
+
+  const pendingAdjustmentCount = pendingAdjustmentRequests.filter(
+    (request) => request.status === "pending",
+  ).length;
+  const ledgerBalanceText =
+    ledgerBalance === null ? "-" : formatPointValue(ledgerBalance.balancePoints);
 
   if (sessionStatus !== "authenticated") {
     return (
@@ -2084,13 +2193,170 @@ export const App = ({
     );
   }
 
+  const showProcurementPanel = false;
+  const showExpensePanel = false;
+  const showLedgerPanel = false;
+
   return (
     <AppShell
       header={{
         height: 68,
       }}
+      navbar={{
+        width: 280,
+        breakpoint: "sm",
+      }}
       padding="md"
     >
+      <AppShell.Navbar p="md">
+        <Stack gap="xs">
+          <Text fw={700} size="sm">
+            Navigation
+          </Text>
+          <Text size="xs" c="dimmed">
+            Person
+          </Text>
+          <Button
+            variant={activeView === "person-search" ? "filled" : "light"}
+            onClick={() => {
+              setActiveView("person-search");
+            }}
+          >
+            Search
+          </Button>
+          <Button
+            variant={activeView === "person-create" ? "filled" : "light"}
+            onClick={() => {
+              setActiveView("person-create");
+            }}
+          >
+            Create
+          </Button>
+          <Button
+            variant={activeView === "person-edit" ? "filled" : "light"}
+            onClick={() => {
+              setActiveView("person-edit");
+            }}
+          >
+            Edit
+          </Button>
+          <Text size="xs" c="dimmed" mt="sm">
+            Collection
+          </Text>
+          <Button
+            variant={activeView === "collection-log" ? "filled" : "light"}
+            onClick={() => {
+              setActiveView("collection-log");
+            }}
+          >
+            Log material collection
+          </Button>
+          <Text size="xs" c="dimmed" mt="sm">
+            Shop
+          </Text>
+          <Button
+            variant={activeView === "shop-log" ? "filled" : "light"}
+            onClick={() => {
+              setActiveView("shop-log");
+            }}
+          >
+            Log sale
+          </Button>
+          <Group justify="space-between" mt="sm">
+            <Text size="xs" c="dimmed">
+              Adjustments
+            </Text>
+            {canManageInventory ? (
+              <Badge color="red">{String(pendingAdjustmentCount)}</Badge>
+            ) : null}
+          </Group>
+          {canManageInventory ? (
+            <>
+              <Button
+                variant={activeView === "adjustments-points-apply" ? "filled" : "light"}
+                onClick={() => {
+                  setActiveView("adjustments-points-apply");
+                }}
+              >
+                Adjust points
+              </Button>
+              <Button
+                variant={activeView === "adjustments-inventory-apply" ? "filled" : "light"}
+                onClick={() => {
+                  setActiveView("adjustments-inventory-apply");
+                }}
+              >
+                Adjust inventory
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                variant={activeView === "adjustments-points-request" ? "filled" : "light"}
+                onClick={() => {
+                  setActiveView("adjustments-points-request");
+                }}
+              >
+                Request points adjustment
+              </Button>
+              <Button
+                variant={activeView === "adjustments-inventory-request" ? "filled" : "light"}
+                onClick={() => {
+                  setActiveView("adjustments-inventory-request");
+                }}
+              >
+                Request inventory adjustment
+              </Button>
+            </>
+          )}
+          {canViewReports ? (
+            <>
+              <Text size="xs" c="dimmed" mt="sm">
+                Reporting
+              </Text>
+              <Button
+                variant={activeView === "reporting" ? "filled" : "light"}
+                onClick={() => {
+                  setActiveView("reporting");
+                }}
+              >
+                Reports
+              </Button>
+            </>
+          ) : null}
+          {canManageUsers ? (
+            <>
+              <Text size="xs" c="dimmed" mt="sm">
+                User management
+              </Text>
+              <Button
+                variant={activeView === "users-list" ? "filled" : "light"}
+                onClick={() => {
+                  setActiveView("users-list");
+                }}
+              >
+                List all
+              </Button>
+              <Button
+                variant={activeView === "users-create" ? "filled" : "light"}
+                onClick={() => {
+                  setActiveView("users-create");
+                }}
+              >
+                Add new user
+              </Button>
+              <Button
+                variant={activeView === "users-edit" ? "filled" : "light"}
+                onClick={() => {
+                  setActiveView("users-edit");
+                }}
+              >
+                Rename and edit user
+              </Button>
+            </>
+          ) : null}
+        </Stack>
+      </AppShell.Navbar>
       <AppShell.Header className="topBar">
         <Group justify="space-between" px="md" h="100%">
           <Group gap="sm">
@@ -2141,125 +2407,129 @@ export const App = ({
               ) : null}
             </div>
             <SimpleGrid cols={{ base: 1, lg: 2 }}>
-              <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
-                <Stack gap="sm">
-                  <Title order={4}>Search People</Title>
-                  <Group align="flex-end">
+              {activeView === "person-search" ? (
+                <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                  <Stack gap="sm">
+                    <Title order={4}>Search People</Title>
+                    <Group align="flex-end">
+                      <TextInput
+                        label="Search"
+                        placeholder="Name or surname"
+                        value={search}
+                        onChange={(event) => {
+                          setSearch(event.currentTarget.value);
+                        }}
+                      />
+                      <Button
+                        onClick={() => {
+                          void loadPeople(search);
+                        }}
+                        loading={peopleLoading}
+                      >
+                        Search
+                      </Button>
+                    </Group>
+                    {peopleError !== null ? <Text c="red">{peopleError}</Text> : null}
+                    <Stack gap="xs">
+                      {people.map((person) => (
+                        <Card key={person.id} withBorder radius="md" padding="sm">
+                          <Stack gap={2}>
+                            <Text fw={600}>{`${person.name} ${person.surname}`}</Text>
+                            <Text
+                              size="sm"
+                              c="dimmed"
+                            >{`ID: ${maskSensitiveValue(person.idNumber)}`}</Text>
+                            <Text
+                              size="sm"
+                              c="dimmed"
+                            >{`Phone: ${maskSensitiveValue(person.phone)}`}</Text>
+                            <Text
+                              size="xs"
+                              c="dimmed"
+                            >{`Address: ${person.address ?? "Not set"}`}</Text>
+                            <Button
+                              size="xs"
+                              variant="light"
+                              onClick={() => {
+                                setSelectedPersonId(person.id);
+                              }}
+                            >
+                              Edit
+                            </Button>
+                          </Stack>
+                        </Card>
+                      ))}
+                      {people.length === 0 && !peopleLoading ? (
+                        <Text size="sm" c="dimmed">
+                          No people found.
+                        </Text>
+                      ) : null}
+                    </Stack>
+                  </Stack>
+                </Card>
+              ) : null}
+
+              {activeView === "person-create" ? (
+                <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                  <Stack gap="sm">
+                    <Title order={4}>Create Person</Title>
                     <TextInput
-                      label="Search"
-                      placeholder="Name or surname"
-                      value={search}
+                      label="Name"
+                      value={createName}
                       onChange={(event) => {
-                        setSearch(event.currentTarget.value);
+                        setCreateName(event.currentTarget.value);
                       }}
                     />
+                    <TextInput
+                      label="Surname"
+                      value={createSurname}
+                      onChange={(event) => {
+                        setCreateSurname(event.currentTarget.value);
+                      }}
+                    />
+                    <TextInput
+                      label="ID Number"
+                      value={createIdNumber}
+                      onChange={(event) => {
+                        setCreateIdNumber(event.currentTarget.value);
+                      }}
+                    />
+                    <TextInput
+                      label="Phone"
+                      value={createPhone}
+                      onChange={(event) => {
+                        setCreatePhone(event.currentTarget.value);
+                      }}
+                    />
+                    <TextInput
+                      label="Address"
+                      value={createAddress}
+                      onChange={(event) => {
+                        setCreateAddress(event.currentTarget.value);
+                      }}
+                    />
+                    <Textarea
+                      label="Notes"
+                      value={createNotes}
+                      onChange={(event) => {
+                        setCreateNotes(event.currentTarget.value);
+                      }}
+                    />
+                    {createError !== null ? <Text c="red">{createError}</Text> : null}
                     <Button
                       onClick={() => {
-                        void loadPeople(search);
+                        void handleCreate();
                       }}
-                      loading={peopleLoading}
+                      loading={createPending}
                     >
-                      Search
+                      Save Person
                     </Button>
-                  </Group>
-                  {peopleError !== null ? <Text c="red">{peopleError}</Text> : null}
-                  <Stack gap="xs">
-                    {people.map((person) => (
-                      <Card key={person.id} withBorder radius="md" padding="sm">
-                        <Stack gap={2}>
-                          <Text fw={600}>{`${person.name} ${person.surname}`}</Text>
-                          <Text
-                            size="sm"
-                            c="dimmed"
-                          >{`ID: ${maskSensitiveValue(person.idNumber)}`}</Text>
-                          <Text
-                            size="sm"
-                            c="dimmed"
-                          >{`Phone: ${maskSensitiveValue(person.phone)}`}</Text>
-                          <Text
-                            size="xs"
-                            c="dimmed"
-                          >{`Address: ${person.address ?? "Not set"}`}</Text>
-                          <Button
-                            size="xs"
-                            variant="light"
-                            onClick={() => {
-                              setSelectedPersonId(person.id);
-                            }}
-                          >
-                            Edit
-                          </Button>
-                        </Stack>
-                      </Card>
-                    ))}
-                    {people.length === 0 && !peopleLoading ? (
-                      <Text size="sm" c="dimmed">
-                        No people found.
-                      </Text>
-                    ) : null}
                   </Stack>
-                </Stack>
-              </Card>
-
-              <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
-                <Stack gap="sm">
-                  <Title order={4}>Create Person</Title>
-                  <TextInput
-                    label="Name"
-                    value={createName}
-                    onChange={(event) => {
-                      setCreateName(event.currentTarget.value);
-                    }}
-                  />
-                  <TextInput
-                    label="Surname"
-                    value={createSurname}
-                    onChange={(event) => {
-                      setCreateSurname(event.currentTarget.value);
-                    }}
-                  />
-                  <TextInput
-                    label="ID Number"
-                    value={createIdNumber}
-                    onChange={(event) => {
-                      setCreateIdNumber(event.currentTarget.value);
-                    }}
-                  />
-                  <TextInput
-                    label="Phone"
-                    value={createPhone}
-                    onChange={(event) => {
-                      setCreatePhone(event.currentTarget.value);
-                    }}
-                  />
-                  <TextInput
-                    label="Address"
-                    value={createAddress}
-                    onChange={(event) => {
-                      setCreateAddress(event.currentTarget.value);
-                    }}
-                  />
-                  <Textarea
-                    label="Notes"
-                    value={createNotes}
-                    onChange={(event) => {
-                      setCreateNotes(event.currentTarget.value);
-                    }}
-                  />
-                  {createError !== null ? <Text c="red">{createError}</Text> : null}
-                  <Button
-                    onClick={() => {
-                      void handleCreate();
-                    }}
-                    loading={createPending}
-                  >
-                    Save Person
-                  </Button>
-                </Stack>
-              </Card>
+                </Card>
+              ) : null}
             </SimpleGrid>
 
-            {canRecordSales ? (
+            {canRecordSales && activeView === "person-edit" ? (
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
                   <Title order={4}>Edit Person</Title>
@@ -2340,7 +2610,7 @@ export const App = ({
               </Card>
             ) : null}
 
-            {canRecordProcurement ? (
+            {showProcurementPanel ? (
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
                   <Title order={4}>Record Procurement</Title>
@@ -2460,7 +2730,7 @@ export const App = ({
               </Card>
             ) : null}
 
-            {canRecordExpenses ? (
+            {showExpensePanel ? (
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
                   <Title order={4}>Record Expense</Title>
@@ -2505,7 +2775,7 @@ export const App = ({
               </Card>
             ) : null}
 
-            {canViewReports ? (
+            {canViewReports && activeView === "reporting" ? (
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
                   <Group justify="space-between">
@@ -2675,7 +2945,7 @@ export const App = ({
               </Card>
             ) : null}
 
-            {canViewReports ? (
+            {canViewReports && activeView === "reporting" ? (
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
                   <Group justify="space-between">
@@ -2790,7 +3060,7 @@ export const App = ({
               </Card>
             ) : null}
 
-            {canViewReports ? (
+            {canViewReports && activeView === "reporting" ? (
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
                   <Group justify="space-between">
@@ -2877,7 +3147,7 @@ export const App = ({
               </Card>
             ) : null}
 
-            {canViewReports ? (
+            {canViewReports && activeView === "reporting" ? (
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
                   <Group justify="space-between">
@@ -2966,7 +3236,7 @@ export const App = ({
               </Card>
             ) : null}
 
-            {canViewReports ? (
+            {canViewReports && activeView === "reporting" ? (
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
                   <Group justify="space-between">
@@ -3086,7 +3356,7 @@ export const App = ({
               </Card>
             ) : null}
 
-            {canViewReports ? (
+            {canViewReports && activeView === "reporting" ? (
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
                   <Group justify="space-between">
@@ -3208,7 +3478,7 @@ export const App = ({
               </Card>
             ) : null}
 
-            {canViewReports ? (
+            {canViewReports && activeView === "reporting" ? (
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
                   <Group justify="space-between">
@@ -3340,492 +3610,693 @@ export const App = ({
             ) : null}
 
             <SimpleGrid cols={{ base: 1, lg: 2 }}>
-              <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
-                <Stack gap="sm">
-                  <Title order={4}>Record Intake</Title>
-                  <Select
-                    label="Person"
-                    data={people.map((person) => ({
-                      value: person.id,
-                      label: `${person.name} ${person.surname}`,
-                    }))}
-                    value={intakePersonId}
-                    onChange={setIntakePersonId}
-                    searchable
-                    clearable
-                  />
-                  {intakeLines.map((line, index) => (
-                    <Card key={line.lineId} withBorder radius="md" padding="sm">
-                      <Stack gap="xs">
-                        <Select
-                          label={`Material ${String(index + 1)}`}
-                          data={materials.map((material) => ({
-                            value: material.id,
-                            label: `${material.name} (${formatPointValue(material.pointsPerKg)} pts/kg)`,
-                          }))}
-                          value={line.materialTypeId}
-                          onChange={(nextValue) => {
-                            setIntakeLines((previous) =>
-                              previous.map((entry) =>
-                                entry.lineId === line.lineId
-                                  ? {
-                                      ...entry,
-                                      materialTypeId: nextValue,
-                                    }
-                                  : entry,
-                              ),
-                            );
-                          }}
-                          searchable
-                          clearable
-                          disabled={materialsLoading}
-                        />
-                        <TextInput
-                          label={`Weight Kg ${String(index + 1)}`}
-                          placeholder="e.g. 2.9"
-                          value={line.weightKg}
-                          onChange={(event) => {
-                            const nextWeight = event.currentTarget.value;
-                            setIntakeLines((previous) =>
-                              previous.map((entry) =>
-                                entry.lineId === line.lineId
-                                  ? {
-                                      ...entry,
-                                      weightKg: nextWeight,
-                                    }
-                                  : entry,
-                              ),
-                            );
-                          }}
-                        />
-                        <Text size="sm" c="dimmed">
-                          {`Line ${String(index + 1)} points: ${intakeLinePreviews[index] === null || intakeLinePreviews[index] === undefined ? "-" : formatPointValue(intakeLinePreviews[index])}`}
-                        </Text>
-                        <Button
-                          variant="default"
-                          size="xs"
-                          onClick={() => {
-                            setIntakeLines((previous) =>
-                              previous.filter((entry) => entry.lineId !== line.lineId),
-                            );
-                          }}
-                        >
-                          Remove Line
-                        </Button>
-                      </Stack>
-                    </Card>
-                  ))}
-                  <Button
-                    variant="light"
-                    size="xs"
-                    onClick={() => {
-                      setIntakeLines((previous) => [
-                        ...previous,
-                        createIntakeDraftLine(materials[0]?.id ?? null),
-                      ]);
-                    }}
-                  >
-                    Add Line
-                  </Button>
-                  <Text size="sm" c="dimmed">
-                    {`Total preview points: ${formatPointValue(intakeTotalPreviewPoints)}`}
-                  </Text>
-                  {intakeError !== null ? <Text c="red">{intakeError}</Text> : null}
-                  <Button
-                    onClick={() => {
-                      void handleRecordIntake();
-                    }}
-                    loading={intakePending}
-                  >
-                    Record Intake
-                  </Button>
-                </Stack>
-              </Card>
-
-              <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
-                <Stack gap="sm">
-                  <Title order={4}>Points Ledger</Title>
-                  <Group align="flex-end">
+              {activeView === "collection-log" ? (
+                <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                  <Stack gap="sm">
+                    <Title order={4}>Record Intake</Title>
                     <Select
-                      label="Ledger Person"
+                      label="Person"
                       data={people.map((person) => ({
                         value: person.id,
                         label: `${person.name} ${person.surname}`,
                       }))}
-                      value={ledgerPersonId}
-                      onChange={setLedgerPersonId}
+                      value={intakePersonId}
+                      onChange={setIntakePersonId}
                       searchable
+                      clearable
                     />
-                    <Button
-                      onClick={() => {
-                        if (ledgerPersonId !== null) {
-                          void loadLedger(ledgerPersonId);
-                        }
-                      }}
-                      loading={ledgerLoading}
-                      disabled={ledgerPersonId === null}
-                    >
-                      Refresh Ledger
-                    </Button>
-                  </Group>
-                  {ledgerError !== null ? <Text c="red">{ledgerError}</Text> : null}
-                  <Text size="sm" c="dimmed">
-                    {`Balance: ${ledgerBalance === null ? "-" : formatPointValue(ledgerBalance.balancePoints)}`}
-                  </Text>
-                  <Stack gap="xs">
-                    {ledgerEntries.map((entry) => (
-                      <Card key={entry.id} withBorder radius="md" padding="sm">
-                        <Text size="sm">{`${entry.sourceEventType} | ${entry.deltaPoints > 0 ? "+" : ""}${formatPointValue(entry.deltaPoints)}`}</Text>
-                        <Text size="xs" c="dimmed">{`Source: ${entry.sourceEventId}`}</Text>
-                        <Text size="xs" c="dimmed">
-                          {entry.occurredAt}
-                        </Text>
+                    {intakeLines.map((line, index) => (
+                      <Card key={line.lineId} withBorder radius="md" padding="sm">
+                        <Stack gap="xs">
+                          <Select
+                            label={`Material ${String(index + 1)}`}
+                            data={materials.map((material) => ({
+                              value: material.id,
+                              label: `${material.name} (${formatPointValue(material.pointsPerKg)} pts/kg)`,
+                            }))}
+                            value={line.materialTypeId}
+                            onChange={(nextValue) => {
+                              setIntakeLines((previous) =>
+                                previous.map((entry) =>
+                                  entry.lineId === line.lineId
+                                    ? {
+                                        ...entry,
+                                        materialTypeId: nextValue,
+                                      }
+                                    : entry,
+                                ),
+                              );
+                            }}
+                            searchable
+                            clearable
+                            disabled={materialsLoading}
+                          />
+                          <TextInput
+                            label={`Weight Kg ${String(index + 1)}`}
+                            placeholder="e.g. 2.9"
+                            value={line.weightKg}
+                            onChange={(event) => {
+                              const nextWeight = event.currentTarget.value;
+                              setIntakeLines((previous) =>
+                                previous.map((entry) =>
+                                  entry.lineId === line.lineId
+                                    ? {
+                                        ...entry,
+                                        weightKg: nextWeight,
+                                      }
+                                    : entry,
+                                ),
+                              );
+                            }}
+                          />
+                          <Text size="sm" c="dimmed">
+                            {`Line ${String(index + 1)} points: ${intakeLinePreviews[index] === null || intakeLinePreviews[index] === undefined ? "-" : formatPointValue(intakeLinePreviews[index])}`}
+                          </Text>
+                          <Button
+                            variant="default"
+                            size="xs"
+                            onClick={() => {
+                              setIntakeLines((previous) =>
+                                previous.filter((entry) => entry.lineId !== line.lineId),
+                              );
+                            }}
+                          >
+                            Remove Line
+                          </Button>
+                        </Stack>
                       </Card>
                     ))}
-                    {ledgerEntries.length === 0 ? (
-                      <Text size="sm" c="dimmed">
-                        No ledger entries loaded.
-                      </Text>
-                    ) : null}
+                    <Button
+                      variant="light"
+                      size="xs"
+                      onClick={() => {
+                        setIntakeLines((previous) => [
+                          ...previous,
+                          createIntakeDraftLine(materials[0]?.id ?? null),
+                        ]);
+                      }}
+                    >
+                      Add Line
+                    </Button>
+                    <Text size="sm" c="dimmed">
+                      {`Total preview points: ${formatPointValue(intakeTotalPreviewPoints)}`}
+                    </Text>
+                    {intakeError !== null ? <Text c="red">{intakeError}</Text> : null}
+                    <Button
+                      onClick={() => {
+                        void handleRecordIntake();
+                      }}
+                      loading={intakePending}
+                    >
+                      Record Intake
+                    </Button>
                   </Stack>
-                </Stack>
-              </Card>
-            </SimpleGrid>
+                </Card>
+              ) : null}
 
-            <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
-              <Stack gap="sm">
-                <Title order={4}>Record Sale</Title>
-                <Select
-                  label="Sale Person"
-                  data={people.map((person) => ({
-                    value: person.id,
-                    label: `${person.name} ${person.surname}`,
-                  }))}
-                  value={salePersonId}
-                  onChange={setSalePersonId}
-                  searchable
-                  clearable
-                />
-                {saleLines.map((line, index) => {
-                  const lineBatches = inventoryBatches.filter(
-                    (batch) => batch.itemId === line.itemId,
-                  );
-                  return (
-                    <Card key={line.lineId} withBorder radius="md" padding="sm">
-                      <Stack gap="xs">
-                        <Select
-                          label={`Item ${String(index + 1)}`}
-                          data={items.map((item) => ({
-                            value: item.id,
-                            label: `${item.name} (${formatPointValue(item.pointsPrice)} pts)`,
-                          }))}
-                          value={line.itemId}
-                          onChange={(value) => {
-                            setSaleLines((previous) =>
-                              previous.map((entry) =>
-                                entry.lineId === line.lineId
-                                  ? {
-                                      ...entry,
-                                      itemId: value,
-                                      inventoryBatchId: null,
-                                    }
-                                  : entry,
-                              ),
-                            );
-                          }}
-                          searchable
-                          clearable
-                          disabled={itemsLoading}
-                        />
-                        <Select
-                          label={`Batch ${String(index + 1)} (optional)`}
-                          data={lineBatches.map((batch) => ({
-                            value: batch.inventoryBatchId,
-                            label: `${batch.inventoryBatchId} (shop ${String(batch.quantities.shop)})`,
-                          }))}
-                          value={line.inventoryBatchId}
-                          onChange={(value) => {
-                            setSaleLines((previous) =>
-                              previous.map((entry) =>
-                                entry.lineId === line.lineId
-                                  ? {
-                                      ...entry,
-                                      inventoryBatchId: value,
-                                    }
-                                  : entry,
-                              ),
-                            );
-                          }}
-                          searchable
-                          clearable
-                        />
-                        <TextInput
-                          label={`Quantity ${String(index + 1)}`}
-                          value={line.quantity}
-                          onChange={(event) => {
-                            const nextValue = event.currentTarget.value;
-                            setSaleLines((previous) =>
-                              previous.map((entry) =>
-                                entry.lineId === line.lineId
-                                  ? {
-                                      ...entry,
-                                      quantity: nextValue,
-                                    }
-                                  : entry,
-                              ),
-                            );
-                          }}
-                        />
-                        <Button
-                          variant="default"
-                          size="xs"
-                          onClick={() => {
-                            setSaleLines((previous) =>
-                              previous.filter((entry) => entry.lineId !== line.lineId),
-                            );
-                          }}
-                        >
-                          Remove Sale Line
-                        </Button>
-                      </Stack>
-                    </Card>
-                  );
-                })}
-                <Button
-                  variant="light"
-                  size="xs"
-                  onClick={() => {
-                    setSaleLines((previous) => [
-                      ...previous,
-                      createSaleDraftLine(items[0]?.id ?? null),
-                    ]);
-                  }}
-                >
-                  Add Sale Line
-                </Button>
-                <Text size="sm" c="dimmed">
-                  {`Sale total preview points: ${formatPointValue(saleTotalPreviewPoints)}`}
-                </Text>
-                {saleError !== null ? <Text c="red">{saleError}</Text> : null}
-                <Button
-                  onClick={() => {
-                    void handleRecordSale();
-                  }}
-                  loading={salePending}
-                >
-                  Record Sale
-                </Button>
-              </Stack>
-            </Card>
-
-            <SimpleGrid cols={{ base: 1, lg: 2 }}>
-              {canManageInventory ? (
+              {showLedgerPanel ? (
                 <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                   <Stack gap="sm">
-                    <Title order={4}>Inventory Status Change</Title>
+                    <Title order={4}>Points Ledger</Title>
                     <Group align="flex-end">
+                      <Select
+                        label="Ledger Person"
+                        data={people.map((person) => ({
+                          value: person.id,
+                          label: `${person.name} ${person.surname}`,
+                        }))}
+                        value={ledgerPersonId}
+                        onChange={setLedgerPersonId}
+                        searchable
+                      />
                       <Button
-                        variant="default"
-                        size="xs"
                         onClick={() => {
-                          void loadInventory();
+                          if (ledgerPersonId !== null) {
+                            void loadLedger(ledgerPersonId);
+                          }
                         }}
-                        loading={inventoryLoading}
+                        loading={ledgerLoading}
+                        disabled={ledgerPersonId === null}
                       >
-                        Refresh Inventory
+                        Refresh Ledger
                       </Button>
                     </Group>
-                    {inventoryError !== null ? <Text c="red">{inventoryError}</Text> : null}
+                    {ledgerError !== null ? <Text c="red">{ledgerError}</Text> : null}
+                    <Text size="sm" c="dimmed">
+                      {`Balance: ${ledgerBalanceText}`}
+                    </Text>
                     <Stack gap="xs">
-                      {inventorySummary.map((entry) => (
-                        <Text
-                          key={entry.status}
-                          size="sm"
-                          c="dimmed"
-                        >{`${entry.status}: ${String(entry.totalQuantity)}`}</Text>
+                      {ledgerEntries.map((entry) => (
+                        <Card key={entry.id} withBorder radius="md" padding="sm">
+                          <Text size="sm">{`${entry.sourceEventType} | ${entry.deltaPoints > 0 ? "+" : ""}${formatPointValue(entry.deltaPoints)}`}</Text>
+                          <Text size="xs" c="dimmed">{`Source: ${entry.sourceEventId}`}</Text>
+                          <Text size="xs" c="dimmed">
+                            {entry.occurredAt}
+                          </Text>
+                        </Card>
                       ))}
-                      {inventorySummary.length === 0 && !inventoryLoading ? (
+                      {ledgerEntries.length === 0 ? (
                         <Text size="sm" c="dimmed">
-                          No inventory summary loaded.
+                          No ledger entries loaded.
                         </Text>
                       ) : null}
                     </Stack>
+                  </Stack>
+                </Card>
+              ) : null}
+            </SimpleGrid>
+
+            {activeView === "shop-log" ? (
+              <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                <Stack gap="sm">
+                  <Title order={4}>Record Sale</Title>
+                  <Select
+                    label="Sale Person"
+                    data={people.map((person) => ({
+                      value: person.id,
+                      label: `${person.name} ${person.surname}`,
+                    }))}
+                    value={salePersonId}
+                    onChange={setSalePersonId}
+                    searchable
+                    clearable
+                  />
+                  {saleLines.map((line, index) => {
+                    const lineBatches = inventoryBatches.filter(
+                      (batch) => batch.itemId === line.itemId,
+                    );
+                    return (
+                      <Card key={line.lineId} withBorder radius="md" padding="sm">
+                        <Stack gap="xs">
+                          <Select
+                            label={`Item ${String(index + 1)}`}
+                            data={items.map((item) => ({
+                              value: item.id,
+                              label: `${item.name} (${formatPointValue(item.pointsPrice)} pts)`,
+                            }))}
+                            value={line.itemId}
+                            onChange={(value) => {
+                              setSaleLines((previous) =>
+                                previous.map((entry) =>
+                                  entry.lineId === line.lineId
+                                    ? {
+                                        ...entry,
+                                        itemId: value,
+                                        inventoryBatchId: null,
+                                      }
+                                    : entry,
+                                ),
+                              );
+                            }}
+                            searchable
+                            clearable
+                            disabled={itemsLoading}
+                          />
+                          <Select
+                            label={`Batch ${String(index + 1)} (optional)`}
+                            data={lineBatches.map((batch) => ({
+                              value: batch.inventoryBatchId,
+                              label: `${batch.inventoryBatchId} (shop ${String(batch.quantities.shop)})`,
+                            }))}
+                            value={line.inventoryBatchId}
+                            onChange={(value) => {
+                              setSaleLines((previous) =>
+                                previous.map((entry) =>
+                                  entry.lineId === line.lineId
+                                    ? {
+                                        ...entry,
+                                        inventoryBatchId: value,
+                                      }
+                                    : entry,
+                                ),
+                              );
+                            }}
+                            searchable
+                            clearable
+                          />
+                          <TextInput
+                            label={`Quantity ${String(index + 1)}`}
+                            value={line.quantity}
+                            onChange={(event) => {
+                              const nextValue = event.currentTarget.value;
+                              setSaleLines((previous) =>
+                                previous.map((entry) =>
+                                  entry.lineId === line.lineId
+                                    ? {
+                                        ...entry,
+                                        quantity: nextValue,
+                                      }
+                                    : entry,
+                                ),
+                              );
+                            }}
+                          />
+                          <Button
+                            variant="default"
+                            size="xs"
+                            onClick={() => {
+                              setSaleLines((previous) =>
+                                previous.filter((entry) => entry.lineId !== line.lineId),
+                              );
+                            }}
+                          >
+                            Remove Sale Line
+                          </Button>
+                        </Stack>
+                      </Card>
+                    );
+                  })}
+                  <Button
+                    variant="light"
+                    size="xs"
+                    onClick={() => {
+                      setSaleLines((previous) => [
+                        ...previous,
+                        createSaleDraftLine(items[0]?.id ?? null),
+                      ]);
+                    }}
+                  >
+                    Add Sale Line
+                  </Button>
+                  <Text size="sm" c="dimmed">
+                    {`Sale total preview points: ${formatPointValue(saleTotalPreviewPoints)}`}
+                  </Text>
+                  {saleError !== null ? <Text c="red">{saleError}</Text> : null}
+                  <Button
+                    onClick={() => {
+                      void handleRecordSale();
+                    }}
+                    loading={salePending}
+                  >
+                    Record Sale
+                  </Button>
+                </Stack>
+              </Card>
+            ) : null}
+
+            <SimpleGrid cols={{ base: 1, lg: 2 }}>
+              {activeView === "adjustments-points-request" ? (
+                <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                  <Stack gap="sm">
+                    <Title order={4}>Points Adjustment Request</Title>
+                    <Select
+                      label="Person"
+                      data={people.map((person) => ({
+                        value: person.id,
+                        label: `${person.name} ${person.surname}`,
+                      }))}
+                      value={pointsAdjustmentPersonId}
+                      onChange={setPointsAdjustmentPersonId}
+                      searchable
+                    />
+                    <TextInput
+                      label="Adjustment Points"
+                      value={pointsAdjustmentDelta}
+                      onChange={(event) => {
+                        setPointsAdjustmentDelta(event.currentTarget.value);
+                      }}
+                    />
+                    <TextInput
+                      label="Adjustment Reason"
+                      value={pointsAdjustmentReason}
+                      onChange={(event) => {
+                        setPointsAdjustmentReason(event.currentTarget.value);
+                      }}
+                    />
+                    <Textarea
+                      label="Notes"
+                      value={pointsAdjustmentNotes}
+                      onChange={(event) => {
+                        setPointsAdjustmentNotes(event.currentTarget.value);
+                      }}
+                    />
+                    {pointsAdjustmentError !== null ? (
+                      <Text c="red">{pointsAdjustmentError}</Text>
+                    ) : null}
+                    <Button
+                      onClick={() => {
+                        void handlePointsAdjustmentRequest();
+                      }}
+                      loading={pointsAdjustmentPending}
+                    >
+                      Submit Points Adjustment Request
+                    </Button>
+                  </Stack>
+                </Card>
+              ) : null}
+
+              {activeView === "adjustments-inventory-request" ? (
+                <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                  <Stack gap="sm">
+                    <Title order={4}>Inventory Adjustment Request</Title>
                     <Select
                       label="Batch"
                       data={inventoryBatches.map((batch) => ({
                         value: batch.inventoryBatchId,
                         label: `${batch.inventoryBatchId}${batch.itemId !== null ? ` (${batch.itemId})` : ""}`,
                       }))}
-                      value={statusChangeBatchId}
-                      onChange={setStatusChangeBatchId}
+                      value={adjustmentBatchId}
+                      onChange={setAdjustmentBatchId}
                       searchable
                     />
                     <Select
-                      label="From Status"
-                      data={inventoryStatuses.map((status) => ({
+                      label="Requested Status"
+                      data={inventoryAdjustmentStatuses.map((status) => ({
                         value: status,
                         label: status,
                       }))}
-                      value={statusChangeFromStatus}
+                      value={adjustmentStatus}
                       onChange={(value) => {
                         if (value !== null) {
-                          setStatusChangeFromStatus(value as InventoryStatus);
-                        }
-                      }}
-                    />
-                    <Select
-                      label="To Status"
-                      data={inventoryStatuses.map((status) => ({
-                        value: status,
-                        label: status,
-                      }))}
-                      value={statusChangeToStatus}
-                      onChange={(value) => {
-                        if (value !== null) {
-                          setStatusChangeToStatus(value as InventoryStatus);
+                          setAdjustmentStatus(value as InventoryAdjustmentStatus);
                         }
                       }}
                     />
                     <TextInput
                       label="Quantity"
-                      value={statusChangeQuantity}
+                      value={adjustmentQuantity}
                       onChange={(event) => {
-                        setStatusChangeQuantity(event.currentTarget.value);
+                        setAdjustmentQuantity(event.currentTarget.value);
                       }}
                     />
                     <TextInput
                       label="Reason"
-                      value={statusChangeReason}
+                      value={adjustmentReason}
                       onChange={(event) => {
-                        setStatusChangeReason(event.currentTarget.value);
+                        setAdjustmentReason(event.currentTarget.value);
                       }}
                     />
                     <Textarea
                       label="Notes"
-                      value={statusChangeNotes}
+                      value={adjustmentNotes}
                       onChange={(event) => {
-                        setStatusChangeNotes(event.currentTarget.value);
+                        setAdjustmentNotes(event.currentTarget.value);
                       }}
                     />
-                    {statusChangeError !== null ? <Text c="red">{statusChangeError}</Text> : null}
+                    {adjustmentError !== null ? <Text c="red">{adjustmentError}</Text> : null}
                     <Button
                       onClick={() => {
-                        void handleInventoryStatusChange();
+                        void handleInventoryAdjustmentRequest();
                       }}
-                      loading={statusChangePending}
+                      loading={adjustmentPending}
                     >
-                      Move Inventory
+                      Submit Adjustment Request
                     </Button>
                   </Stack>
                 </Card>
               ) : null}
 
-              <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
-                <Stack gap="sm">
-                  <Title order={4}>Points Adjustment Request</Title>
-                  <Select
-                    label="Person"
-                    data={people.map((person) => ({
-                      value: person.id,
-                      label: `${person.name} ${person.surname}`,
-                    }))}
-                    value={pointsAdjustmentPersonId}
-                    onChange={setPointsAdjustmentPersonId}
-                    searchable
-                  />
-                  <TextInput
-                    label="Adjustment Points"
-                    value={pointsAdjustmentDelta}
-                    onChange={(event) => {
-                      setPointsAdjustmentDelta(event.currentTarget.value);
-                    }}
-                  />
-                  <TextInput
-                    label="Adjustment Reason"
-                    value={pointsAdjustmentReason}
-                    onChange={(event) => {
-                      setPointsAdjustmentReason(event.currentTarget.value);
-                    }}
-                  />
-                  <Textarea
-                    label="Notes"
-                    value={pointsAdjustmentNotes}
-                    onChange={(event) => {
-                      setPointsAdjustmentNotes(event.currentTarget.value);
-                    }}
-                  />
-                  {pointsAdjustmentError !== null ? (
-                    <Text c="red">{pointsAdjustmentError}</Text>
-                  ) : null}
-                  <Button
-                    onClick={() => {
-                      void handlePointsAdjustmentRequest();
-                    }}
-                    loading={pointsAdjustmentPending}
-                  >
-                    Submit Points Adjustment Request
-                  </Button>
-                </Stack>
-              </Card>
+              {activeView === "adjustments-points-apply" && canManageInventory ? (
+                <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                  <Stack gap="sm">
+                    <Title order={4}>Adjust Points</Title>
+                    <Button
+                      variant="default"
+                      onClick={() => {
+                        void loadPendingAdjustmentRequests();
+                      }}
+                      loading={pendingRequestsLoading}
+                    >
+                      Refresh Pending Requests
+                    </Button>
+                    {pendingRequestsError !== null ? (
+                      <Text c="red">{pendingRequestsError}</Text>
+                    ) : null}
+                    <Select
+                      label="Related Request (optional)"
+                      data={pendingAdjustmentRequests
+                        .filter((request) => request.requestType === "points")
+                        .map((request) => ({
+                          value: request.requestEventId,
+                          label: `${request.requestEventId} | ${request.reason}`,
+                        }))}
+                      value={applyPointsRequestEventId}
+                      onChange={setApplyPointsRequestEventId}
+                      clearable
+                      searchable
+                    />
+                    <Select
+                      label="Person"
+                      data={people.map((person) => ({
+                        value: person.id,
+                        label: `${person.name} ${person.surname}`,
+                      }))}
+                      value={applyPointsPersonId}
+                      onChange={setApplyPointsPersonId}
+                      searchable
+                      clearable
+                    />
+                    <TextInput
+                      label="Adjustment Points"
+                      value={applyPointsDelta}
+                      onChange={(event) => {
+                        setApplyPointsDelta(event.currentTarget.value);
+                      }}
+                    />
+                    <TextInput
+                      label="Reason"
+                      value={applyPointsReason}
+                      onChange={(event) => {
+                        setApplyPointsReason(event.currentTarget.value);
+                      }}
+                    />
+                    <Textarea
+                      label="Notes"
+                      value={applyPointsNotes}
+                      onChange={(event) => {
+                        setApplyPointsNotes(event.currentTarget.value);
+                      }}
+                    />
+                    {applyPointsError !== null ? <Text c="red">{applyPointsError}</Text> : null}
+                    <Button
+                      onClick={() => {
+                        void handlePointsAdjustmentApply();
+                      }}
+                      loading={applyPointsPending}
+                    >
+                      Adjust Points
+                    </Button>
+                  </Stack>
+                </Card>
+              ) : null}
 
-              <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
-                <Stack gap="sm">
-                  <Title order={4}>Inventory Adjustment Request</Title>
-                  <Select
-                    label="Batch"
-                    data={inventoryBatches.map((batch) => ({
-                      value: batch.inventoryBatchId,
-                      label: `${batch.inventoryBatchId}${batch.itemId !== null ? ` (${batch.itemId})` : ""}`,
-                    }))}
-                    value={adjustmentBatchId}
-                    onChange={setAdjustmentBatchId}
-                    searchable
-                  />
-                  <Select
-                    label="Requested Status"
-                    data={inventoryAdjustmentStatuses.map((status) => ({
-                      value: status,
-                      label: status,
-                    }))}
-                    value={adjustmentStatus}
-                    onChange={(value) => {
-                      if (value !== null) {
-                        setAdjustmentStatus(value as InventoryAdjustmentStatus);
-                      }
-                    }}
-                  />
-                  <TextInput
-                    label="Quantity"
-                    value={adjustmentQuantity}
-                    onChange={(event) => {
-                      setAdjustmentQuantity(event.currentTarget.value);
-                    }}
-                  />
-                  <TextInput
-                    label="Reason"
-                    value={adjustmentReason}
-                    onChange={(event) => {
-                      setAdjustmentReason(event.currentTarget.value);
-                    }}
-                  />
-                  <Textarea
-                    label="Notes"
-                    value={adjustmentNotes}
-                    onChange={(event) => {
-                      setAdjustmentNotes(event.currentTarget.value);
-                    }}
-                  />
-                  {adjustmentError !== null ? <Text c="red">{adjustmentError}</Text> : null}
-                  <Button
-                    onClick={() => {
-                      void handleInventoryAdjustmentRequest();
-                    }}
-                    loading={adjustmentPending}
-                  >
-                    Submit Adjustment Request
-                  </Button>
-                </Stack>
-              </Card>
+              {activeView === "adjustments-inventory-apply" && canManageInventory ? (
+                <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                  <Stack gap="sm">
+                    <Title order={4}>Adjust Inventory</Title>
+                    <Button
+                      variant="default"
+                      onClick={() => {
+                        void loadPendingAdjustmentRequests();
+                      }}
+                      loading={pendingRequestsLoading}
+                    >
+                      Refresh Pending Requests
+                    </Button>
+                    {pendingRequestsError !== null ? (
+                      <Text c="red">{pendingRequestsError}</Text>
+                    ) : null}
+                    <Select
+                      label="Related Request (optional)"
+                      data={pendingAdjustmentRequests
+                        .filter((request) => request.requestType === "inventory")
+                        .map((request) => ({
+                          value: request.requestEventId,
+                          label: `${request.requestEventId} | ${request.reason}`,
+                        }))}
+                      value={applyInventoryRequestEventId}
+                      onChange={setApplyInventoryRequestEventId}
+                      clearable
+                      searchable
+                    />
+                    <Select
+                      label="Batch"
+                      data={inventoryBatches.map((batch) => ({
+                        value: batch.inventoryBatchId,
+                        label: `${batch.inventoryBatchId}${batch.itemId !== null ? ` (${batch.itemId})` : ""}`,
+                      }))}
+                      value={applyInventoryBatchId}
+                      onChange={setApplyInventoryBatchId}
+                      searchable
+                      clearable
+                    />
+                    <Select
+                      label="From Status"
+                      data={inventoryStatuses.map((status) => ({ value: status, label: status }))}
+                      value={applyInventoryFromStatus}
+                      onChange={(value) => {
+                        if (value !== null) {
+                          setApplyInventoryFromStatus(value as AdjustmentInventoryStatus);
+                        }
+                      }}
+                    />
+                    <Select
+                      label="To Status"
+                      data={inventoryStatuses.map((status) => ({ value: status, label: status }))}
+                      value={applyInventoryToStatus}
+                      onChange={(value) => {
+                        if (value !== null) {
+                          setApplyInventoryToStatus(value as AdjustmentInventoryStatus);
+                        }
+                      }}
+                    />
+                    <TextInput
+                      label="Quantity"
+                      value={applyInventoryQuantity}
+                      onChange={(event) => {
+                        setApplyInventoryQuantity(event.currentTarget.value);
+                      }}
+                    />
+                    <TextInput
+                      label="Reason"
+                      value={applyInventoryReason}
+                      onChange={(event) => {
+                        setApplyInventoryReason(event.currentTarget.value);
+                      }}
+                    />
+                    <Textarea
+                      label="Notes"
+                      value={applyInventoryNotes}
+                      onChange={(event) => {
+                        setApplyInventoryNotes(event.currentTarget.value);
+                      }}
+                    />
+                    {applyInventoryError !== null ? (
+                      <Text c="red">{applyInventoryError}</Text>
+                    ) : null}
+                    <Button
+                      onClick={() => {
+                        void handleInventoryAdjustmentApply();
+                      }}
+                      loading={applyInventoryPending}
+                    >
+                      Adjust Inventory
+                    </Button>
+                  </Stack>
+                </Card>
+              ) : null}
+
+              {activeView === "users-list" && canManageUsers ? (
+                <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                  <Stack gap="sm">
+                    <Title order={4}>Users</Title>
+                    <Button
+                      variant="default"
+                      onClick={() => {
+                        void loadStaffUsers();
+                      }}
+                      loading={staffUsersLoading}
+                    >
+                      Refresh Users
+                    </Button>
+                    {staffUsersError !== null ? <Text c="red">{staffUsersError}</Text> : null}
+                    {staffUsers.map((user) => (
+                      <Card key={user.id} withBorder radius="md" padding="sm">
+                        <Text size="sm">{`${user.username} (${user.role})`}</Text>
+                      </Card>
+                    ))}
+                  </Stack>
+                </Card>
+              ) : null}
+
+              {activeView === "users-create" && canManageUsers ? (
+                <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                  <Stack gap="sm">
+                    <Title order={4}>Add User</Title>
+                    <TextInput
+                      label="Username"
+                      value={createUserUsername}
+                      onChange={(event) => {
+                        setCreateUserUsername(event.currentTarget.value);
+                      }}
+                    />
+                    <Select
+                      label="Role"
+                      data={[
+                        { value: "user", label: "user" },
+                        { value: "administrator", label: "administrator" },
+                      ]}
+                      value={createUserRole}
+                      onChange={(value) => {
+                        if (value === "user" || value === "administrator") {
+                          setCreateUserRole(value);
+                        }
+                      }}
+                    />
+                    <TextInput
+                      label="Passcode"
+                      value={createUserPasscode}
+                      onChange={(event) => {
+                        setCreateUserPasscode(event.currentTarget.value);
+                      }}
+                    />
+                    {createUserError !== null ? <Text c="red">{createUserError}</Text> : null}
+                    <Button
+                      onClick={() => {
+                        void handleCreateUser();
+                      }}
+                      loading={createUserPending}
+                    >
+                      Add new user
+                    </Button>
+                  </Stack>
+                </Card>
+              ) : null}
+
+              {activeView === "users-edit" && canManageUsers ? (
+                <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                  <Stack gap="sm">
+                    <Title order={4}>Rename and edit user</Title>
+                    <Select
+                      label="User"
+                      data={staffUsers.map((user) => ({
+                        value: user.id,
+                        label: `${user.username} (${user.role})`,
+                      }))}
+                      value={editUserId}
+                      onChange={setEditUserId}
+                      searchable
+                      clearable
+                    />
+                    <TextInput
+                      label="Username"
+                      value={editUserUsername}
+                      onChange={(event) => {
+                        setEditUserUsername(event.currentTarget.value);
+                      }}
+                    />
+                    <Select
+                      label="Role"
+                      data={[
+                        { value: "user", label: "user" },
+                        { value: "administrator", label: "administrator" },
+                      ]}
+                      value={editUserRole}
+                      onChange={(value) => {
+                        if (value === "user" || value === "administrator") {
+                          setEditUserRole(value);
+                        }
+                      }}
+                    />
+                    <TextInput
+                      label="New passcode (optional)"
+                      value={editUserPasscode}
+                      onChange={(event) => {
+                        setEditUserPasscode(event.currentTarget.value);
+                      }}
+                    />
+                    {editUserError !== null ? <Text c="red">{editUserError}</Text> : null}
+                    <Button
+                      onClick={() => {
+                        void handleUpdateUser();
+                      }}
+                      loading={editUserPending}
+                    >
+                      Rename and edit user
+                    </Button>
+                  </Stack>
+                </Card>
+              ) : null}
             </SimpleGrid>
           </Stack>
         </Container>

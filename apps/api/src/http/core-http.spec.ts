@@ -35,6 +35,8 @@ type ItemRecord = {
 };
 
 type InventoryStatus = "storage" | "shop" | "sold" | "spoiled" | "damaged" | "missing";
+type InventoryAdjustmentStatus = "spoiled" | "damaged" | "missing";
+type StaffRole = "user" | "administrator";
 
 type InventoryBatchRecord = {
   inventoryBatchId: string;
@@ -126,6 +128,24 @@ type CashflowExpenseCategoryRow = {
   expenseCount: number;
 };
 
+type AdjustmentRequestRecord = {
+  requestEventId: string;
+  requestType: "points" | "inventory";
+  status: "pending" | "approved" | "rejected";
+  requestedAt: string;
+  requestedByUserId: string;
+  personId: string | null;
+  inventoryBatchId: string | null;
+  requestedStatus: InventoryAdjustmentStatus | null;
+  deltaPoints: number | null;
+  quantity: number;
+  reason: string;
+  notes: string | null;
+  resolvedByUserId: string | null;
+  resolvedAt: string | null;
+  resolutionNotes: string | null;
+};
+
 const administratorPasscode = "1234";
 const userPasscode = "9999";
 
@@ -206,6 +226,13 @@ const createDependencies = (options?: {
     },
   ];
   const events: Event[] = [];
+  const staffUsers: Array<{ id: string; username: string; role: StaffRole; passcodeHash: string }> =
+    users.map((user) => ({
+      id: user.id,
+      username: user.username,
+      role: user.role,
+      passcodeHash: user.passcodeHash,
+    }));
   const auditIssues: SyncAuditIssue[] = [
     {
       issueId: "issue-1",
@@ -565,6 +592,83 @@ const createDependencies = (options?: {
     return { status: "accepted" as const };
   };
 
+  const listAdjustmentRequests = async (filters: {
+    requestType: "points" | "inventory" | null;
+    status: "pending" | "approved" | "rejected" | null;
+    limit: number;
+    cursor: string | null;
+  }): Promise<{ requests: AdjustmentRequestRecord[]; nextCursor: string | null }> => {
+    const requestedEvents = events.filter(
+      (event) =>
+        event.eventType === "points.adjustment_requested" ||
+        event.eventType === "inventory.adjustment_requested",
+    );
+    const requests = requestedEvents
+      .map((event) => {
+        const matchingApplied = events
+          .filter(
+            (candidate) =>
+              (candidate.eventType === "points.adjustment_applied" ||
+                candidate.eventType === "inventory.adjustment_applied") &&
+              candidate.payload.requestEventId === event.eventId,
+          )
+          .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt))[0];
+        const status = matchingApplied === undefined ? "pending" : "approved";
+        const requestType =
+          event.eventType === "points.adjustment_requested" ? "points" : "inventory";
+        return {
+          requestEventId: event.eventId,
+          requestType,
+          status,
+          requestedAt: event.occurredAt,
+          requestedByUserId: event.actorUserId,
+          personId:
+            event.eventType === "points.adjustment_requested" ? event.payload.personId : null,
+          inventoryBatchId:
+            event.eventType === "inventory.adjustment_requested"
+              ? event.payload.inventoryBatchId
+              : null,
+          requestedStatus:
+            event.eventType === "inventory.adjustment_requested"
+              ? event.payload.requestedStatus
+              : null,
+          deltaPoints:
+            event.eventType === "points.adjustment_requested" ? event.payload.deltaPoints : null,
+          quantity:
+            event.eventType === "points.adjustment_requested"
+              ? Math.abs(event.payload.deltaPoints)
+              : event.payload.quantity,
+          reason: event.payload.reason,
+          notes: event.payload.notes ?? null,
+          resolvedByUserId: matchingApplied?.actorUserId ?? null,
+          resolvedAt: matchingApplied?.occurredAt ?? null,
+          resolutionNotes:
+            matchingApplied === undefined
+              ? null
+              : ((matchingApplied.payload as { notes?: string | null }).notes ?? null),
+        } satisfies AdjustmentRequestRecord;
+      })
+      .filter((request) =>
+        filters.requestType === null ? true : request.requestType === filters.requestType,
+      )
+      .filter((request) => (filters.status === null ? true : request.status === filters.status))
+      .sort((left, right) => right.requestedAt.localeCompare(left.requestedAt));
+    const startIndex =
+      filters.cursor === null
+        ? 0
+        : requests.findIndex((request) => request.requestedAt === filters.cursor) + 1;
+    const normalizedStart = startIndex < 0 ? 0 : startIndex;
+    const page = requests.slice(normalizedStart, normalizedStart + filters.limit);
+    const nextCursor =
+      normalizedStart + filters.limit >= requests.length
+        ? null
+        : (page[page.length - 1]?.requestedAt ?? null);
+    return {
+      requests: page,
+      nextCursor,
+    };
+  };
+
   return {
     authConfig,
     getStaffUserByUsername: getUserByUsername,
@@ -873,6 +977,62 @@ const createDependencies = (options?: {
           totalQuantity: rows.reduce((sum, row) => sum + row.totalQuantity, 0),
           totalPoints: rows.reduce((sum, row) => sumPointValues([sum, row.totalPoints]), 0),
           saleCount: rows.reduce((sum, row) => sum + row.saleCount, 0),
+        },
+      };
+    },
+    listAdjustmentRequests,
+    listStaffUsers: async () =>
+      staffUsers.map((user) => ({
+        id: user.id,
+        username: user.username,
+        role: user.role,
+      })),
+    createStaffUser: async (input) => {
+      const duplicate = staffUsers.some((user) => user.username === input.username);
+      if (duplicate) {
+        return { ok: false as const, error: "CONFLICT" as const };
+      }
+      staffUsers.push({
+        id: input.id,
+        username: input.username,
+        role: input.role,
+        passcodeHash: input.passcodeHash,
+      });
+      return {
+        ok: true as const,
+        value: {
+          id: input.id,
+          username: input.username,
+          role: input.role,
+        },
+      };
+    },
+    updateStaffUser: async (userId, input) => {
+      const user = staffUsers.find((entry) => entry.id === userId);
+      if (user === undefined) {
+        return { ok: false as const, error: "NOT_FOUND" as const };
+      }
+      if (input.username !== undefined) {
+        const duplicate = staffUsers.some(
+          (entry) => entry.id !== userId && entry.username === input.username,
+        );
+        if (duplicate) {
+          return { ok: false as const, error: "CONFLICT" as const };
+        }
+        user.username = input.username;
+      }
+      if (input.role !== undefined) {
+        user.role = input.role;
+      }
+      if (input.passcodeHash !== undefined) {
+        user.passcodeHash = input.passcodeHash;
+      }
+      return {
+        ok: true as const,
+        value: {
+          id: user.id,
+          username: user.username,
+          role: user.role,
         },
       };
     },
@@ -2089,6 +2249,114 @@ describe("core HTTP endpoints", () => {
 
     expect(response.status).toBe(201);
     expect(response.body.requestEventId).toBeDefined();
+  });
+
+  test("GET /adjustments/requests returns pending requests for administrator", async () => {
+    const server = createApiServer(createDependencies());
+    const userToken = await loginAndGetToken(server, "user", userPasscode);
+    const administratorToken = await loginAndGetToken(
+      server,
+      "administrator",
+      administratorPasscode,
+    );
+
+    await supertest(server)
+      .post("/points/adjustments/requests")
+      .set("authorization", `Bearer ${userToken}`)
+      .send({
+        personId: "person-a",
+        deltaPoints: 2.5,
+        reason: "manual correction request",
+      });
+
+    const response = await supertest(server)
+      .get("/adjustments/requests?type=points&status=pending")
+      .set("authorization", `Bearer ${administratorToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.requests).toHaveLength(1);
+    expect(response.body.requests[0]?.requestType).toBe("points");
+    expect(response.body.requests[0]?.status).toBe("pending");
+  });
+
+  test("POST /points/adjustments/apply requires administrator and records apply event", async () => {
+    const server = createApiServer(createDependencies());
+    const userToken = await loginAndGetToken(server, "user", userPasscode);
+    const administratorToken = await loginAndGetToken(
+      server,
+      "administrator",
+      administratorPasscode,
+    );
+
+    const requested = await supertest(server)
+      .post("/points/adjustments/requests")
+      .set("authorization", `Bearer ${userToken}`)
+      .send({
+        personId: "person-a",
+        deltaPoints: 2.5,
+        reason: "manual correction request",
+      });
+    const requestEventId = requested.body.requestEventId as string;
+
+    const denied = await supertest(server)
+      .post("/points/adjustments/apply")
+      .set("authorization", `Bearer ${userToken}`)
+      .send({
+        personId: "person-a",
+        deltaPoints: 2.5,
+        reason: "approved",
+      });
+    expect(denied.status).toBe(403);
+
+    const allowed = await supertest(server)
+      .post("/points/adjustments/apply")
+      .set("authorization", `Bearer ${administratorToken}`)
+      .send({
+        requestEventId,
+        personId: "person-a",
+        deltaPoints: 2.5,
+        reason: "approved",
+      });
+    expect(allowed.status).toBe(201);
+    expect(allowed.body.eventId).toBeDefined();
+  });
+
+  test("user management endpoints list, create, and update for administrator", async () => {
+    const server = createApiServer(createDependencies());
+    const administratorToken = await loginAndGetToken(
+      server,
+      "administrator",
+      administratorPasscode,
+    );
+
+    const listed = await supertest(server)
+      .get("/users")
+      .set("authorization", `Bearer ${administratorToken}`);
+    expect(listed.status).toBe(200);
+    expect(listed.body.users.length).toBeGreaterThan(0);
+
+    const created = await supertest(server)
+      .post("/users")
+      .set("authorization", `Bearer ${administratorToken}`)
+      .send({
+        username: "new-user",
+        role: "user",
+        passcode: "4321",
+      });
+    expect(created.status).toBe(201);
+    const createdId = created.body.user.id as string;
+
+    const updated = await supertest(server)
+      .patch(`/users/${createdId}`)
+      .set("authorization", `Bearer ${administratorToken}`)
+      .send({
+        username: "renamed-user",
+        role: "administrator",
+        passcode: "8888",
+      });
+    expect(updated.status).toBe(200);
+    expect(updated.body.user.username).toBe("renamed-user");
+    expect(updated.body.user.role).toBe("administrator");
   });
 
   test("GET /ledger/:personId/entries returns projected entries", async () => {

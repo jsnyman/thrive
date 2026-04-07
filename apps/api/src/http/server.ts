@@ -28,6 +28,7 @@ import type {
 } from "../../../../packages/shared/src/domain/sync";
 import {
   authenticateStaffUser,
+  createPasscodeHash,
   readAuthorizedActor,
   type AuthConfig,
   type PermissionAction,
@@ -128,12 +129,85 @@ type InventoryAdjustmentRequestInput = {
   locationText?: string | null;
 };
 
+type PointsAdjustmentApplyInput = {
+  requestEventId?: string | null;
+  personId: string;
+  deltaPoints: number;
+  reason: string;
+  notes?: string | null;
+  locationText?: string | null;
+};
+
+type InventoryAdjustmentApplyInput = {
+  requestEventId?: string | null;
+  inventoryBatchId: string;
+  fromStatus: InventoryStatus;
+  toStatus: InventoryStatus;
+  quantity: number;
+  reason: string;
+  notes?: string | null;
+  locationText?: string | null;
+};
+
 type PointsAdjustmentRequestInput = {
   personId: string;
   deltaPoints: number;
   reason: string;
   notes?: string | null;
   locationText?: string | null;
+};
+
+type AdjustmentRequestType = "points" | "inventory";
+type AdjustmentRequestStatus = "pending" | "approved" | "rejected";
+
+type AdjustmentRequestFilter = {
+  requestType: AdjustmentRequestType | null;
+  status: AdjustmentRequestStatus | null;
+  limit: number;
+  cursor: string | null;
+};
+
+type AdjustmentRequestRecord = {
+  requestEventId: string;
+  requestType: AdjustmentRequestType;
+  status: AdjustmentRequestStatus;
+  requestedAt: string;
+  requestedByUserId: string;
+  personId: string | null;
+  inventoryBatchId: string | null;
+  requestedStatus: InventoryAdjustmentStatus | null;
+  deltaPoints: number | null;
+  quantity: number;
+  reason: string;
+  notes: string | null;
+  resolvedByUserId: string | null;
+  resolvedAt: string | null;
+  resolutionNotes: string | null;
+};
+
+type ListAdjustmentRequestsResponse = {
+  requests: AdjustmentRequestRecord[];
+  nextCursor: string | null;
+};
+
+type StaffRole = "user" | "administrator";
+
+type StaffUserListRecord = {
+  id: string;
+  username: string;
+  role: StaffRole;
+};
+
+type StaffUserCreateInput = {
+  username: string;
+  role: StaffRole;
+  passcode: string;
+};
+
+type StaffUserUpdateInput = {
+  username?: string;
+  role?: StaffRole;
+  passcode?: string;
 };
 
 type IntakeCreateInput = {
@@ -405,6 +479,21 @@ type ApiServerDependencies = {
   listInventoryStatusLogReport: (
     filters: InventoryStatusLogReportFilter,
   ) => Promise<InventoryStatusLogReportRow[]>;
+  listAdjustmentRequests: (
+    filters: AdjustmentRequestFilter,
+  ) => Promise<ListAdjustmentRequestsResponse>;
+  listStaffUsers: () => Promise<StaffUserListRecord[]>;
+  createStaffUser: (
+    input: { id: string; username: string; role: StaffRole; passcodeHash: string },
+    actor: StaffIdentity,
+  ) => Promise<{ ok: true; value: StaffUserListRecord } | { ok: false; error: "CONFLICT" }>;
+  updateStaffUser: (
+    userId: string,
+    input: { username?: string; role?: StaffRole; passcodeHash?: string },
+    actor: StaffIdentity,
+  ) => Promise<
+    { ok: true; value: StaffUserListRecord } | { ok: false; error: "NOT_FOUND" | "CONFLICT" }
+  >;
   pullEvents: (cursor: SyncCursor | null, limit: number) => Promise<SyncPullResponse>;
   getSyncStatus: () => Promise<SyncStatusResponse>;
   meRequiredAction?: PermissionAction;
@@ -1076,6 +1165,164 @@ const parsePointsAdjustmentRequest = (body: unknown): PointsAdjustmentRequestInp
   };
 };
 
+const parsePointsAdjustmentApplyRequest = (body: unknown): PointsAdjustmentApplyInput | null => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+  const record = body as Record<string, unknown>;
+  const requestEventId = parseNullableString(record["requestEventId"]);
+  const personId = record["personId"];
+  const deltaPoints = record["deltaPoints"];
+  const reason = record["reason"];
+  const notes = parseNullableString(record["notes"]);
+  const locationText = parseNullableString(record["locationText"]);
+  if (requestEventId === undefined && record["requestEventId"] !== undefined) {
+    return null;
+  }
+  if (typeof personId !== "string" || personId.trim().length === 0) {
+    return null;
+  }
+  if (typeof deltaPoints !== "number" || !isTenthsPointValue(deltaPoints) || deltaPoints === 0) {
+    return null;
+  }
+  if (typeof reason !== "string" || reason.trim().length === 0) {
+    return null;
+  }
+  if (notes === undefined && record["notes"] !== undefined) {
+    return null;
+  }
+  if (locationText === undefined && record["locationText"] !== undefined) {
+    return null;
+  }
+  return {
+    requestEventId: requestEventId ?? null,
+    personId,
+    deltaPoints,
+    reason: reason.trim(),
+    notes: notes ?? null,
+    locationText: locationText ?? null,
+  };
+};
+
+const parseInventoryAdjustmentApplyRequest = (
+  body: unknown,
+): InventoryAdjustmentApplyInput | null => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+  const record = body as Record<string, unknown>;
+  const requestEventId = parseNullableString(record["requestEventId"]);
+  const inventoryBatchId = record["inventoryBatchId"];
+  const fromStatus = record["fromStatus"];
+  const toStatus = record["toStatus"];
+  const quantity = record["quantity"];
+  const reason = record["reason"];
+  const notes = parseNullableString(record["notes"]);
+  const locationText = parseNullableString(record["locationText"]);
+  if (requestEventId === undefined && record["requestEventId"] !== undefined) {
+    return null;
+  }
+  if (typeof inventoryBatchId !== "string" || inventoryBatchId.trim().length === 0) {
+    return null;
+  }
+  if (!isInventoryStatus(fromStatus) || !isInventoryStatus(toStatus) || fromStatus === toStatus) {
+    return null;
+  }
+  if (typeof quantity !== "number" || !Number.isInteger(quantity) || quantity <= 0) {
+    return null;
+  }
+  if (typeof reason !== "string" || reason.trim().length === 0) {
+    return null;
+  }
+  if (notes === undefined && record["notes"] !== undefined) {
+    return null;
+  }
+  if (locationText === undefined && record["locationText"] !== undefined) {
+    return null;
+  }
+  return {
+    requestEventId: requestEventId ?? null,
+    inventoryBatchId,
+    fromStatus,
+    toStatus,
+    quantity,
+    reason: reason.trim(),
+    notes: notes ?? null,
+    locationText: locationText ?? null,
+  };
+};
+
+const parseStaffRole = (value: unknown): StaffRole | null => {
+  if (value === "user" || value === "administrator") {
+    return value;
+  }
+  return null;
+};
+
+const parseStaffUserCreateRequest = (body: unknown): StaffUserCreateInput | null => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+  const record = body as Record<string, unknown>;
+  const username = record["username"];
+  const role = parseStaffRole(record["role"]);
+  const passcode = record["passcode"];
+  if (typeof username !== "string" || username.trim().length === 0) {
+    return null;
+  }
+  if (role === null) {
+    return null;
+  }
+  if (typeof passcode !== "string" || passcode.trim().length === 0) {
+    return null;
+  }
+  return {
+    username: username.trim(),
+    role,
+    passcode: passcode.trim(),
+  };
+};
+
+const parseStaffUserUpdateRequest = (body: unknown): StaffUserUpdateInput | null => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+  const record = body as Record<string, unknown>;
+  const usernameValue = record["username"];
+  const roleValue = record["role"];
+  const passcodeValue = record["passcode"];
+  const username =
+    usernameValue === undefined
+      ? undefined
+      : typeof usernameValue === "string" && usernameValue.trim().length > 0
+        ? usernameValue.trim()
+        : null;
+  const role = roleValue === undefined ? undefined : parseStaffRole(roleValue);
+  const passcode =
+    passcodeValue === undefined
+      ? undefined
+      : typeof passcodeValue === "string" && passcodeValue.trim().length > 0
+        ? passcodeValue.trim()
+        : null;
+  if (username === null || role === null || passcode === null) {
+    return null;
+  }
+  if (username === undefined && role === undefined && passcode === undefined) {
+    return null;
+  }
+  const input: StaffUserUpdateInput = {};
+  if (username !== undefined) {
+    input.username = username;
+  }
+  if (role !== undefined) {
+    input.role = role;
+  }
+  if (passcode !== undefined) {
+    input.passcode = passcode;
+  }
+  return input;
+};
+
 const parseSyncPushRequest = (body: unknown): SyncPushRequest | null => {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return null;
@@ -1118,6 +1365,37 @@ const parseSyncConflictsLimit = (value: string | null): number => {
 };
 
 const parseSyncAuditLimit = (value: string | null): number => {
+  const parsed = value === null ? 50 : Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return 50;
+  }
+  if (parsed > 200) {
+    return 200;
+  }
+  return parsed;
+};
+
+const parseAdjustmentRequestType = (value: string | null): AdjustmentRequestType | null => {
+  if (value === null || value.length === 0) {
+    return null;
+  }
+  if (value === "points" || value === "inventory") {
+    return value;
+  }
+  return null;
+};
+
+const parseAdjustmentRequestStatus = (value: string | null): AdjustmentRequestStatus | null => {
+  if (value === null || value.length === 0) {
+    return null;
+  }
+  if (value === "pending" || value === "approved" || value === "rejected") {
+    return value;
+  }
+  return null;
+};
+
+const parseAdjustmentRequestLimit = (value: string | null): number => {
   const parsed = value === null ? 50 : Number.parseInt(value, 10);
   if (!Number.isInteger(parsed) || parsed <= 0) {
     return 50;
@@ -1935,6 +2213,228 @@ const handlePointsAdjustmentRequest = async (
   sendJson(res, 201, {
     requestEventId: event.eventId,
   });
+};
+
+const handleAdjustmentRequestsList = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "inventory.adjustment.request");
+  if (actor === null) {
+    return;
+  }
+  const parsedUrl = new URL(req.url ?? "/", "http://localhost");
+  const requestTypeRaw = parsedUrl.searchParams.get("type");
+  const statusRaw = parsedUrl.searchParams.get("status");
+  const requestType = parseAdjustmentRequestType(requestTypeRaw);
+  const status = parseAdjustmentRequestStatus(statusRaw);
+  if (requestTypeRaw !== null && requestType === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  if (statusRaw !== null && status === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const response = await dependencies.listAdjustmentRequests({
+    requestType,
+    status,
+    limit: parseAdjustmentRequestLimit(parsedUrl.searchParams.get("limit")),
+    cursor: parsedUrl.searchParams.get("cursor"),
+  });
+  sendJson(res, 200, response);
+};
+
+const handlePointsAdjustmentApply = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "points.adjustment.apply");
+  if (actor === null) {
+    return;
+  }
+  const bodyResult = await readJsonBody(req);
+  if (!bodyResult.ok) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const request = parsePointsAdjustmentApplyRequest(bodyResult.value);
+  if (request === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const person = await dependencies.getPersonById(request.personId);
+  if (person === null) {
+    sendJson(res, 404, { error: "PERSON_NOT_FOUND" });
+    return;
+  }
+  const event: Event = {
+    ...toBaseEventFields(dependencies, actor, req, request.locationText),
+    eventType: "points.adjustment_applied",
+    payload: {
+      requestEventId: request.requestEventId ?? null,
+      personId: request.personId,
+      deltaPoints: request.deltaPoints,
+      reason: request.reason,
+      notes: request.notes ?? null,
+    },
+  };
+  const appendResult = await dependencies.appendEventAndProject(event);
+  if (appendResult.status !== "accepted") {
+    sendJson(res, 400, { error: "BAD_REQUEST", reason: appendResult.reason ?? null });
+    return;
+  }
+  sendJson(res, 201, {
+    eventId: event.eventId,
+  });
+};
+
+const handleInventoryAdjustmentApply = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "inventory.adjustment.apply");
+  if (actor === null) {
+    return;
+  }
+  const bodyResult = await readJsonBody(req);
+  if (!bodyResult.ok) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const request = parseInventoryAdjustmentApplyRequest(bodyResult.value);
+  if (request === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const batch = await dependencies.getInventoryBatchState(request.inventoryBatchId);
+  if (batch === null) {
+    sendJson(res, 404, { error: "INVENTORY_BATCH_NOT_FOUND" });
+    return;
+  }
+  const availableQuantity = batch.quantities[request.fromStatus];
+  if (availableQuantity < request.quantity) {
+    sendJson(res, 409, {
+      error: "INVENTORY_UNDERFLOW",
+      availableQuantity,
+      requestedQuantity: request.quantity,
+    });
+    return;
+  }
+  const event: Event = {
+    ...toBaseEventFields(dependencies, actor, req, request.locationText),
+    eventType: "inventory.adjustment_applied",
+    payload: {
+      requestEventId: request.requestEventId ?? null,
+      inventoryBatchId: request.inventoryBatchId,
+      fromStatus: request.fromStatus,
+      toStatus: request.toStatus,
+      quantity: request.quantity,
+      reason: request.reason,
+      notes: request.notes ?? null,
+    },
+  };
+  const appendResult = await dependencies.appendEventAndProject(event);
+  if (appendResult.status !== "accepted") {
+    sendJson(res, 400, { error: "BAD_REQUEST", reason: appendResult.reason ?? null });
+    return;
+  }
+  sendJson(res, 201, {
+    eventId: event.eventId,
+  });
+};
+
+const handleUsersList = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "users.manage");
+  if (actor === null) {
+    return;
+  }
+  const users = await dependencies.listStaffUsers();
+  sendJson(res, 200, { users });
+};
+
+const handleUsersCreate = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "users.manage");
+  if (actor === null) {
+    return;
+  }
+  const bodyResult = await readJsonBody(req);
+  if (!bodyResult.ok) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const request = parseStaffUserCreateRequest(bodyResult.value);
+  if (request === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const result = await dependencies.createStaffUser(
+    {
+      id: randomUUID(),
+      username: request.username,
+      role: request.role,
+      passcodeHash: createPasscodeHash(request.passcode),
+    },
+    actor,
+  );
+  if (!result.ok) {
+    sendJson(res, 409, { error: "USERNAME_EXISTS" });
+    return;
+  }
+  sendJson(res, 201, { user: result.value });
+};
+
+const handleUsersUpdate = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+  userId: string,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "users.manage");
+  if (actor === null) {
+    return;
+  }
+  const bodyResult = await readJsonBody(req);
+  if (!bodyResult.ok) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const request = parseStaffUserUpdateRequest(bodyResult.value);
+  if (request === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const result = await dependencies.updateStaffUser(
+    userId,
+    {
+      ...(request.username !== undefined ? { username: request.username } : {}),
+      ...(request.role !== undefined ? { role: request.role } : {}),
+      ...(request.passcode !== undefined
+        ? { passcodeHash: createPasscodeHash(request.passcode) }
+        : {}),
+    },
+    actor,
+  );
+  if (!result.ok) {
+    if (result.error === "NOT_FOUND") {
+      sendJson(res, 404, { error: "NOT_FOUND" });
+      return;
+    }
+    sendJson(res, 409, { error: "USERNAME_EXISTS" });
+    return;
+  }
+  sendJson(res, 200, { user: result.value });
 };
 
 const handleIntakeCreate = async (
@@ -2872,6 +3372,40 @@ const routeRequest = async (
   if (method === "POST" && pathname === "/points/adjustments/requests") {
     await handlePointsAdjustmentRequest(req, res, dependencies);
     return;
+  }
+
+  if (method === "GET" && pathname === "/adjustments/requests") {
+    await handleAdjustmentRequestsList(req, res, dependencies);
+    return;
+  }
+
+  if (method === "POST" && pathname === "/points/adjustments/apply") {
+    await handlePointsAdjustmentApply(req, res, dependencies);
+    return;
+  }
+
+  if (method === "POST" && pathname === "/inventory/adjustments/apply") {
+    await handleInventoryAdjustmentApply(req, res, dependencies);
+    return;
+  }
+
+  if (method === "GET" && pathname === "/users") {
+    await handleUsersList(req, res, dependencies);
+    return;
+  }
+
+  if (method === "POST" && pathname === "/users") {
+    await handleUsersCreate(req, res, dependencies);
+    return;
+  }
+
+  const usersUpdateMatch = pathname.match(/^\/users\/([^/]+)$/);
+  if (method === "PATCH" && usersUpdateMatch !== null) {
+    const userId = usersUpdateMatch[1];
+    if (userId !== undefined) {
+      await handleUsersUpdate(req, res, dependencies, userId);
+      return;
+    }
   }
 
   if (method === "POST" && pathname === "/intakes") {
