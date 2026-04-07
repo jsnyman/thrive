@@ -1283,15 +1283,8 @@ describe("App person registry", () => {
         return jsonResponse({ entries: [] });
       }
       if (url.includes("/sync/push")) {
-        if (typeof init?.body === "string") {
-          capturedPushBody = JSON.parse(init.body) as unknown;
-        }
-        const acknowledgements = extractEventIdsFromPushBody(capturedPushBody).map((eventId) => ({
-          eventId,
-          status: "accepted" as const,
-        }));
         return jsonResponse({
-          acknowledgements,
+          acknowledgements: [],
           latestCursor: "cursor-2",
         });
       }
