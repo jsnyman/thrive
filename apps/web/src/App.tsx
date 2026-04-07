@@ -2193,9 +2193,9 @@ export const App = ({
     );
   }
 
-  const showProcurementPanel = false;
-  const showExpensePanel = false;
-  const showLedgerPanel = false;
+  const showProcurementPanel = canManageInventory && activeView === "shop-log";
+  const showExpensePanel = canManageInventory && activeView === "shop-log";
+  const showLedgerPanel = canManageInventory && activeView === "collection-log";
 
   return (
     <AppShell

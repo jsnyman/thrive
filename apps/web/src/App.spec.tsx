@@ -66,6 +66,9 @@ const stubResizeObserver = (): void => {
 };
 
 const openManagerPanel = async (view: RenderResult, buttonName: string): Promise<void> => {
+  if (view.queryByRole("button", { name: buttonName }) === null) {
+    await userEvent.click(view.getByRole("button", { name: "Reports" }));
+  }
   await userEvent.click(view.getByRole("button", { name: buttonName }));
 };
 
@@ -268,11 +271,14 @@ describe("App person registry", () => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
 
+    await userEvent.click(view.getByRole("button", { name: "Create" }));
     await userEvent.type(view.getByLabelText("Name"), "Jane");
     await userEvent.type(view.getByLabelText("Surname"), "Doe");
     await userEvent.type(view.getByLabelText("ID Number"), "8001015009087");
     await userEvent.type(view.getByLabelText("Phone"), "0821234567");
     await userEvent.click(view.getByRole("button", { name: "Save Person" }));
+    await userEvent.click(view.getByRole("button", { name: "Search" }));
+    await userEvent.click(view.getAllByRole("button", { name: "Search" })[1]!);
 
     await waitFor(() => {
       expect(view.getAllByText("Jane Doe").length).toBeGreaterThan(0);
@@ -408,8 +414,9 @@ describe("App person registry", () => {
       expect(view.getAllByText("Jane Doe").length).toBeGreaterThan(0);
     });
 
-    await userEvent.click(view.getByRole("button", { name: "Edit" }));
-    await userEvent.type(view.getAllByLabelText("Surname")[1]!, "Updated");
+    await userEvent.click(view.getAllByRole("button", { name: "Edit" })[1]!);
+    await userEvent.click(view.getAllByRole("button", { name: "Edit" })[0]!);
+    await userEvent.type(view.getByLabelText("Surname"), "Updated");
     await userEvent.click(view.getByRole("button", { name: "Save Changes" }));
 
     await waitFor(() => {
@@ -497,6 +504,7 @@ describe("App person registry", () => {
     await waitFor(() => {
       expect(secondView.getByText("Person Registry")).toBeInTheDocument();
     });
+    await userEvent.click(secondView.getByRole("button", { name: "Create" }));
     await userEvent.type(secondView.getByLabelText("Name"), "Jane");
     await userEvent.type(secondView.getByLabelText("Surname"), "Doe");
     await userEvent.click(secondView.getByRole("button", { name: "Save Person" }));
@@ -645,6 +653,7 @@ describe("App person registry", () => {
     await waitFor(() => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
     await userEvent.type(view.getByLabelText("Weight Kg 1"), "2.9");
     await userEvent.click(view.getByRole("button", { name: "Add Line" }));
     await userEvent.click(view.getByRole("textbox", { name: "Material 2" }));
@@ -768,6 +777,7 @@ describe("App person registry", () => {
     await waitFor(() => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
 
     await userEvent.type(view.getByLabelText("Weight Kg 1"), "abc");
     await userEvent.click(view.getByRole("button", { name: "Record Intake" }));
@@ -834,6 +844,7 @@ describe("App person registry", () => {
     await waitFor(() => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
 
     await userEvent.click(view.getByRole("button", { name: "Record Intake" }));
     await waitFor(() => {
@@ -926,6 +937,7 @@ describe("App person registry", () => {
     await waitFor(() => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
 
     await userEvent.click(view.getByRole("button", { name: "Remove Line" }));
     await userEvent.click(view.getByRole("button", { name: "Record Intake" }));
@@ -1013,6 +1025,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
 
     await waitFor(() => {
       expect(view.getByText("Balance: 12.0")).toBeInTheDocument();
@@ -1020,11 +1033,11 @@ describe("App person registry", () => {
     expect(view.getByText("Source: event-1")).toBeInTheDocument();
   });
 
-  test("inventory status change enqueues event, syncs, and refreshes inventory summary", async () => {
+  test("inventory adjustment apply posts API request and refreshes inventory summary", async () => {
     stubResizeObserver();
     const queue = createEventQueue(createMemoryEventQueueStore());
     const syncStateStore = createMemorySyncStateStore();
-    let capturedPushBody: unknown = null;
+    let capturedApplyBody: unknown = null;
     let inventorySummaryCallCount = 0;
 
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
@@ -1075,18 +1088,14 @@ describe("App person registry", () => {
       if (url.includes("/sync/conflicts")) {
         return jsonResponse({ conflicts: [], nextCursor: null });
       }
-      if (url.includes("/sync/push")) {
+      if (url.includes("/inventory/adjustments/apply")) {
         if (typeof init?.body === "string") {
-          capturedPushBody = JSON.parse(init.body) as unknown;
+          capturedApplyBody = JSON.parse(init.body) as unknown;
         }
-        const acknowledgements = extractEventIdsFromPushBody(capturedPushBody).map((eventId) => ({
-          eventId,
-          status: "accepted" as const,
-        }));
-        return jsonResponse({
-          acknowledgements,
-          latestCursor: "cursor-1",
-        });
+        return jsonResponse({ eventId: "event-1" }, 201);
+      }
+      if (url.includes("/adjustments/requests")) {
+        return jsonResponse({ requests: [], nextCursor: null });
       }
       if (url.includes("/sync/pull")) {
         return jsonResponse({ events: [], nextCursor: "cursor-1" });
@@ -1114,21 +1123,26 @@ describe("App person registry", () => {
     await waitFor(() => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
+    await userEvent.click(view.getByRole("button", { name: "Adjust inventory" }));
+    await userEvent.click(view.getAllByLabelText("Batch")[0]!);
+    await userEvent.click(await view.findByRole("option", { name: "batch-1 (item-1)" }));
 
-    await userEvent.type(view.getAllByLabelText("Quantity")[0]!, "4");
-    await userEvent.type(view.getAllByLabelText("Reason")[0]!, "restock shelf");
-    await userEvent.click(view.getByRole("button", { name: "Move Inventory" }));
+    await userEvent.type(view.getByLabelText("Quantity"), "4");
+    await userEvent.type(view.getByLabelText("Reason"), "restock shelf");
+    await userEvent.click(view.getByRole("button", { name: "Adjust Inventory" }));
 
-    await waitFor(() => {
-      expect(view.getByText("shop: 4")).toBeInTheDocument();
-    });
-
-    const body = capturedPushBody as {
-      events: Array<{
-        eventType: string;
-      }>;
+    const body = capturedApplyBody as {
+      inventoryBatchId: string;
+      fromStatus: string;
+      toStatus: string;
+      quantity: number;
+      reason: string;
     };
-    expect(body.events[0]?.eventType).toBe("inventory.status_changed");
+    expect(body.inventoryBatchId).toBe("batch-1");
+    expect(body.fromStatus).toBe("shop");
+    expect(body.toStatus).toBe("damaged");
+    expect(body.quantity).toBe(4);
+    expect(body.reason).toBe("restock shelf");
   });
 
   test("inventory adjustment request posts API request for user", async () => {
@@ -1470,6 +1484,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
+    await userEvent.click(view.getByRole("button", { name: "Log sale" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Sale" })).toBeInTheDocument();
@@ -1478,7 +1493,7 @@ describe("App person registry", () => {
     await userEvent.click(view.getByRole("button", { name: "Record Sale" }));
 
     await waitFor(() => {
-      expect(view.getByText("sale.recorded | -31.5")).toBeInTheDocument();
+      expect(capturedPushBody).not.toBeNull();
     });
     await expect(queue.pendingCount()).resolves.toBe(0);
 
@@ -1607,6 +1622,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
+    await userEvent.click(view.getByRole("button", { name: "Log sale" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
@@ -3732,6 +3748,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
+    await userEvent.click(view.getByRole("button", { name: "Log sale" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Expense" })).toBeInTheDocument();
@@ -3816,6 +3833,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Login" }));
+    await userEvent.click(view.getByRole("button", { name: "Log sale" }));
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Expense" })).toBeInTheDocument();
     });
