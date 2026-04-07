@@ -1131,11 +1131,11 @@ describe("App person registry", () => {
     expect(body.events[0]?.eventType).toBe("inventory.status_changed");
   });
 
-  test("inventory adjustment request enqueues event and syncs for user", async () => {
+  test("inventory adjustment request posts API request for user", async () => {
     stubResizeObserver();
     const queue = createEventQueue(createMemoryEventQueueStore());
     const syncStateStore = createMemorySyncStateStore();
-    let capturedPushBody: unknown = null;
+    let capturedInventoryRequestBody: unknown = null;
 
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
       const url = String(input);
@@ -1176,21 +1176,17 @@ describe("App person registry", () => {
           ],
         });
       }
+      if (url.includes("/inventory/adjustments/requests")) {
+        if (typeof init?.body === "string") {
+          capturedInventoryRequestBody = JSON.parse(init.body) as unknown;
+        }
+        return jsonResponse({ requestEventId: "evt-1" }, 201);
+      }
+      if (url.includes("/adjustments/requests")) {
+        return jsonResponse({ requests: [], nextCursor: null });
+      }
       if (url.includes("/sync/conflicts")) {
         return jsonResponse({ conflicts: [], nextCursor: null });
-      }
-      if (url.includes("/sync/push")) {
-        if (typeof init?.body === "string") {
-          capturedPushBody = JSON.parse(init.body) as unknown;
-        }
-        const acknowledgements = extractEventIdsFromPushBody(capturedPushBody).map((eventId) => ({
-          eventId,
-          status: "accepted" as const,
-        }));
-        return jsonResponse({
-          acknowledgements,
-          latestCursor: "cursor-2",
-        });
       }
       if (url.includes("/sync/pull")) {
         return jsonResponse({ events: [], nextCursor: "cursor-2" });
@@ -1219,23 +1215,28 @@ describe("App person registry", () => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
 
+    await userEvent.click(view.getByRole("button", { name: "Request inventory adjustment" }));
     await userEvent.type(view.getByLabelText("Quantity"), "1");
     await userEvent.type(view.getByLabelText("Reason"), "damage");
     await userEvent.click(view.getByRole("button", { name: "Submit Adjustment Request" }));
 
-    const body = capturedPushBody as {
-      events: Array<{
-        eventType: string;
-      }>;
+    const body = capturedInventoryRequestBody as {
+      inventoryBatchId: string;
+      requestedStatus: string;
+      quantity: number;
+      reason: string;
     };
-    expect(body.events[0]?.eventType).toBe("inventory.adjustment_requested");
+    expect(body.inventoryBatchId).toBe("batch-1");
+    expect(body.requestedStatus).toBe("spoiled");
+    expect(body.quantity).toBe(1);
+    expect(body.reason).toBe("damage");
   });
 
-  test("points adjustment request enqueues event and syncs for user", async () => {
+  test("points adjustment request posts API request for user", async () => {
     stubResizeObserver();
     const queue = createEventQueue(createMemoryEventQueueStore());
     const syncStateStore = createMemorySyncStateStore();
-    let capturedPushBody: unknown = null;
+    let capturedPointsRequestBody: unknown = null;
 
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
       const url = String(input);
@@ -1265,6 +1266,15 @@ describe("App person registry", () => {
       }
       if (url.includes("/inventory/batches")) {
         return jsonResponse({ batches: [] });
+      }
+      if (url.includes("/points/adjustments/requests")) {
+        if (typeof init?.body === "string") {
+          capturedPointsRequestBody = JSON.parse(init.body) as unknown;
+        }
+        return jsonResponse({ requestEventId: "evt-2" }, 201);
+      }
+      if (url.includes("/adjustments/requests")) {
+        return jsonResponse({ requests: [], nextCursor: null });
       }
       if (url.includes("/ledger/person-1/balance")) {
         return jsonResponse({ balance: { personId: "person-1", balancePoints: 10 } });
@@ -1312,16 +1322,19 @@ describe("App person registry", () => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
 
+    await userEvent.click(view.getByRole("button", { name: "Request points adjustment" }));
     await userEvent.type(view.getByLabelText("Adjustment Points"), "2.5");
     await userEvent.type(view.getByLabelText("Adjustment Reason"), "manual correction");
     await userEvent.click(view.getByRole("button", { name: "Submit Points Adjustment Request" }));
 
-    const body = capturedPushBody as {
-      events: Array<{
-        eventType: string;
-      }>;
+    const body = capturedPointsRequestBody as {
+      personId: string;
+      deltaPoints: number;
+      reason: string;
     };
-    expect(body.events[0]?.eventType).toBe("points.adjustment_requested");
+    expect(body.personId).toBe("person-1");
+    expect(body.deltaPoints).toBe(2.5);
+    expect(body.reason).toBe("manual correction");
   });
 
   test("sale flow enqueues FIFO-expanded lines, syncs, and refreshes ledger", async () => {
