@@ -35,6 +35,7 @@ import {
   type StaffIdentity,
   type StaffUserRecord,
 } from "../auth";
+import { createStderrOnlyApiErrorLogger, toRequestPath, type ApiErrorLogger } from "./error-logger";
 
 type PersonRecord = {
   id: string;
@@ -496,6 +497,7 @@ type ApiServerDependencies = {
   >;
   pullEvents: (cursor: SyncCursor | null, limit: number) => Promise<SyncPullResponse>;
   getSyncStatus: () => Promise<SyncStatusResponse>;
+  errorLogger?: ApiErrorLogger;
   meRequiredAction?: PermissionAction;
   now?: () => Date;
 };
@@ -3513,8 +3515,16 @@ const routeRequest = async (
 };
 
 export const createApiServer = (dependencies: ApiServerDependencies): Server => {
+  const errorLogger = dependencies.errorLogger ?? createStderrOnlyApiErrorLogger();
   const server = createServer((req, res) => {
-    void routeRequest(req, res, dependencies).catch(() => {
+    void routeRequest(req, res, dependencies).catch((error: unknown) => {
+      errorLogger.logRequestError(
+        {
+          method: req.method ?? "UNKNOWN",
+          path: toRequestPath(req.url),
+        },
+        error,
+      );
       sendJson(res, 500, { error: "INTERNAL_SERVER_ERROR" });
     });
   });

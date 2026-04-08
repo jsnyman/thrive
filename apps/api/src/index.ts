@@ -1,4 +1,5 @@
 import { createApiServer } from "./http/server";
+import { createApiErrorLogger, registerProcessFatalErrorHandlers } from "./http/error-logger";
 
 export * from "./auth";
 export { createApiServer } from "./http/server";
@@ -10,6 +11,8 @@ const isDirectExecution = (): boolean => {
   }
   return require.main === module;
 };
+
+let removeProcessFatalHandlers: (() => void) | null = null;
 
 export const startApiServer = async (): Promise<ReturnType<typeof createApiServer>> => {
   const [
@@ -24,6 +27,14 @@ export const startApiServer = async (): Promise<ReturnType<typeof createApiServe
     import("./data/core-repository.js"),
   ]);
   const runtimeConfig = readApiRuntimeConfig();
+  const errorLogger = createApiErrorLogger({
+    filePath: runtimeConfig.errorLogPath,
+    maxBytes: runtimeConfig.errorLogMaxBytes,
+  });
+  if (removeProcessFatalHandlers !== null) {
+    removeProcessFatalHandlers();
+  }
+  removeProcessFatalHandlers = registerProcessFatalErrorHandlers(errorLogger);
   let prismaClient: ReturnType<typeof createPrismaClient> | null = null;
   const getPrismaClient = (): ReturnType<typeof createPrismaClient> => {
     if (prismaClient === null) {
@@ -32,6 +43,7 @@ export const startApiServer = async (): Promise<ReturnType<typeof createApiServe
     return prismaClient;
   };
   const server = createApiServer({
+    errorLogger,
     authConfig: runtimeConfig.authConfig,
     getStaffUserByUsername: async (username) => getStaffUserByUsername(getPrismaClient(), username),
     listPeople: async (search) => createCoreRepository(getPrismaClient()).listPeople(search),
@@ -102,6 +114,10 @@ export const startApiServer = async (): Promise<ReturnType<typeof createApiServe
     getSyncStatus: async () => createCoreRepository(getPrismaClient()).getSyncStatus(),
   });
   server.on("close", () => {
+    if (removeProcessFatalHandlers !== null) {
+      removeProcessFatalHandlers();
+      removeProcessFatalHandlers = null;
+    }
     if (prismaClient !== null) {
       void prismaClient.$disconnect();
     }

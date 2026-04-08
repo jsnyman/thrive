@@ -9,6 +9,7 @@ import type {
 } from "../../../../packages/shared/src/domain/sync";
 import { createPasscodeHash, type AuthConfig, type StaffUserRecord } from "../auth";
 import { createApiServer, type ApiServerDependencies } from "./server";
+import type { ApiErrorLogger } from "./error-logger";
 
 type PersonRecord = {
   id: string;
@@ -2357,6 +2358,39 @@ describe("core HTTP endpoints", () => {
     expect(updated.status).toBe(200);
     expect(updated.body.user.username).toBe("renamed-user");
     expect(updated.body.user.role).toBe("administrator");
+  });
+
+  test("logs request context when route handler throws", async () => {
+    const loggerCalls: Array<{ method: string; path: string; message: string }> = [];
+    const errorLogger: ApiErrorLogger = {
+      logRequestError: (context, error) => {
+        loggerCalls.push({
+          method: context.method,
+          path: context.path,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      },
+      logFatalError: () => undefined,
+    };
+    const server = createApiServer({
+      ...createDependencies(),
+      errorLogger,
+      listPeople: async () => {
+        throw new Error("list-people-explosion");
+      },
+    });
+    const token = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const response = await supertest(server).get("/people").set("authorization", `Bearer ${token}`);
+
+    expect(response.status).toBe(500);
+    expect(loggerCalls).toEqual([
+      {
+        method: "GET",
+        path: "/people",
+        message: "list-people-explosion",
+      },
+    ]);
   });
 
   test("GET /ledger/:personId/entries returns projected entries", async () => {

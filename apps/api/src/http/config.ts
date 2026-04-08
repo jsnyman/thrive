@@ -3,10 +3,14 @@ import type { AuthConfig } from "../auth";
 type ApiRuntimeConfig = {
   authConfig: AuthConfig;
   apiPort: number;
+  errorLogPath: string;
+  errorLogMaxBytes: number;
 };
 
 const DEFAULT_TOKEN_TTL_SECONDS = 3600;
 const DEFAULT_API_PORT = 3001;
+const DEFAULT_ERROR_LOG_PATH = "/var/log/swapshop-api/app-error.log";
+const DEFAULT_ERROR_LOG_MAX_BYTES = 5 * 1024 * 1024;
 
 const parsePositiveInteger = (
   value: string | undefined,
@@ -35,6 +39,15 @@ export const readApiRuntimeConfig = (env: NodeJS.ProcessEnv = process.env): ApiR
     "AUTH_TOKEN_TTL_SECONDS",
   );
   const apiPort = parsePositiveInteger(env["API_PORT"], DEFAULT_API_PORT, "API_PORT");
+  const errorLogMaxBytes = parsePositiveInteger(
+    env["API_ERROR_LOG_MAX_BYTES"],
+    DEFAULT_ERROR_LOG_MAX_BYTES,
+    "API_ERROR_LOG_MAX_BYTES",
+  );
+  const errorLogPath =
+    env["API_ERROR_LOG_PATH"] === undefined || env["API_ERROR_LOG_PATH"].trim().length === 0
+      ? DEFAULT_ERROR_LOG_PATH
+      : env["API_ERROR_LOG_PATH"];
 
   return {
     authConfig: {
@@ -42,5 +55,7 @@ export const readApiRuntimeConfig = (env: NodeJS.ProcessEnv = process.env): ApiR
       tokenTtlSeconds,
     },
     apiPort,
+    errorLogPath,
+    errorLogMaxBytes,
   };
 };

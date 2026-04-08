@@ -2363,7 +2363,6 @@ export const App = ({
             <Text fw={700} size="lg">
               Recycling Swap-Shop
             </Text>
-            <Badge color="green">Phase 3 Task 6</Badge>
             <Badge color={syncBadgeColor(sync.status)}>{`Sync ${sync.status}`}</Badge>
           </Group>
           <Group gap="xs">
