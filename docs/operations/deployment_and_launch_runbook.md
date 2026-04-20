@@ -81,6 +81,8 @@ During prompts, provide:
 - `AUTH_SECRET`
 - whether to seed staff (`yes` for first pilot setup only)
 
+The systemd unit also reads optional `API_ERROR_LOG_PATH` (default `/var/log/swapshop-api/app-error.log`) and `API_ERROR_LOG_MAX_BYTES` (default `5242880`). Override these via the service's `Environment=` lines if you need a custom location or rotation size.
+
 After completion:
 
 ```bash
@@ -217,6 +219,9 @@ Then follow full process in `docs/operations/rollback_checklist.md`.
 ```bash
 # API logs (live)
 sudo journalctl -u recycling-api.service -f
+
+# Application error sink (request-handler failures and uncaught/unhandled fatals)
+sudo tail -f /var/log/swapshop-api/app-error.log
 
 # NGINX logs
 sudo tail -f /var/log/nginx/access.log /var/log/nginx/error.log

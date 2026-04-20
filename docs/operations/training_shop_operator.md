@@ -23,7 +23,7 @@ Shop operators do not:
 ## Device and Login
 
 - Use only the shop phone.
-- Log in with a shop operator account.
+- Log in with a staff account assigned to the shop phone. ("Shop operator" is a device persona — the underlying RBAC role is `user`, the same role used by the collector phone. Both personas share the same permissions; the difference is which device the account is set up on.)
 - Confirm the latest items, prices, and inventory state are visible before departure.
 - If signal is available before opening, run `Sync Now`.
 

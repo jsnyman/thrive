@@ -23,7 +23,7 @@ Collectors do not:
 ## Device and Login
 
 - Use only the collector phone.
-- Log in with a collector account.
+- Log in with a staff account assigned to the collector phone. ("Collector" is a device persona — the underlying RBAC role is `user`, the same role used by the shop phone. Both personas share the same permissions; the difference is which device the account is set up on.)
 - Confirm the app opens the people and intake workflows.
 - If signal is available before opening, run `Sync Now`.
 

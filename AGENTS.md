@@ -15,7 +15,7 @@ This file defines project-specific instructions for agents working in this repo.
 - UI: Mantine, strictly responsive
 - Offline storage: SQLite in browser via OPFS (e.g., wa-sqlite)
 - Sync model: event-sourced sync using an append-only log with server-side merge
-- Backend API: Node.js + NestJS
+- Backend API: Node.js + TypeScript HTTP server (NestJS migration planned, not started — current code uses `node:http` `createServer` in `apps/api/src/http/server.ts`)
 - Database: PostgreSQL for server-side event log + projections
 
 ## Non-Negotiable Constraints

@@ -10,6 +10,8 @@ This document lists the current HTTP API endpoints available in `apps/api`.
   - `AUTH_SECRET` required
   - `AUTH_TOKEN_TTL_SECONDS` optional, default `3600`
   - `API_PORT` optional, default `3001`
+  - `API_ERROR_LOG_PATH` optional, default `/var/log/swapshop-api/app-error.log`; receives request-handler failures and fatal `uncaughtException`/`unhandledRejection` records
+  - `API_ERROR_LOG_MAX_BYTES` optional, default `5242880` (5 MiB); the file is truncated when it exceeds this size on the next write
 
 ## Auth Endpoints
 
@@ -940,6 +942,185 @@ Errors:
 - `400 BAD_REQUEST`: malformed body
 - `404 NOT_FOUND`: issue no longer exists or is no longer repairable
 - `409 CONFLICT`: repair could not be safely applied against current state
+
+### Adjustments
+
+Endpoints:
+
+- `GET /adjustments/requests?type=points|inventory&status=pending|approved|rejected&limit=<n>&cursor=<iso>` for users and administrators
+- `POST /points/adjustments/apply` for administrators only
+- `POST /inventory/adjustments/apply` for administrators only
+
+#### `GET /adjustments/requests`
+
+Returns the merged list of points and inventory adjustment requests with their current applied status.
+
+Query params:
+
+- `type` optional, one of `points` or `inventory`
+- `status` optional, one of `pending`, `approved`, `rejected`
+- `limit` optional, default `50`, max `200`
+- `cursor` optional ISO timestamp for pagination (returned `requestedAt` of the last row in the previous page)
+
+Success `200`:
+
+```json
+{
+  "requests": [
+    {
+      "requestEventId": "uuid",
+      "requestType": "points",
+      "status": "pending",
+      "requestedAt": "2026-04-10T08:15:00.000Z",
+      "requestedByUserId": "uuid",
+      "personId": "uuid",
+      "inventoryBatchId": null,
+      "requestedStatus": null,
+      "deltaPoints": 2.5,
+      "quantity": 2.5,
+      "reason": "Manual correction request",
+      "notes": null,
+      "resolvedByUserId": null,
+      "resolvedAt": null,
+      "resolutionNotes": null
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+Errors:
+
+- `400 BAD_REQUEST`: invalid `type` or `status`
+- `401/403`: authentication or permission failures
+
+#### `POST /points/adjustments/apply`
+
+Request body:
+
+```json
+{
+  "personId": "uuid",
+  "deltaPoints": 2.5,
+  "reason": "Manual correction",
+  "notes": null,
+  "requestEventId": "uuid",
+  "locationText": "Village A"
+}
+```
+
+Notes:
+
+- Requires `points.adjustment.apply` (administrator only)
+- `deltaPoints` must be a non-zero one-decimal value; `requestEventId` is optional and links the apply to its originating request
+- Appends an immutable `points.adjustment_applied` event
+- Success `201` returns `{ "eventId": "uuid" }`
+
+Errors:
+
+- `400 BAD_REQUEST`: invalid payload
+- `404 PERSON_NOT_FOUND`
+- `401/403`: authentication or permission failures
+
+#### `POST /inventory/adjustments/apply`
+
+Request body:
+
+```json
+{
+  "inventoryBatchId": "batch-1",
+  "fromStatus": "storage",
+  "toStatus": "spoiled",
+  "quantity": 1,
+  "reason": "Spoiled in transit",
+  "notes": null,
+  "requestEventId": "uuid",
+  "locationText": "Village A"
+}
+```
+
+Notes:
+
+- Requires `inventory.adjustment.apply` (administrator only)
+- `fromStatus` and `toStatus` must differ; `quantity` is a positive integer
+- Appends an immutable `inventory.adjustment_applied` event
+- Success `201` returns `{ "eventId": "uuid" }`
+
+Errors:
+
+- `400 BAD_REQUEST`: invalid payload
+- `404 INVENTORY_BATCH_NOT_FOUND`
+- `409 INVENTORY_UNDERFLOW`: includes `availableQuantity` and `requestedQuantity`
+- `401/403`: authentication or permission failures
+
+### Users
+
+Endpoints (all require `users.manage` — administrator only):
+
+- `GET /users`
+- `POST /users`
+- `PATCH /users/:userId`
+
+#### `GET /users`
+
+Success `200`:
+
+```json
+{
+  "users": [
+    { "id": "uuid", "username": "administrator", "role": "administrator" }
+  ]
+}
+```
+
+#### `POST /users`
+
+Request body:
+
+```json
+{
+  "username": "collector1",
+  "passcode": "1234",
+  "role": "user"
+}
+```
+
+Notes:
+
+- `role` must be `user` or `administrator`
+- Appends an immutable `staff_user.created` event
+- Success `201` returns `{ "user": { "id", "username", "role" } }`
+
+Errors:
+
+- `400 BAD_REQUEST`: invalid payload
+- `409 USERNAME_EXISTS`
+- `401/403`: authentication or permission failures
+
+#### `PATCH /users/:userId`
+
+Request body — at least one field required, all optional individually:
+
+```json
+{
+  "username": "collector1b",
+  "role": "user",
+  "passcode": "5678"
+}
+```
+
+Notes:
+
+- Empty body or all-undefined fields are rejected with `400`
+- Role changes append an immutable `staff_user.role_changed` event
+- Success `200` returns `{ "user": { "id", "username", "role" } }`
+
+Errors:
+
+- `400 BAD_REQUEST`: invalid payload
+- `404 NOT_FOUND`: unknown `userId`
+- `409 USERNAME_EXISTS`
+- `401/403`: authentication or permission failures
 
 ## Operational Commands
 
