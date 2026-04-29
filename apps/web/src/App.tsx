@@ -2151,45 +2151,60 @@ export const App = ({
 
   if (sessionStatus !== "authenticated") {
     return (
-      <AppShell padding="md">
-        <AppShell.Main className="mainSurface">
-          <Container size="sm" py="xl">
-            <Stack gap="md">
-              {startupWarningBanner}
-              <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
-                <Stack gap="md">
-                  <Title order={3}>Login</Title>
-                  <TextInput
-                    label="Username"
-                    value={username}
-                    style={{ width: "100%", maxWidth: "300px" }}
-                    onChange={(event) => {
-                      setUsername(event.currentTarget.value);
-                    }}
-                  />
-                  <PasswordInput
-                    label="Passcode"
-                    value={passcode}
-                    style={{ width: "100%", maxWidth: "300px" }}
-                    onChange={(event) => {
-                      setPasscode(event.currentTarget.value);
-                    }}
-                  />
-                  {sessionError !== null ? <Text c="red">{sessionError}</Text> : null}
-                  <Button
-                    onClick={() => {
-                      void handleLogin();
-                    }}
-                    loading={loginPending || sessionStatus === "loading"}
-                  >
-                    Login
-                  </Button>
-                </Stack>
-              </Card>
+      <div className="loginSurface">
+        <Stack gap="md" style={{ width: "100%", maxWidth: "400px", padding: "16px" }}>
+          {startupWarningBanner}
+          <Card className="sectionCard" shadow="md" radius="lg" padding="xl">
+            <Stack gap="lg" align="center">
+              <img
+                src="/icons/icon-192.png"
+                alt="Greyton Thrive"
+                style={{ width: 72, height: 72, borderRadius: 12 }}
+              />
+              <Stack gap={4} align="center">
+                <Title order={3} ta="center" style={{ color: "#2f6b3b" }}>
+                  Greyton Thrive
+                </Title>
+                <Text size="sm" c="dimmed" ta="center">
+                  Sign in to continue
+                </Text>
+              </Stack>
+              <Stack gap="md" style={{ width: "100%" }}>
+                <TextInput
+                  label="Username"
+                  value={username}
+                  onChange={(event) => {
+                    setUsername(event.currentTarget.value);
+                  }}
+                />
+                <PasswordInput
+                  label="Passcode"
+                  value={passcode}
+                  onChange={(event) => {
+                    setPasscode(event.currentTarget.value);
+                  }}
+                />
+                {sessionError !== null ? (
+                  <Text c="red" size="sm">
+                    {sessionError}
+                  </Text>
+                ) : null}
+                <Button
+                  fullWidth
+                  size="md"
+                  style={{ backgroundColor: "#2f6b3b", borderColor: "#2f6b3b" }}
+                  onClick={() => {
+                    void handleLogin();
+                  }}
+                  loading={loginPending || sessionStatus === "loading"}
+                >
+                  Sign in
+                </Button>
+              </Stack>
             </Stack>
-          </Container>
-        </AppShell.Main>
-      </AppShell>
+          </Card>
+        </Stack>
+      </div>
     );
   }
 
@@ -2210,111 +2225,116 @@ export const App = ({
     >
       <AppShell.Navbar p="md">
         <Stack gap="xs">
-          <Text fw={700} size="sm">
-            Navigation
-          </Text>
-          <Text size="xs" c="dimmed">
-            Person
-          </Text>
-          <Button
-            variant={activeView === "person-search" ? "filled" : "light"}
-            onClick={() => {
-              setActiveView("person-search");
-            }}
-          >
-            Search
-          </Button>
-          <Button
-            variant={activeView === "person-create" ? "filled" : "light"}
-            onClick={() => {
-              setActiveView("person-create");
-            }}
-          >
-            Create
-          </Button>
-          <Button
-            variant={activeView === "person-edit" ? "filled" : "light"}
-            onClick={() => {
-              setActiveView("person-edit");
-            }}
-          >
-            Edit
-          </Button>
-          <Text size="xs" c="dimmed" mt="sm">
-            Collection
-          </Text>
-          <Button
-            variant={activeView === "collection-log" ? "filled" : "light"}
-            onClick={() => {
-              setActiveView("collection-log");
-            }}
-          >
-            Log material collection
-          </Button>
-          <Text size="xs" c="dimmed" mt="sm">
-            Shop
-          </Text>
-          <Button
-            variant={activeView === "shop-log" ? "filled" : "light"}
-            onClick={() => {
-              setActiveView("shop-log");
-            }}
-          >
-            Log sale
-          </Button>
-          <Group justify="space-between" mt="sm">
-            <Text size="xs" c="dimmed">
-              Adjustments
-            </Text>
+          <Stack className="navGroup" gap="xs">
+            <Text className="navGroupTitle">Person</Text>
+            <Button
+              className="navActionButton"
+              variant={activeView === "person-search" ? "filled" : "light"}
+              onClick={() => {
+                setActiveView("person-search");
+              }}
+            >
+              Search
+            </Button>
+            <Button
+              className="navActionButton"
+              variant={activeView === "person-create" ? "filled" : "light"}
+              onClick={() => {
+                setActiveView("person-create");
+              }}
+            >
+              Create
+            </Button>
+            <Button
+              className="navActionButton"
+              variant={activeView === "person-edit" ? "filled" : "light"}
+              onClick={() => {
+                setActiveView("person-edit");
+              }}
+            >
+              Edit
+            </Button>
+          </Stack>
+          <Stack className="navGroup" gap="xs">
+            <Text className="navGroupTitle">Collection</Text>
+            <Button
+              className="navActionButton"
+              variant={activeView === "collection-log" ? "filled" : "light"}
+              onClick={() => {
+                setActiveView("collection-log");
+              }}
+            >
+              Log material collection
+            </Button>
+          </Stack>
+          <Stack className="navGroup" gap="xs">
+            <Text className="navGroupTitle">Shop</Text>
+            <Button
+              className="navActionButton"
+              variant={activeView === "shop-log" ? "filled" : "light"}
+              onClick={() => {
+                setActiveView("shop-log");
+              }}
+            >
+              Log sale
+            </Button>
+          </Stack>
+          <Stack className="navGroup" gap="xs">
+            <Group justify="space-between">
+              <Text className="navGroupTitle">Adjustments</Text>
+              {canManageInventory ? (
+                <Badge color="red">{String(pendingAdjustmentCount)}</Badge>
+              ) : null}
+            </Group>
             {canManageInventory ? (
-              <Badge color="red">{String(pendingAdjustmentCount)}</Badge>
-            ) : null}
-          </Group>
-          {canManageInventory ? (
-            <>
-              <Button
-                variant={activeView === "adjustments-points-apply" ? "filled" : "light"}
-                onClick={() => {
-                  setActiveView("adjustments-points-apply");
-                }}
-              >
-                Adjust points
-              </Button>
-              <Button
-                variant={activeView === "adjustments-inventory-apply" ? "filled" : "light"}
-                onClick={() => {
-                  setActiveView("adjustments-inventory-apply");
-                }}
-              >
-                Adjust inventory
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button
-                variant={activeView === "adjustments-points-request" ? "filled" : "light"}
-                onClick={() => {
-                  setActiveView("adjustments-points-request");
-                }}
-              >
-                Request points adjustment
-              </Button>
-              <Button
-                variant={activeView === "adjustments-inventory-request" ? "filled" : "light"}
-                onClick={() => {
-                  setActiveView("adjustments-inventory-request");
-                }}
-              >
-                Request inventory adjustment
-              </Button>
-            </>
-          )}
+              <>
+                <Button
+                  className="navActionButton"
+                  variant={activeView === "adjustments-points-apply" ? "filled" : "light"}
+                  onClick={() => {
+                    setActiveView("adjustments-points-apply");
+                  }}
+                >
+                  Adjust points
+                </Button>
+                <Button
+                  className="navActionButton"
+                  variant={activeView === "adjustments-inventory-apply" ? "filled" : "light"}
+                  onClick={() => {
+                    setActiveView("adjustments-inventory-apply");
+                  }}
+                >
+                  Adjust inventory
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  className="navActionButton"
+                  variant={activeView === "adjustments-points-request" ? "filled" : "light"}
+                  onClick={() => {
+                    setActiveView("adjustments-points-request");
+                  }}
+                >
+                  Request points adjustment
+                </Button>
+                <Button
+                  className="navActionButton"
+                  variant={activeView === "adjustments-inventory-request" ? "filled" : "light"}
+                  onClick={() => {
+                    setActiveView("adjustments-inventory-request");
+                  }}
+                >
+                  Request inventory adjustment
+                </Button>
+              </>
+            )}
+          </Stack>
           {canViewReports ? (
-            <>
-              <Text size="xs" c="dimmed" mt="sm">
-                Reporting
-              </Text>
+            <Stack className="navGroup" gap="xs">
+              <Text className="navGroupTitle">Reporting</Text>
               <Button
+                className="navActionButton"
                 variant={activeView === "reporting" ? "filled" : "light"}
                 onClick={() => {
                   setActiveView("reporting");
@@ -2322,14 +2342,13 @@ export const App = ({
               >
                 Reports
               </Button>
-            </>
+            </Stack>
           ) : null}
           {canManageUsers ? (
-            <>
-              <Text size="xs" c="dimmed" mt="sm">
-                User management
-              </Text>
+            <Stack className="navGroup" gap="xs">
+              <Text className="navGroupTitle">User management</Text>
               <Button
+                className="navActionButton"
                 variant={activeView === "users-list" ? "filled" : "light"}
                 onClick={() => {
                   setActiveView("users-list");
@@ -2338,6 +2357,7 @@ export const App = ({
                 List all
               </Button>
               <Button
+                className="navActionButton"
                 variant={activeView === "users-create" ? "filled" : "light"}
                 onClick={() => {
                   setActiveView("users-create");
@@ -2346,6 +2366,7 @@ export const App = ({
                 Add new user
               </Button>
               <Button
+                className="navActionButton"
                 variant={activeView === "users-edit" ? "filled" : "light"}
                 onClick={() => {
                   setActiveView("users-edit");
@@ -2353,14 +2374,14 @@ export const App = ({
               >
                 Rename and edit user
               </Button>
-            </>
+            </Stack>
           ) : null}
         </Stack>
       </AppShell.Navbar>
       <AppShell.Header className="topBar">
         <Group justify="space-between" px="md" h="100%">
           <Group gap="sm">
-            <Text fw={700} size="lg">
+            <Text className="appTitle">
               Recycling Swap-Shop
             </Text>
             <Badge color={syncBadgeColor(sync.status)}>{`Sync ${sync.status}`}</Badge>
