@@ -50,7 +50,6 @@ export const bootstrapApp = async (rootElement: HTMLElement): Promise<void> => {
   try {
     const startupWarnings: string[] = [];
 
-    // Serialize OPFS-backed store initialization so both stores do not race on first DB open.
     const queue = await createDefaultEventQueue().catch((error: unknown) => {
       startupWarnings.push(getErrorMessage(error));
       return createEventQueue(createMemoryEventQueueStore());
