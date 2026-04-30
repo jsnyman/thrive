@@ -1,4 +1,14 @@
-import { Button, Card, Container, MantineProvider, Stack, Text, Title } from "@mantine/core";
+import {
+  Button,
+  Card,
+  Container,
+  MantineProvider,
+  Stack,
+  Text,
+  Title,
+  createTheme,
+  type MantineColorsTuple,
+} from "@mantine/core";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { createEventQueue, createMemoryEventQueueStore } from "./offline/event-queue";
@@ -7,6 +17,24 @@ import { createDefaultSyncStateStore } from "./offline/sync-state-provider";
 import { createMemorySyncStateStore } from "./offline/sync-state-store";
 import { registerServiceWorker } from "./pwa";
 import "@mantine/core/styles.css";
+
+const thriveGreen: MantineColorsTuple = [
+  "#f2f6ee",
+  "#e0ecda",
+  "#c4d9ba",
+  "#a3c294",
+  "#7da870",
+  "#5d8c4f",
+  "#4a6741",
+  "#3d5635",
+  "#2d5040",
+  "#1d3328",
+];
+
+const theme = createTheme({
+  primaryColor: "thriveGreen",
+  colors: { thriveGreen },
+});
 
 const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error) {
@@ -17,7 +45,7 @@ const getErrorMessage = (error: unknown): string => {
 
 const StartupErrorScreen = ({ message }: { message: string }): JSX.Element => {
   return (
-    <MantineProvider>
+    <MantineProvider theme={theme}>
       <Container size="sm" py="xl">
         <Card shadow="sm" radius="md" padding="lg">
           <Stack gap="md">
@@ -62,7 +90,7 @@ export const bootstrapApp = async (rootElement: HTMLElement): Promise<void> => {
     void registerServiceWorker();
 
     root.render(
-      <MantineProvider>
+      <MantineProvider theme={theme}>
         <App queue={queue} syncStateStore={syncStateStore} startupWarnings={startupWarnings} />
       </MantineProvider>,
     );

@@ -1,44 +1,44 @@
 .topBar {
-  border-bottom: 1px solid #dae4dc;
-  background: linear-gradient(90deg, #ecf6ee 0%, #f7f8ed 100%);
+  border-bottom: 1px solid #d4e4ca;
+  background: linear-gradient(90deg, #eaf2e4 0%, #f4f6e8 100%);
 }
 
 .appTitle {
   font-size: 2rem;
   font-weight: 800;
   letter-spacing: 0.01em;
-  color: #3f6f3d;
+  color: #4a6741;
 }
 
 .mainSurface {
   min-height: calc(100vh - 68px);
   background:
-    radial-gradient(circle at 8% 10%, rgba(106, 170, 111, 0.14), transparent 30%),
-    radial-gradient(circle at 92% 15%, rgba(233, 153, 79, 0.14), transparent 30%),
-    linear-gradient(180deg, #f8fbf6 0%, #f5f8fb 100%);
+    radial-gradient(circle at 8% 10%, rgba(74, 103, 65, 0.10), transparent 30%),
+    radial-gradient(circle at 92% 15%, rgba(91, 124, 66, 0.07), transparent 30%),
+    linear-gradient(180deg, #f5f8f0 0%, #f2f5ec 100%);
 }
 
 .sectionCard {
-  border: 1px solid #d5dfd8;
-  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid #d4e4ca;
+  background: rgba(255, 255, 255, 0.88);
 }
 
 .navGroup {
   padding: 0.6rem;
-  border: 1px solid #cfddd2;
+  border: 1px solid #c8dbbf;
   border-radius: 10px;
-  background: linear-gradient(180deg, rgba(237, 246, 239, 0.9), rgba(250, 252, 248, 0.95));
+  background: linear-gradient(180deg, rgba(234, 242, 228, 0.92), rgba(247, 250, 244, 0.96));
 }
 
 .navGroupTitle {
   font-size: 0.95rem;
   font-weight: 700;
   letter-spacing: 0.02em;
-  color: #35624d;
+  color: #2d5040;
 }
 
 .navActionButton {
-  border-color: #c7d5ca;
+  border-color: #c0d4b6;
 }
 
 .loginSurface {
@@ -47,7 +47,7 @@
   align-items: center;
   justify-content: center;
   background:
-    radial-gradient(circle at 15% 20%, rgba(47, 107, 59, 0.12), transparent 35%),
-    radial-gradient(circle at 85% 80%, rgba(47, 107, 59, 0.08), transparent 35%),
-    linear-gradient(160deg, #f2f7f1 0%, #edf3ec 100%);
+    radial-gradient(circle at 15% 20%, rgba(74, 103, 65, 0.12), transparent 35%),
+    radial-gradient(circle at 85% 80%, rgba(45, 80, 64, 0.08), transparent 35%),
+    linear-gradient(160deg, #f0f5eb 0%, #eaf2e4 100%);
 }

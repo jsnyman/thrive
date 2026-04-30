@@ -2162,7 +2162,7 @@ export const App = ({
                 style={{ width: 72, height: 72, borderRadius: 12 }}
               />
               <Stack gap={4} align="center">
-                <Title order={3} ta="center" style={{ color: "#2f6b3b" }}>
+                <Title order={3} ta="center" style={{ color: "#2d5040" }}>
                   Greyton Thrive
                 </Title>
                 <Text size="sm" c="dimmed" ta="center">
@@ -2192,7 +2192,7 @@ export const App = ({
                 <Button
                   fullWidth
                   size="md"
-                  style={{ backgroundColor: "#2f6b3b", borderColor: "#2f6b3b" }}
+                  style={{ backgroundColor: "#4a6741", borderColor: "#4a6741" }}
                   onClick={() => {
                     void handleLogin();
                   }}
