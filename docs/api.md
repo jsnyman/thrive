@@ -1067,9 +1067,7 @@ Success `200`:
 
 ```json
 {
-  "users": [
-    { "id": "uuid", "username": "administrator", "role": "administrator" }
-  ]
+  "users": [{ "id": "uuid", "username": "administrator", "role": "administrator" }]
 }
 ```
 

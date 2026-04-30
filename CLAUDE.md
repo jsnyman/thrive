@@ -6,7 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Offline-first PWA for a mobile recycling swap-shop. People bring recyclable materials, get points (1 point = 1 rand; intake line points are floored to the nearest 0.1, all other point values are normalized to one decimal place), and redeem points for shop items. The system tracks materials, points, inventory, procurement, expenses, and reporting via an immutable, event-sourced audit log.
 
-Read `AGENTS.md` and `AI_CONTEXT.md` before making architectural or data-model decisions. Detailed background lives in `docs/` (`requirements.md`, `architecture/`, `operations/`, `api.md`, `prisma.md`).
+Detailed background lives in `docs/` (`requirements.md`, `architecture/`, `operations/`, `api.md`, `prisma.md`).
+
+`AI_CONTEXT.md` (repo root) documents the full tech stack rationale and must be consulted before architecture or data-model decisions.
 
 ## Architecture
 
@@ -41,10 +43,12 @@ Run from repo root. Node `>=22.18.0` (see `.nvmrc`), npm `11.10.0`.
 ### Environment
 
 Create `apps/api/.env` with at minimum:
+
 ```
 DATABASE_URL=postgresql://user:pass@localhost:5432/swapshop
 AUTH_SECRET=<random-secret>
 ```
+
 Optional overrides: `API_PORT` (default 3001), `API_ERROR_LOG_PATH`, `API_ERROR_LOG_MAX_BYTES`.
 
 ### Setup
@@ -111,6 +115,8 @@ A Husky `pre-commit` hook runs `lint-staged` on changed files.
 
 ## Project Conventions (non-negotiable, from `AGENTS.md`)
 
+See also the "Four principles to code by" section in `AGENTS.md`: Think Before Coding, Simplicity First, Surgical Changes, Goal-Driven Execution.
+
 - TDD required: write the failing test first; bug fixes need a regression test.
 - No class-based services, no global mutable state, no default exports, no `any`, no implicit returns.
 - TypeScript is strict (`exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`, `noImplicitOverride`, `useUnknownInCatchVariables` — see `tsconfig.base.json`).
@@ -122,12 +128,13 @@ A Husky `pre-commit` hook runs `lint-staged` on changed files.
 
 After editing `apps/api/prisma/schema.prisma`:
 
-1. `npm run prisma:migrate -- --name <descriptive-name>`
+1. `cd apps/api && npx prisma migrate dev --name <descriptive-name>`
 2. `npm run prisma:generate`
 3. Commit both the migration folder and the schema.
 
 After pulling `main`: rerun `prisma:migrate` then `prisma:generate`. See `docs/prisma.md` for full guidance.
 
 Other useful commands:
+
 - `npm run prisma:migrate:deploy` — production (no prompts, runs pending migrations)
 - `npm run prisma:studio` — Prisma Studio GUI for browsing data

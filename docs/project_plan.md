@@ -194,7 +194,6 @@ Goal: stabilize, secure, and prepare for pilot deployment.
 
 > Refreshed from the prior `2026-03-12` snapshot; row contents below are unchanged because Phases 0–5 remain Done and no new in-progress phase has been started since. Update individual rows when scope changes.
 
-
 | Area                                                        | Status | Notes                                                                                                                                                                                                                                                                                                       |
 | ----------------------------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Phase 0 foundation                                          | Done   | Repo, workspaces, lint, format, typecheck, architecture docs, and CI quality gates are in place.                                                                                                                                                                                                            |

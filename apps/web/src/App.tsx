@@ -2381,9 +2381,7 @@ export const App = ({
       <AppShell.Header className="topBar">
         <Group justify="space-between" px="md" h="100%">
           <Group gap="sm">
-            <Text className="appTitle">
-              Recycling Swap-Shop
-            </Text>
+            <Text className="appTitle">Recycling Swap-Shop</Text>
             <Badge color={syncBadgeColor(sync.status)}>{`Sync ${sync.status}`}</Badge>
           </Group>
           <Group gap="xs">
