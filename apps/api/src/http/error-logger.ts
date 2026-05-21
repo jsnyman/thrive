@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { URL } from "node:url";
 
 export type FatalErrorKind = "uncaughtException" | "unhandledRejection";
@@ -93,6 +94,7 @@ const appendWithTruncation = (filePath: string, maxBytes: number, entry: string)
   const combined =
     existingBuffer.byteLength === 0 ? entryBuffer : Buffer.concat([existingBuffer, entryBuffer]);
   const next = trimToMaxBytes(combined, maxBytes);
+  mkdirSync(dirname(filePath), { recursive: true });
   writeFileSync(filePath, next);
 };
 
