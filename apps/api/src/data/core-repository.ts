@@ -1898,8 +1898,8 @@ export const createCoreRepository = (prisma: PrismaClient) => {
         : "and req.request_type = " +
           (filters.requestType === "points" ? "'points'" : "'inventory'");
     const whereStatusSql = filters.status === null ? "" : `and req.status = '${filters.status}'`;
-    const cursorSql = hasCursor ? "and req.requested_at < $2::timestamptz" : "";
-    const limitSql = hasCursor ? "$3" : "$2";
+    const cursorSql = hasCursor ? "and req.requested_at < $1::timestamptz" : "";
+    const limitSql = hasCursor ? "$2" : "$1";
     const query = `
       with requests as (
         select
@@ -2009,11 +2009,10 @@ export const createCoreRepository = (prisma: PrismaClient) => {
     const rows = hasCursor
       ? await prisma.$queryRawUnsafe<AdjustmentRequestRow[]>(
           query,
-          limit,
           cursorDate?.toISOString(),
           limit,
         )
-      : await prisma.$queryRawUnsafe<AdjustmentRequestRow[]>(query, limit, limit);
+      : await prisma.$queryRawUnsafe<AdjustmentRequestRow[]>(query, limit);
     const requests = rows.map((row) => ({
       requestEventId: row.request_event_id,
       requestType: row.request_type,
