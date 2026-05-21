@@ -11,29 +11,31 @@ This document defines the initial role-based access control rules for staff user
 
 ## Permission Matrix
 
-| Action                              | User | Administrator |
-| ----------------------------------- | ---- | ------------- |
-| Log in                              | Yes  | Yes           |
-| Read person list and person detail  | Yes  | Yes           |
-| Register person                     | Yes  | Yes           |
-| Update person profile               | Yes  | Yes           |
-| View points ledger                  | Yes  | Yes           |
-| Record intake                       | Yes  | Yes           |
-| Record sale                         | Yes  | Yes           |
-| Read inventory batches and summary  | Yes  | Yes           |
-| Request points adjustment           | Yes  | Yes           |
-| Apply points adjustment             | No   | Yes           |
-| Request inventory adjustment        | Yes  | Yes           |
-| Move stock between storage and shop | No   | Yes           |
-| Apply inventory adjustment          | No   | Yes           |
-| Create or update items              | No   | Yes           |
-| Record procurement                  | No   | Yes           |
-| Record expenses                     | No   | Yes           |
-| View reports                        | No   | Yes           |
-| View sync conflicts                 | No   | Yes           |
-| Resolve sync conflicts              | No   | Yes           |
-| View sync audit report/event        | No   | Yes           |
-| Manage users and roles              | No   | Yes           |
+The `Code` column maps each action to the dotted permission identifier enforced in `apps/api/src/auth/permissions.ts`. Login is implicit (any authenticated request); all other rows correspond to a `PermissionAction`.
+
+| Action                              | Code                           | User | Administrator |
+| ----------------------------------- | ------------------------------ | ---- | ------------- |
+| Log in                              | _(implicit, any valid token)_  | Yes  | Yes           |
+| Read person list and person detail  | `person.read`                  | Yes  | Yes           |
+| Register person                     | `person.create`                | Yes  | Yes           |
+| Update person profile               | `person.update`                | Yes  | Yes           |
+| View points ledger                  | `person.read`                  | Yes  | Yes           |
+| Record intake                       | `intake.record`                | Yes  | Yes           |
+| Record sale                         | `sale.record`                  | Yes  | Yes           |
+| Read inventory batches and summary  | `inventory.read`               | Yes  | Yes           |
+| Request points adjustment           | `points.adjustment.request`    | Yes  | Yes           |
+| Apply points adjustment             | `points.adjustment.apply`      | No   | Yes           |
+| Request inventory adjustment        | `inventory.adjustment.request` | Yes  | Yes           |
+| Move stock between storage and shop | `inventory.move`               | No   | Yes           |
+| Apply inventory adjustment          | `inventory.adjustment.apply`   | No   | Yes           |
+| Create or update items              | `item.manage`                  | No   | Yes           |
+| Record procurement                  | `procurement.record`           | No   | Yes           |
+| Record expenses                     | `expense.record`               | No   | Yes           |
+| View reports                        | `reports.view`                 | No   | Yes           |
+| View sync conflicts                 | `conflict.view`                | No   | Yes           |
+| Resolve sync conflicts              | `conflict.resolve`             | No   | Yes           |
+| View sync audit report/event        | `audit.view`                   | No   | Yes           |
+| Manage users and roles              | `users.manage`                 | No   | Yes           |
 
 ## Enforcement Notes
 

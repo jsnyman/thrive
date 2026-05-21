@@ -108,9 +108,11 @@ Response:
    - `AUTH_SECRET`
    - `AUTH_TOKEN_TTL_SECONDS`
    - `API_PORT`
-4. Deploy the last known good web/API release.
-5. Run post-restore validation.
-6. Announce service recovery only after validation completes.
+   - `API_ERROR_LOG_PATH` and `API_ERROR_LOG_MAX_BYTES` if customised
+4. Recreate the API error log directory (default `/var/log/swapshop-api/`) and confirm the API process user can write to it.
+5. Deploy the last known good web/API release.
+6. Run post-restore validation.
+7. Announce service recovery only after validation completes.
 
 ## Restore Procedure
 
@@ -146,6 +148,7 @@ Validate the restored system using the API and operational checks:
 - `GET /sync/status`
 - one manager report endpoint
 - one reconciliation or audit endpoint
+- tail the API error sink (default `/var/log/swapshop-api/app-error.log`) for new entries during the validation window
 
 Also confirm:
 

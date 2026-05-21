@@ -26,7 +26,7 @@ These requirements apply to:
 
 - The server must host the web app over HTTPS.
 - The server must expose the HTTP API used by the PWA.
-- The server must support authenticated access for `collector`, `shop_operator`, and `manager` users.
+- The server must support authenticated access for `user` and `administrator` staff roles (the only two roles defined in `packages/shared/src/domain/types.ts`). Field-day personas like collector and shop operator are device assignments using the `user` role; the administrator role covers the manager workflows.
 - The server must expose the sync endpoints used by offline clients:
   - `POST /sync/push`
   - `GET /sync/pull`
@@ -81,11 +81,15 @@ These requirements apply to:
 ### Runtime
 
 - Run the Node.js API in a production process manager or container runtime.
+- Use Node.js `>=22.18.0` (matches `.nvmrc` and `package.json` engines) and npm `>=11.10.0`.
 - Provide environment configuration for at least:
   - `DATABASE_URL`
   - `AUTH_SECRET`
   - `AUTH_TOKEN_TTL_SECONDS`
   - `API_PORT`
+  - `API_ERROR_LOG_PATH` (optional, default `/var/log/swapshop-api/app-error.log`)
+  - `API_ERROR_LOG_MAX_BYTES` (optional, default 5 MiB; the file is truncated when it exceeds this size on the next write)
+- Ensure the directory holding the error log is writable by the API process user.
 - Support deployment of the web client assets and the API as a coherent release.
 
 ### Reverse Proxy and Network
@@ -106,7 +110,7 @@ These requirements apply to:
 ### Engine
 
 - Use PostgreSQL as the production database engine.
-- Use a supported PostgreSQL version suitable for JSONB, indexes, transactions, and materialized views.
+- Use PostgreSQL `>=13` (required for `gen_random_uuid()` used by the schema, and for the JSONB, indexes, transactions, and materialized views relied on by projections).
 
 ### Data Model Support
 

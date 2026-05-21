@@ -67,14 +67,14 @@ Offline-first software for a mobile recycling swap-shop that moves between villa
 
 **Status**
 
-- Baseline date: March 10, 2026.
-- Phase 0: mostly done (repo, standards, architecture docs, CI quality gates).
-- Phase 1: partial (auth/RBAC, event model, event-first writes for people/materials/items/intake/sales, projection freshness metadata).
-- Phase 2: done for sync spine tasks 1-6 (responsive web shell, OPFS SQLite `queued_event` + `sync_state`, push/ack/pull/status orchestration, merge/conflict detection, administrator conflict resolution, and audit/immutability validation endpoints plus checks).
-- Phase 3: done. Tasks 1-7 are complete: person registry, multi-line intake, points ledger/balance view with negative-balance prevention on sales (`INSUFFICIENT_POINTS`), inventory status change/adjustment request workflows, sales checkout with FIFO inventory-batch linkage to sold status, procurement event capture with inventory batch additions, and administrator expense capture (`expense.recorded`) via queue-first sync flow.
-- Coverage and quality: unit suites now include explicit coverage commands and enforced thresholds for web/api/shared configs.
-- Phase 4: in progress. Task 1 is complete: administrator-only Materials Collected report (`GET /reports/materials-collected`) with grouped totals by day/material/location and default last-30-days filtering.
-- Phase 5: not started for hardening/pilot-prep scope.
+- Snapshot date: April 19, 2026. See `docs/project_plan.md` Reality Check for the canonical per-task table; this section is a one-line summary per phase.
+- Phase 0 — Foundation: done.
+- Phase 1 — Auth/RBAC, event model, event-first writes, projection freshness: done.
+- Phase 2 — Sync spine (web shell, OPFS SQLite, push/ack/pull/status, merge/conflict detection, administrator conflict resolution, audit/immutability checks): done.
+- Phase 3 — Core workflows (person registry, intake, ledger with `INSUFFICIENT_POINTS` block, inventory status & requests, FIFO sales, procurement, expenses): done.
+- Phase 4 — Reporting (materials collected, points liability, sales, cashflow, inventory status, inventory status log, CSV exports): done.
+- Phase 5 — Hardening & pilot prep (reconciliation tooling, low-end perf tuning, security/RBAC review with masked PII, backup runbook, field testing pack, training material, launch runbook): done.
+- Coverage and quality: unit suites have explicit coverage commands and enforced thresholds; see `apps/api/jest.config.cjs` and the two `vitest.config.ts` files for current numbers.
 
 **Getting Started**
 

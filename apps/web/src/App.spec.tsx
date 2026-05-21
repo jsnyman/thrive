@@ -146,6 +146,15 @@ describe("App person registry", () => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
 
+    expect(view.queryByText("Navigation")).not.toBeInTheDocument();
+    expect(view.getByText("Person")).toBeInTheDocument();
+    expect(view.getByText("Collection")).toBeInTheDocument();
+    expect(view.getByText("Shop")).toBeInTheDocument();
+    expect(view.getByText("Adjustments")).toBeInTheDocument();
+    expect(view.getByRole("button", { name: "Sync Now" })).toBeInTheDocument();
+    expect(view.getByRole("button", { name: "Logout" })).toBeInTheDocument();
+    expect(view.getByText("administrator (administrator)")).toBeInTheDocument();
+
     expect(globalThis.localStorage.getItem("auth.token")).toBe("token-1");
   });
 
