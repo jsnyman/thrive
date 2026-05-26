@@ -2223,7 +2223,7 @@ export const App = ({
       }}
       padding="md"
     >
-      <AppShell.Navbar p="md">
+      <AppShell.Navbar p="md" style={{ overflowY: "auto" }}>
         <Stack gap="xs">
           <Stack className="navGroup" gap="xs">
             <Text className="navGroupTitle">Person</Text>

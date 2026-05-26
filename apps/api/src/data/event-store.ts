@@ -132,7 +132,7 @@ export const createEventStore = (executor: RawQueryExecutor) => {
           payload
         ) values (
           $1::uuid,
-          $2::event_type,
+          $2::"EventType",
           $3::timestamptz,
           $4::uuid,
           $5::text,
