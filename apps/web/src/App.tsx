@@ -2245,15 +2245,6 @@ export const App = ({
             >
               Create
             </Button>
-            <Button
-              className="navActionButton"
-              variant={activeView === "person-edit" ? "filled" : "light"}
-              onClick={() => {
-                setActiveView("person-edit");
-              }}
-            >
-              Edit
-            </Button>
           </Stack>
           <Stack className="navGroup" gap="xs">
             <Text className="navGroupTitle">Collection</Text>
@@ -2470,6 +2461,7 @@ export const App = ({
                               variant="light"
                               onClick={() => {
                                 setSelectedPersonId(person.id);
+                                setActiveView("person-edit");
                               }}
                             >
                               Edit

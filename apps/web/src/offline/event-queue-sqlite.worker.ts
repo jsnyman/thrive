@@ -31,6 +31,7 @@ type SqliteVfs = {
 type SqliteApi = {
   vfs_register: (vfs: SqliteVfs, makeDefault?: boolean) => number;
   open_v2: (name: string, flags?: number, vfsName?: string) => Promise<number>;
+  close: (db: number) => Promise<void>;
   exec: (
     db: number,
     sql: string,
@@ -99,22 +100,41 @@ const requireApi = async (): Promise<SqliteApi> => {
   return api;
 };
 
+const deleteOpfsDatabase = async (): Promise<void> => {
+  const root = await navigator.storage.getDirectory();
+  await root.removeEntry(DATABASE_NAME).catch(() => undefined);
+  await root.removeEntry(`${DATABASE_NAME}-wal`).catch(() => undefined);
+  await root.removeEntry(`${DATABASE_NAME}-shm`).catch(() => undefined);
+};
+
 const requireDatabase = async (): Promise<{ api: SqliteApi; db: number }> => {
   const api = await requireApi();
   if (databaseId === null) {
-    const openedDb = await api.open_v2(
-      DATABASE_NAME,
-      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
-      OPFS_VFS_NAME,
-    );
-    databaseId = openedDb;
-    await api.exec(openedDb, SCHEMA_SQL);
+    let openedDb: number | undefined;
+    try {
+      openedDb = await api.open_v2(
+        DATABASE_NAME,
+        SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
+        OPFS_VFS_NAME,
+      );
+      await api.exec(openedDb, SCHEMA_SQL);
+      databaseId = openedDb;
+    } catch {
+      if (openedDb !== undefined) {
+        await api.close(openedDb).catch(() => undefined);
+      }
+      await deleteOpfsDatabase();
+      const freshDb = await api.open_v2(
+        DATABASE_NAME,
+        SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
+        OPFS_VFS_NAME,
+      );
+      await api.exec(freshDb, SCHEMA_SQL);
+      databaseId = freshDb;
+    }
   }
 
-  return {
-    api,
-    db: databaseId,
-  };
+  return { api, db: databaseId };
 };
 
 const postResponse = (response: WorkerResponse): void => {
