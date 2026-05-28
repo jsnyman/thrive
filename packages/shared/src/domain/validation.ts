@@ -204,8 +204,8 @@ const validatePersonCreatedPayload = (
     return false;
   }
   expectString(payload.personId, `${path}.personId`, issues);
-  expectString(payload.name, `${path}.name`, issues);
-  expectString(payload.surname, `${path}.surname`, issues);
+  expectString(payload.name, `${path}.name`, issues, { allowEmpty: true });
+  expectString(payload.surname, `${path}.surname`, issues, { allowEmpty: true });
   expectNullableString(payload.idNumber, `${path}.idNumber`, issues);
   expectNullableString(payload.phone, `${path}.phone`, issues);
   expectNullableString(payload.address, `${path}.address`, issues);

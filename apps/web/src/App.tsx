@@ -1392,10 +1392,6 @@ export const App = ({
       setCreateError("Queue is unavailable");
       return;
     }
-    if (createName.trim().length === 0 || createSurname.trim().length === 0) {
-      setCreateError("Name and surname are required");
-      return;
-    }
     setCreatePending(true);
     setCreateError(null);
     try {
@@ -2439,35 +2435,28 @@ export const App = ({
                       </Button>
                     </Group>
                     {peopleError !== null ? <Text c="red">{peopleError}</Text> : null}
-                    <Stack gap="xs">
+                    <Stack gap={4}>
                       {people.map((person) => (
-                        <Card key={person.id} withBorder radius="md" padding="sm">
-                          <Stack gap={2}>
-                            <Text fw={600}>{`${person.name} ${person.surname}`}</Text>
-                            <Text
-                              size="sm"
-                              c="dimmed"
-                            >{`ID: ${maskSensitiveValue(person.idNumber)}`}</Text>
-                            <Text
-                              size="sm"
-                              c="dimmed"
-                            >{`Phone: ${maskSensitiveValue(person.phone)}`}</Text>
-                            <Text
-                              size="xs"
-                              c="dimmed"
-                            >{`Address: ${person.address ?? "Not set"}`}</Text>
-                            <Button
-                              size="xs"
-                              variant="light"
-                              onClick={() => {
-                                setSelectedPersonId(person.id);
-                                setActiveView("person-edit");
-                              }}
-                            >
-                              Edit
-                            </Button>
-                          </Stack>
-                        </Card>
+                        <Group
+                          key={person.id}
+                          justify="space-between"
+                          align="center"
+                          px="xs"
+                          py={6}
+                          style={{ borderBottom: "1px solid var(--mantine-color-gray-2)" }}
+                        >
+                          <Text>{`${person.name} ${person.surname}`}</Text>
+                          <Button
+                            size="xs"
+                            variant="subtle"
+                            onClick={() => {
+                              setSelectedPersonId(person.id);
+                              setActiveView("person-edit");
+                            }}
+                          >
+                            Edit
+                          </Button>
+                        </Group>
                       ))}
                       {people.length === 0 && !peopleLoading ? (
                         <Text size="sm" c="dimmed">

@@ -624,14 +624,8 @@ const parsePersonCreateRequest = (body: unknown): PersonCreateInput | null => {
     return null;
   }
   const record = body as Record<string, unknown>;
-  const name = record["name"];
-  const surname = record["surname"];
-  if (typeof name !== "string" || typeof surname !== "string") {
-    return null;
-  }
-  if (name.trim().length === 0 || surname.trim().length === 0) {
-    return null;
-  }
+  const name = typeof record["name"] === "string" ? record["name"] : "";
+  const surname = typeof record["surname"] === "string" ? record["surname"] : "";
   const idNumber = parseNullableString(record["idNumber"]);
   const phone = parseNullableString(record["phone"]);
   const address = parseNullableString(record["address"]);
