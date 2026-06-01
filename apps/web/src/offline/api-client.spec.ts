@@ -72,4 +72,25 @@ describe("api-client", () => {
 
     expect(fetchFn.mock.calls[0]?.[0]).toBe("/api/people");
   });
+
+  test("aborts and rejects after timeoutMs elapses", async () => {
+    vi.useFakeTimers();
+    const fetchFn = vi.fn<typeof fetch>().mockImplementation(
+      (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          if (signal) {
+            signal.addEventListener("abort", () => {
+              reject(new DOMException("The operation was aborted.", "AbortError"));
+            });
+          }
+        }),
+    );
+    const client = createApiClient({ fetchFn, timeoutMs: 100 });
+
+    const requestPromise = client.request({ method: "GET", path: "/people" });
+    vi.advanceTimersByTime(100);
+    await expect(requestPromise).rejects.toThrow("The operation was aborted.");
+    vi.useRealTimers();
+  });
 });

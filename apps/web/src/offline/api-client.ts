@@ -3,9 +3,11 @@ const AUTH_TOKEN_KEY = "auth.token";
 export type ApiClientOptions = {
   baseUrl?: string;
   fetchFn?: typeof fetch;
+  timeoutMs?: number;
 };
 
 const DEFAULT_API_BASE_URL = "/api";
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 type RequestOptions = {
   method: "GET" | "POST" | "PATCH";
@@ -46,6 +48,7 @@ export const clearAuthToken = (): void => {
 export const createApiClient = (options?: ApiClientOptions) => {
   const fetchFn = options?.fetchFn ?? fetch;
   const baseUrl = options?.baseUrl ?? DEFAULT_API_BASE_URL;
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   const request = async (requestOptions: RequestOptions): Promise<Response> => {
     const headers: Record<string, string> = {};
@@ -67,8 +70,18 @@ export const createApiClient = (options?: ApiClientOptions) => {
       requestInit.body = JSON.stringify(requestOptions.body);
     }
 
-    const response = await fetchFn(`${baseUrl}${requestOptions.path}`, requestInit);
-    return response;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, timeoutMs);
+    requestInit.signal = controller.signal;
+
+    try {
+      const response = await fetchFn(`${baseUrl}${requestOptions.path}`, requestInit);
+      return response;
+    } finally {
+      clearTimeout(timeoutId);
+    }
   };
 
   const readJson = async <T>(response: Response, context: string): Promise<T> => {

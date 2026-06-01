@@ -545,6 +545,7 @@ export const App = ({
   ]);
   const [intakePending, setIntakePending] = useState<boolean>(false);
   const [intakeError, setIntakeError] = useState<string | null>(null);
+  const [intakeSuccess, setIntakeSuccess] = useState<boolean>(false);
   const [salePersonId, setSalePersonId] = useState<string | null>(null);
   const [saleLines, setSaleLines] = useState<SaleDraftLine[]>(() => [createSaleDraftLine()]);
   const [salePending, setSalePending] = useState<boolean>(false);
@@ -1548,6 +1549,7 @@ export const App = ({
       await loadLedger(intakePersonId);
       setLedgerPersonId(intakePersonId);
       setIntakeLines([createIntakeDraftLine(materials[0]?.id ?? null)]);
+      setIntakeSuccess(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setIntakeError(message);
@@ -2400,7 +2402,19 @@ export const App = ({
           <Stack gap="xl" py="xl">
             {startupWarningBanner}
             <div>
-              <Title order={2}>Person Registry</Title>
+              <Title order={2}>
+                {activeView === "collection-log"
+                  ? "Collection"
+                  : activeView === "shop-log"
+                    ? "Shop"
+                    : activeView.startsWith("adjustments-")
+                      ? "Adjustments"
+                      : activeView === "reporting"
+                        ? "Reports"
+                        : activeView.startsWith("users-")
+                          ? "User Management"
+                          : "Person Registry"}
+              </Title>
               <Text c="dimmed" size="sm">{`Pending events: ${String(sync.pendingCount)}`}</Text>
               <Text c="dimmed" size="sm">{`Last sync: ${sync.lastSyncAt ?? "never"}`}</Text>
               {sync.errorMessage !== null ? (
@@ -3702,9 +3716,22 @@ export const App = ({
                     <Text size="sm" c="dimmed">
                       {`Total preview points: ${formatPointValue(intakeTotalPreviewPoints)}`}
                     </Text>
+                    {intakeSuccess ? (
+                      <Alert
+                        color="green"
+                        title="Intake recorded"
+                        onClose={() => {
+                          setIntakeSuccess(false);
+                        }}
+                        withCloseButton
+                      >
+                        Collection saved successfully.
+                      </Alert>
+                    ) : null}
                     {intakeError !== null ? <Text c="red">{intakeError}</Text> : null}
                     <Button
                       onClick={() => {
+                        setIntakeSuccess(false);
                         void handleRecordIntake();
                       }}
                       loading={intakePending}
