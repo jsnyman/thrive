@@ -2153,9 +2153,9 @@ export const App = ({
           <Card className="sectionCard" shadow="md" radius="lg" padding="xl">
             <Stack gap="lg" align="center">
               <img
-                src="/icons/icon-192.png"
+                src="/images/greyton-recycle-logo.svg"
                 alt="Greyton Thrive"
-                style={{ width: 72, height: 72, borderRadius: 12 }}
+                style={{ width: 72, height: 72 }}
               />
               <Stack gap={4} align="center">
                 <Title order={3} ta="center" style={{ color: "#2d5040" }}>
@@ -2169,6 +2169,7 @@ export const App = ({
                 <TextInput
                   label="Username"
                   value={username}
+                  style={{ width: "100%", maxWidth: "300px" }}
                   onChange={(event) => {
                     setUsername(event.currentTarget.value);
                   }}
@@ -2176,6 +2177,7 @@ export const App = ({
                 <PasswordInput
                   label="Passcode"
                   value={passcode}
+                  style={{ width: "100%", maxWidth: "300px" }}
                   onChange={(event) => {
                     setPasscode(event.currentTarget.value);
                   }}

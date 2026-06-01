@@ -32,6 +32,31 @@ Recycling Swap-Shop — an offline-first PWA for managing recycling exchanges wi
 - Role-based permissions enforced both server-side and in UI.
 - Audit trails and event logs retained indefinitely.
 
+Test-Driven Development
+
+**Write tests first. Implementation follows. Expand coverage whenever you touch code.**
+
+### New development
+
+- Before writing any implementation code, write the tests that define expected behaviour.
+- Start with unit tests. Add functional/integration tests as complexity warrants.
+- Red → Green → Refactor: tests must fail first, then pass, then be cleaned up.
+- If you can't write a test for it, question whether the design is right.
+- Tests are the specification. Implementation is just the means to satisfy them.
+
+### Expanding existing coverage
+
+- If you touch code that has no unit or functional test coverage, you **must** propose new tests for it — even if the user didn't ask.
+- State the gap explicitly: _"This method/class has no test coverage. Here are the tests I recommend adding:"_ then list them.
+- Do not silently leave uncovered code as-is. Naming the gap is the minimum; writing the tests is preferred.
+- The existing test suite is a floor, not a ceiling. Every session should leave coverage equal to or greater than it started.
+
+### Coverage expectations
+
+- Unit tests: every non-trivial method, including edge cases and failure paths.
+- Functional tests: every public API endpoint or service boundary.
+- If a piece of logic is too tangled to test cleanly, flag it as a design smell before writing workaround tests.
+
 ## Test Commands
 
 ```

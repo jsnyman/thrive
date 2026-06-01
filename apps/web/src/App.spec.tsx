@@ -293,7 +293,11 @@ describe("App person registry", () => {
       expect(view.getAllByText("Jane Doe").length).toBeGreaterThan(0);
     });
 
-    expect(view.getByText("ID: ****87")).toBeInTheDocument();
+    await userEvent.click(view.getByRole("button", { name: "Edit" }));
+
+    await waitFor(() => {
+      expect(view.getByText("ID: ****87")).toBeInTheDocument();
+    });
     expect(view.getByText("Phone: ****67")).toBeInTheDocument();
     expect(view.queryByText("8001015009087")).not.toBeInTheDocument();
     expect(view.queryByText("0821234567")).not.toBeInTheDocument();
