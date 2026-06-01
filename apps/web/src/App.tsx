@@ -2153,7 +2153,7 @@ export const App = ({
           <Card className="sectionCard" shadow="md" radius="lg" padding="xl">
             <Stack gap="lg" align="center">
               <img
-                src="/images/greyton-recycle-logo.svg"
+                src="/images/greyton-recycle-logo.png"
                 alt="Greyton Thrive"
                 style={{ width: 72, height: 72 }}
               />
