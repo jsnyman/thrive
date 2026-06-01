@@ -3,6 +3,7 @@
 import SQLiteESMFactory from "wa-sqlite/dist/wa-sqlite-async.mjs";
 import { Factory as createSqliteApi } from "wa-sqlite";
 import { OriginPrivateFileSystemVFS } from "wa-sqlite/src/examples/OriginPrivateFileSystemVFS.js";
+import { isRecoverableSqliteError } from "./sqlite-recovery";
 
 type StoredQueueEntry = {
   eventId: string;
@@ -137,88 +138,123 @@ const requireDatabase = async (): Promise<{ api: SqliteApi; db: number }> => {
   return { api, db: databaseId };
 };
 
+const closeCurrentDatabase = async (): Promise<void> => {
+  if (databaseId === null) {
+    return;
+  }
+  const api = await requireApi();
+  const currentDb = databaseId;
+  databaseId = null;
+  await api.close(currentDb).catch(() => undefined);
+};
+
+const resetDatabase = async (): Promise<void> => {
+  await closeCurrentDatabase();
+  await deleteOpfsDatabase();
+};
+
+const withDatabaseRecovery = async (operation: () => Promise<void>): Promise<void> => {
+  try {
+    await operation();
+  } catch (error) {
+    if (!isRecoverableSqliteError(error)) {
+      throw error;
+    }
+    await resetDatabase();
+    await operation();
+  }
+};
+
 const postResponse = (response: WorkerResponse): void => {
   self.postMessage(response);
 };
 
 const handleInit = async (requestId: number): Promise<void> => {
-  await requireDatabase();
+  await withDatabaseRecovery(async () => {
+    await requireDatabase();
+  });
   postResponse({ id: requestId, ok: true, type: "init" });
 };
 
 const handleLoad = async (requestId: number): Promise<void> => {
-  const { api, db } = await requireDatabase();
   const entries: StoredQueueEntry[] = [];
+  await withDatabaseRecovery(async () => {
+    entries.length = 0;
+    const { api, db } = await requireDatabase();
+    await api.exec(
+      db,
+      "SELECT event_id, event_json, enqueued_at FROM queued_event ORDER BY sort_key ASC",
+      (row, columns) => {
+        const eventIdIndex = columns.indexOf("event_id");
+        const eventJsonIndex = columns.indexOf("event_json");
+        const enqueuedAtIndex = columns.indexOf("enqueued_at");
 
-  await api.exec(
-    db,
-    "SELECT event_id, event_json, enqueued_at FROM queued_event ORDER BY sort_key ASC",
-    (row, columns) => {
-      const eventIdIndex = columns.indexOf("event_id");
-      const eventJsonIndex = columns.indexOf("event_json");
-      const enqueuedAtIndex = columns.indexOf("enqueued_at");
+        const eventIdValue = eventIdIndex >= 0 ? row[eventIdIndex] : null;
+        const eventJsonValue = eventJsonIndex >= 0 ? row[eventJsonIndex] : null;
+        const enqueuedAtValue = enqueuedAtIndex >= 0 ? row[enqueuedAtIndex] : null;
 
-      const eventIdValue = eventIdIndex >= 0 ? row[eventIdIndex] : null;
-      const eventJsonValue = eventJsonIndex >= 0 ? row[eventJsonIndex] : null;
-      const enqueuedAtValue = enqueuedAtIndex >= 0 ? row[enqueuedAtIndex] : null;
-
-      if (
-        typeof eventIdValue === "string" &&
-        typeof eventJsonValue === "string" &&
-        typeof enqueuedAtValue === "string"
-      ) {
-        entries.push({
-          eventId: eventIdValue,
-          eventJson: eventJsonValue,
-          enqueuedAt: enqueuedAtValue,
-        });
-      }
-    },
-  );
-
+        if (
+          typeof eventIdValue === "string" &&
+          typeof eventJsonValue === "string" &&
+          typeof enqueuedAtValue === "string"
+        ) {
+          entries.push({
+            eventId: eventIdValue,
+            eventJson: eventJsonValue,
+            enqueuedAt: enqueuedAtValue,
+          });
+        }
+      },
+    );
+  });
   postResponse({ id: requestId, ok: true, type: "load", entries });
 };
 
 const handleSave = async (requestId: number, entries: StoredQueueEntry[]): Promise<void> => {
-  const { api, db } = await requireDatabase();
-
-  await api.exec(db, "BEGIN IMMEDIATE TRANSACTION");
-  try {
-    await api.exec(db, "DELETE FROM queued_event");
-    for (const entry of entries) {
-      await api.execWithParams(
-        db,
-        "INSERT INTO queued_event(event_id, event_json, enqueued_at) VALUES (?, ?, ?)",
-        [entry.eventId, entry.eventJson, entry.enqueuedAt],
-      );
+  await withDatabaseRecovery(async () => {
+    const { api, db } = await requireDatabase();
+    await api.exec(db, "BEGIN IMMEDIATE TRANSACTION");
+    try {
+      await api.exec(db, "DELETE FROM queued_event");
+      for (const entry of entries) {
+        await api.execWithParams(
+          db,
+          "INSERT INTO queued_event(event_id, event_json, enqueued_at) VALUES (?, ?, ?)",
+          [entry.eventId, entry.eventJson, entry.enqueuedAt],
+        );
+      }
+      await api.exec(db, "COMMIT");
+    } catch (error) {
+      await api.exec(db, "ROLLBACK").catch(() => undefined);
+      throw error;
     }
-    await api.exec(db, "COMMIT");
-    postResponse({ id: requestId, ok: true, type: "save" });
-  } catch (error) {
-    await api.exec(db, "ROLLBACK");
-    throw error;
-  }
+  });
+  postResponse({ id: requestId, ok: true, type: "save" });
 };
 
 const handleClear = async (requestId: number): Promise<void> => {
-  const { api, db } = await requireDatabase();
-  await api.exec(db, "DELETE FROM queued_event");
+  await withDatabaseRecovery(async () => {
+    const { api, db } = await requireDatabase();
+    await api.exec(db, "DELETE FROM queued_event");
+  });
   postResponse({ id: requestId, ok: true, type: "clear" });
 };
 
 const handleStateGet = async (requestId: number, key: string): Promise<void> => {
-  const { api, db } = await requireDatabase();
   let value: string | null = null;
-
-  await api
-    .execWithParams(db, "SELECT value FROM sync_state WHERE key = ? LIMIT 1", [key])
-    .then((rowsResult: unknown) => {
-      const rows = rowsResult as Array<{ value?: unknown }>;
-      const first = rows[0];
-      if (first !== undefined && typeof first.value === "string") {
-        value = first.value;
-      }
-    });
+  await withDatabaseRecovery(async () => {
+    const { api, db } = await requireDatabase();
+    value = null;
+    await api
+      .execWithParams(db, "SELECT value FROM sync_state WHERE key = ? LIMIT 1", [key])
+      .then((rowsResult: unknown) => {
+        const rows = rowsResult as Array<{ value?: unknown }>;
+        const first = rows[0];
+        if (first !== undefined && typeof first.value === "string") {
+          value = first.value;
+        }
+      });
+  });
 
   postResponse({ id: requestId, ok: true, type: "state.get", value });
 };
@@ -228,12 +264,14 @@ const handleStateSet = async (
   key: string,
   value: string | null,
 ): Promise<void> => {
-  const { api, db } = await requireDatabase();
-  await api.execWithParams(
-    db,
-    "INSERT INTO sync_state(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    [key, value],
-  );
+  await withDatabaseRecovery(async () => {
+    const { api, db } = await requireDatabase();
+    await api.execWithParams(
+      db,
+      "INSERT INTO sync_state(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      [key, value],
+    );
+  });
   postResponse({ id: requestId, ok: true, type: "state.set" });
 };
 

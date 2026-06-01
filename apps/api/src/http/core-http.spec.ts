@@ -1099,6 +1099,38 @@ describe("core HTTP endpoints", () => {
     }
   });
 
+  test("GET /people?search is case-insensitive and matches partial name or surname", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    // uppercase partial name match
+    const upperResponse = await supertest(server)
+      .get("/people?search=ALI")
+      .set("authorization", `Bearer ${token}`);
+    expect(upperResponse.status).toBe(200);
+    expect(upperResponse.body.people.length).toBeGreaterThan(0);
+
+    // lowercase same search returns same results
+    const lowerResponse = await supertest(server)
+      .get("/people?search=ali")
+      .set("authorization", `Bearer ${token}`);
+    expect(lowerResponse.status).toBe(200);
+    const lowerNames = (lowerResponse.body as { people: { name: string }[] }).people.map(
+      (p) => p.name,
+    );
+    const upperNames = (upperResponse.body as { people: { name: string }[] }).people.map(
+      (p) => p.name,
+    );
+    expect(lowerNames).toEqual(upperNames);
+
+    // partial surname match
+    const surnameResponse = await supertest(server)
+      .get("/people?search=ZUL")
+      .set("authorization", `Bearer ${token}`);
+    expect(surnameResponse.status).toBe(200);
+    expect(surnameResponse.body.people.length).toBeGreaterThan(0);
+  });
+
   test("POST /people allows user", async () => {
     const server = createApiServer(createDependencies());
     const token = await loginAndGetToken(server, "user", userPasscode);

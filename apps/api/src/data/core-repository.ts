@@ -651,11 +651,13 @@ export const createCoreRepository = (prisma: PrismaClient) => {
               {
                 name: {
                   contains: search,
+                  mode: "insensitive",
                 },
               },
               {
                 surname: {
                   contains: search,
+                  mode: "insensitive",
                 },
               },
             ],
