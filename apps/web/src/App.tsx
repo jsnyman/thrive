@@ -1393,6 +1393,10 @@ export const App = ({
       setCreateError("Queue is unavailable");
       return;
     }
+    if (createName.trim().length === 0 || createSurname.trim().length === 0) {
+      setCreateError("Name and surname are required");
+      return;
+    }
     setCreatePending(true);
     setCreateError(null);
     try {
@@ -1414,6 +1418,7 @@ export const App = ({
       setCreatePhone("");
       setCreateAddress("");
       setCreateNotes("");
+      setActiveView("person-search");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setCreateError(message);
