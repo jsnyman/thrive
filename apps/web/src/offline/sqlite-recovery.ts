@@ -4,6 +4,8 @@ const RECOVERABLE_SQLITE_PATTERNS = [
   "file is not a database",
   "disk i/o error",
   "unreachable executed",
+  "entry not found",
+  "the operation was aborted",
 ] as const;
 
 const getErrorMessage = (error: unknown): string => {

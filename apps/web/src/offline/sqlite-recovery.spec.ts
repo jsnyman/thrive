@@ -21,6 +21,16 @@ describe("isRecoverableSqliteError", () => {
     ).toBe(true);
   });
 
+  test("matches Firefox OPFS NotFoundError", () => {
+    expect(isRecoverableSqliteError(new Error("NotFoundError: Entry not found"))).toBe(true);
+  });
+
+  test("matches Firefox OPFS AbortError", () => {
+    expect(isRecoverableSqliteError(new Error("AbortError: The operation was aborted."))).toBe(
+      true,
+    );
+  });
+
   test("returns false for unrelated errors", () => {
     expect(isRecoverableSqliteError(new Error("Unauthorized"))).toBe(false);
   });
