@@ -3,6 +3,7 @@ const RECOVERABLE_SQLITE_PATTERNS = [
   "index out of bounds",
   "file is not a database",
   "disk i/o error",
+  "unreachable executed",
 ] as const;
 
 const getErrorMessage = (error: unknown): string => {

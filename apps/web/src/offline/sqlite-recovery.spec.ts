@@ -10,6 +10,17 @@ describe("isRecoverableSqliteError", () => {
     expect(isRecoverableSqliteError(new Error("RuntimeError: index out of bounds"))).toBe(true);
   });
 
+  test("matches wasm unreachable errors", () => {
+    expect(isRecoverableSqliteError(new Error("RuntimeError: unreachable executed"))).toBe(true);
+    expect(
+      isRecoverableSqliteError(
+        new Error(
+          "Aborted(RuntimeError: unreachable executed). Build with -sASSERTIONS for more info.",
+        ),
+      ),
+    ).toBe(true);
+  });
+
   test("returns false for unrelated errors", () => {
     expect(isRecoverableSqliteError(new Error("Unauthorized"))).toBe(false);
   });

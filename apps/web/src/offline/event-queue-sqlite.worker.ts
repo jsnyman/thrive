@@ -151,6 +151,7 @@ const closeCurrentDatabase = async (): Promise<void> => {
 const resetDatabase = async (): Promise<void> => {
   await closeCurrentDatabase();
   await deleteOpfsDatabase();
+  sqliteApi = null;
 };
 
 const withDatabaseRecovery = async (operation: () => Promise<void>): Promise<void> => {
