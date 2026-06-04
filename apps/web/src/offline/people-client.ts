@@ -80,6 +80,9 @@ export const createPeopleClient = (options?: { fetchFn?: typeof fetch; baseUrl?:
       if (response.status === 409) {
         throw new Error("PERSON_HAS_POINTS_BALANCE");
       }
+      if (response.status === 404) {
+        throw new Error("PERSON_NOT_FOUND");
+      }
       throw new Error(`Person remove failed with status ${String(response.status)}`);
     }
   };

@@ -186,6 +186,7 @@ const conflictTarget = (
   switch (event.eventType) {
     case "person.created":
     case "person.profile_updated":
+    case "person.removed":
       return { entityType: "person", entityId: event.payload.personId };
     case "material_type.created":
     case "material_type.updated":
@@ -311,6 +312,11 @@ const applyStateMutation = (state: MergeState, event: Event, marker: MutationMar
       setEntityMutation(state, "person", event.payload.personId, marker);
       return;
     case "person.profile_updated":
+      setEntityMutation(state, "person", event.payload.personId, marker);
+      return;
+    case "person.removed":
+      state.personIds.delete(event.payload.personId);
+      state.personBalances.delete(event.payload.personId);
       setEntityMutation(state, "person", event.payload.personId, marker);
       return;
     case "material_type.created":
@@ -477,6 +483,12 @@ export const evaluateMergeDecision = (
         hasPersistedChangeAfterCursor(marker, lastKnownCursor)
       ) {
         return staleConflict(event, marker);
+      }
+      return { status: "accepted" };
+    }
+    case "person.removed": {
+      if (!state.personIds.has(event.payload.personId)) {
+        return entityNotFound(event);
       }
       return { status: "accepted" };
     }

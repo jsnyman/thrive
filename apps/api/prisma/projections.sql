@@ -30,7 +30,8 @@ select
   p.address,
   p.notes,
   p.created_at as "createdAt"
-from person p;
+from person p
+where p.removed_at is null;
 
 create unique index if not exists mv_people_id_idx on mv_people (id);
 

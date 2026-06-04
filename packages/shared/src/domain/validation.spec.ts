@@ -32,6 +32,18 @@ describe("validateEventPayload", () => {
     expect(result.issues.some((issue) => issue.path.includes("personId"))).toBe(true);
   });
 
+  test("rejects person.removed payload when reason is whitespace only", () => {
+    const result = validateEventPayload("person.removed", {
+      personId: "person-1",
+      reason: "   ",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("Expected validation to fail");
+    }
+    expect(result.issues.some((issue) => issue.path.includes("reason"))).toBe(true);
+  });
+
   test("accepts valid intake payload with floor-to-tenths points", () => {
     const result = validateEventPayload("intake.recorded", {
       personId: "person-1",

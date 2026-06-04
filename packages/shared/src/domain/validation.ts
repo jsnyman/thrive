@@ -164,6 +164,7 @@ const STAFF_ROLES: StaffRole[] = ["user", "administrator"];
 const EVENT_TYPES: EventType[] = [
   "person.created",
   "person.profile_updated",
+  "person.removed",
   "material_type.created",
   "material_type.updated",
   "item.created",

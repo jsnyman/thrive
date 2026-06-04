@@ -1600,6 +1600,7 @@ export const createCoreRepository = (prisma: PrismaClient) => {
       allPersonIds.add(personId);
     }
     const personRows = await prisma.person.findMany({
+      where: { removedAt: null },
       select: {
         id: true,
       },

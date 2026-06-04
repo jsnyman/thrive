@@ -1500,6 +1500,8 @@ export const App = ({
       setEditPhone("");
       setEditAddress("");
       setEditNotes("");
+      setSelectedPersonId(null);
+      setActiveView("person-search");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setEditError(message);
@@ -1530,9 +1532,11 @@ export const App = ({
       const message =
         error instanceof Error && error.message === "PERSON_HAS_POINTS_BALANCE"
           ? "Cannot remove: person still has a points balance."
-          : error instanceof Error
-            ? error.message
-            : String(error);
+          : error instanceof Error && error.message === "PERSON_NOT_FOUND"
+            ? "Person not found — they may have already been removed."
+            : error instanceof Error
+              ? error.message
+              : String(error);
       setRemoveError(message);
     } finally {
       setRemovePending(false);
