@@ -1,6 +1,7 @@
 const RECOVERABLE_SQLITE_PATTERNS = [
   "database disk image is malformed",
   "index out of bounds",
+  "memory access out of bounds",
   "file is not a database",
   "disk i/o error",
   "unreachable executed",

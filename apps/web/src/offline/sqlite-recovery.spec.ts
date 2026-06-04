@@ -8,6 +8,9 @@ describe("isRecoverableSqliteError", () => {
 
   test("matches wasm bounds errors", () => {
     expect(isRecoverableSqliteError(new Error("RuntimeError: index out of bounds"))).toBe(true);
+    expect(isRecoverableSqliteError(new Error("RuntimeError: memory access out of bounds"))).toBe(
+      true,
+    );
   });
 
   test("matches wasm unreachable errors", () => {
