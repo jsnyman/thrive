@@ -513,6 +513,7 @@ export const App = ({
 
   const [search, setSearch] = useState<string>("");
   const [people, setPeople] = useState<PersonRecord[]>([]);
+  const [allPeople, setAllPeople] = useState<PersonRecord[]>([]);
   const [peopleLoading, setPeopleLoading] = useState<boolean>(false);
   const [peopleError, setPeopleError] = useState<string | null>(null);
   const [materials, setMaterials] = useState<MaterialRecord[]>([]);
@@ -845,6 +846,9 @@ export const App = ({
     try {
       const next = await peopleClient.listPeople(searchText);
       setPeople(next);
+      if (searchText === undefined || searchText.trim().length === 0) {
+        setAllPeople(next);
+      }
       if (selectedPersonId !== null && !next.some((person) => person.id === selectedPersonId)) {
         setSelectedPersonId(null);
       }
@@ -853,6 +857,15 @@ export const App = ({
       setPeopleError(message);
     } finally {
       setPeopleLoading(false);
+    }
+  };
+
+  const loadAllPeople = async (): Promise<void> => {
+    try {
+      const next = await peopleClient.listPeople();
+      setAllPeople(next);
+    } catch {
+      // allPeople is best-effort; errors are surfaced via loadPeople
     }
   };
 
@@ -1263,7 +1276,10 @@ export const App = ({
   }, [sessionStatus, canViewReports]);
 
   useEffect(() => {
-    const firstPerson = people[0];
+    if (sessionStatus !== "authenticated") {
+      return;
+    }
+    const firstPerson = allPeople[0];
     if (firstPerson === undefined) {
       return;
     }
@@ -1279,7 +1295,14 @@ export const App = ({
     if (pointsAdjustmentPersonId === null) {
       setPointsAdjustmentPersonId(firstPerson.id);
     }
-  }, [intakePersonId, ledgerPersonId, people, pointsAdjustmentPersonId, salePersonId]);
+  }, [
+    sessionStatus,
+    intakePersonId,
+    ledgerPersonId,
+    allPeople,
+    pointsAdjustmentPersonId,
+    salePersonId,
+  ]);
 
   useEffect(() => {
     const selected = staffUsers.find((user) => user.id === editUserId) ?? null;
@@ -1387,6 +1410,7 @@ export const App = ({
     setSessionStatus("anonymous");
     setSessionUser(null);
     setPeople([]);
+    setAllPeople([]);
     setMaterials([]);
     setItems([]);
     setSelectedPersonId(null);
@@ -1427,7 +1451,7 @@ export const App = ({
         }),
       );
       await sync.syncNow();
-      await loadPeople(search);
+      await Promise.all([loadPeople(search), loadAllPeople()]);
       setCreateName("");
       setCreateSurname("");
       setCreateIdNumber("");
@@ -1493,7 +1517,7 @@ export const App = ({
     try {
       await queue.enqueue(buildUpdatePersonEvent(sessionUser, selectedPerson.id, updates));
       await sync.syncNow();
-      await loadPeople(search);
+      await Promise.all([loadPeople(search), loadAllPeople()]);
       setEditName("");
       setEditSurname("");
       setEditIdNumber("");
@@ -1526,8 +1550,12 @@ export const App = ({
       setRemovePersonModalOpen(false);
       setRemoveReason("");
       setSelectedPersonId(null);
+      if (intakePersonId === selectedPerson.id) setIntakePersonId(null);
+      if (salePersonId === selectedPerson.id) setSalePersonId(null);
+      if (ledgerPersonId === selectedPerson.id) setLedgerPersonId(null);
+      if (pointsAdjustmentPersonId === selectedPerson.id) setPointsAdjustmentPersonId(null);
       setActiveView("person-search");
-      await loadPeople(search);
+      await Promise.all([loadPeople(search), loadAllPeople()]);
     } catch (error) {
       const message =
         error instanceof Error && error.message === "PERSON_HAS_POINTS_BALANCE"
@@ -2435,7 +2463,7 @@ export const App = ({
               variant="light"
               size="xs"
               onClick={() => {
-                void sync.syncNow();
+                void sync.syncNow().then(() => loadAllPeople());
               }}
               loading={sync.status === "running"}
               disabled={queue === null || syncStateStore === null}
@@ -2737,7 +2765,7 @@ export const App = ({
                   <Title order={4}>Record Sale</Title>
                   <Select
                     label="Sale Person"
-                    data={people.map((person) => ({
+                    data={allPeople.map((person) => ({
                       value: person.id,
                       label: `${person.name} ${person.surname}`,
                     }))}
@@ -3877,7 +3905,7 @@ export const App = ({
                     ) : null}
                     <Select
                       label="Person"
-                      data={people.map((person) => ({
+                      data={allPeople.map((person) => ({
                         value: person.id,
                         label: `${person.name} ${person.surname}`,
                       }))}
@@ -3992,7 +4020,7 @@ export const App = ({
                     <Group align="flex-end">
                       <Select
                         label="Ledger Person"
-                        data={people.map((person) => ({
+                        data={allPeople.map((person) => ({
                           value: person.id,
                           label: `${person.name} ${person.surname}`,
                         }))}
@@ -4044,7 +4072,7 @@ export const App = ({
                     <Title order={4}>Points Adjustment Request</Title>
                     <Select
                       label="Person"
-                      data={people.map((person) => ({
+                      data={allPeople.map((person) => ({
                         value: person.id,
                         label: `${person.name} ${person.surname}`,
                       }))}
@@ -4180,7 +4208,7 @@ export const App = ({
                     />
                     <Select
                       label="Person"
-                      data={people.map((person) => ({
+                      data={allPeople.map((person) => ({
                         value: person.id,
                         label: `${person.name} ${person.surname}`,
                       }))}
