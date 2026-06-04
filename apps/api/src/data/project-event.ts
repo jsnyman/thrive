@@ -51,6 +51,13 @@ export const projectEventToReadModels = async (
       });
       return;
     }
+    case "person.removed": {
+      await executor.person.update({
+        where: { id: event.payload.personId },
+        data: { removedAt: new Date(event.occurredAt) },
+      });
+      return;
+    }
     case "material_type.created": {
       await executor.materialType.upsert({
         where: { id: event.payload.materialTypeId },

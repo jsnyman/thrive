@@ -647,6 +647,7 @@ export const createCoreRepository = (prisma: PrismaClient) => {
     const rows = hasSearch
       ? await prisma.person.findMany({
           where: {
+            removedAt: null,
             OR: [
               {
                 name: {
@@ -667,6 +668,7 @@ export const createCoreRepository = (prisma: PrismaClient) => {
           },
         })
       : await prisma.person.findMany({
+          where: { removedAt: null },
           orderBy: {
             createdAt: "desc",
           },
@@ -843,9 +845,10 @@ export const createCoreRepository = (prisma: PrismaClient) => {
   };
 
   const getPersonById = async (personId: string): Promise<PersonRecord | null> => {
-    const row = await prisma.person.findUnique({
+    const row = await prisma.person.findFirst({
       where: {
         id: personId,
+        removedAt: null,
       },
     });
     if (row === null) {

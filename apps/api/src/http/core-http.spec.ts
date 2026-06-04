@@ -517,6 +517,12 @@ const createDependencies = (options?: {
         }
       }
     }
+    if (event.eventType === "person.removed") {
+      const idx = people.findIndex((person) => person.id === event.payload.personId);
+      if (idx !== -1) {
+        people.splice(idx, 1);
+      }
+    }
     if (event.eventType === "material_type.created") {
       materials.push({
         id: event.payload.materialTypeId,
@@ -1241,6 +1247,106 @@ describe("core HTTP endpoints", () => {
         },
       });
     expect(unknownField.status).toBe(400);
+  });
+
+  test("POST /people/:personId/remove returns 401 without authorization", async () => {
+    const server = createApiServer(createDependencies());
+    const response = await supertest(server)
+      .post("/people/person-a/remove")
+      .send({ reason: "test reason" });
+    expect(response.status).toBe(401);
+  });
+
+  test("POST /people/:personId/remove returns 403 for user role", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "user", userPasscode);
+    const response = await supertest(server)
+      .post("/people/person-a/remove")
+      .set("authorization", `Bearer ${token}`)
+      .send({ reason: "test reason" });
+    expect(response.status).toBe(403);
+  });
+
+  test("POST /people/:personId/remove returns 404 for unknown person", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "administrator", administratorPasscode);
+    const response = await supertest(server)
+      .post("/people/person-missing/remove")
+      .set("authorization", `Bearer ${token}`)
+      .send({ reason: "gone" });
+    expect(response.status).toBe(404);
+    expect(response.body.error).toBe("PERSON_NOT_FOUND");
+  });
+
+  test("POST /people/:personId/remove returns 409 when person has a points balance", async () => {
+    const deps = createDependencies();
+    const server = createApiServer(deps);
+    const adminToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    await supertest(server)
+      .post("/intake")
+      .set("authorization", `Bearer ${adminToken}`)
+      .send({
+        personId: "person-a",
+        lines: [{ materialTypeId: "mat-1", weightKg: 2, pointsPerKg: 3, pointsAwarded: 6 }],
+        totalPoints: 6,
+      });
+
+    const response = await supertest(server)
+      .post("/people/person-a/remove")
+      .set("authorization", `Bearer ${adminToken}`)
+      .send({ reason: "no longer member" });
+    expect(response.status).toBe(409);
+    expect(response.body.error).toBe("PERSON_HAS_POINTS_BALANCE");
+  });
+
+  test("POST /people/:personId/remove returns 400 when reason is missing or empty", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const created = await supertest(server)
+      .post("/people")
+      .set("authorization", `Bearer ${token}`)
+      .send({ name: "Zero", surname: "Balance" });
+    const newPersonId: string = created.body.person.id as string;
+
+    const noReason = await supertest(server)
+      .post(`/people/${newPersonId}/remove`)
+      .set("authorization", `Bearer ${token}`)
+      .send({});
+    expect(noReason.status).toBe(400);
+
+    const emptyReason = await supertest(server)
+      .post(`/people/${newPersonId}/remove`)
+      .set("authorization", `Bearer ${token}`)
+      .send({ reason: "   " });
+    expect(emptyReason.status).toBe(400);
+  });
+
+  test("POST /people/:personId/remove succeeds for admin when person has zero balance", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const created = await supertest(server)
+      .post("/people")
+      .set("authorization", `Bearer ${token}`)
+      .send({ name: "Zero", surname: "Balance" });
+    const newPersonId: string = created.body.person.id as string;
+
+    const response = await supertest(server)
+      .post(`/people/${newPersonId}/remove`)
+      .set("authorization", `Bearer ${token}`)
+      .send({ reason: "left the community" });
+
+    expect(response.status).toBe(200);
+    expect(response.body.personId).toBe(newPersonId);
+
+    const peopleResponse = await supertest(server)
+      .get("/people")
+      .set("authorization", `Bearer ${token}`);
+    expect(peopleResponse.status).toBe(200);
+    const ids = (peopleResponse.body.people as PersonRecord[]).map((p) => p.id);
+    expect(ids).not.toContain(newPersonId);
   });
 
   test("POST /materials rejects collector and allows manager", async () => {

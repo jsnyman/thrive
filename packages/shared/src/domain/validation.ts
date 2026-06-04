@@ -213,6 +213,19 @@ const validatePersonCreatedPayload = (
   return true;
 };
 
+const validatePersonRemovedPayload = (
+  payload: unknown,
+  issues: ValidationIssue[],
+  path: string,
+): payload is EventPayloadMap["person.removed"] => {
+  if (!expectRecord(payload, path, issues)) {
+    return false;
+  }
+  expectString(payload.personId, `${path}.personId`, issues);
+  expectString(payload.reason, `${path}.reason`, issues);
+  return true;
+};
+
 const validatePersonProfileUpdatedPayload = (
   payload: unknown,
   issues: ValidationIssue[],
@@ -757,6 +770,9 @@ export const validateEventPayload = <T extends EventType>(
       break;
     case "person.profile_updated":
       validatePersonProfileUpdatedPayload(payload, issues, "payload");
+      break;
+    case "person.removed":
+      validatePersonRemovedPayload(payload, issues, "payload");
       break;
     case "material_type.created":
       validateMaterialTypeCreatedPayload(payload, issues, "payload");

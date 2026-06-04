@@ -7,6 +7,7 @@ import {
   Container,
   Divider,
   Group,
+  Modal,
   Select,
   PasswordInput,
   SimpleGrid,
@@ -539,6 +540,10 @@ export const App = ({
   const [editNotes, setEditNotes] = useState<string>("");
   const [editPending, setEditPending] = useState<boolean>(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [removePersonModalOpen, setRemovePersonModalOpen] = useState<boolean>(false);
+  const [removeReason, setRemoveReason] = useState<string>("");
+  const [removePending, setRemovePending] = useState<boolean>(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
   const [intakePersonId, setIntakePersonId] = useState<string | null>(null);
   const [intakeLines, setIntakeLines] = useState<IntakeDraftLine[]>(() => [
     createIntakeDraftLine(),
@@ -743,6 +748,7 @@ export const App = ({
     return people.find((person) => person.id === selectedPersonId) ?? null;
   }, [people, selectedPersonId]);
   const canRecordSales = sessionUser?.role === "user" || sessionUser?.role === "administrator";
+  const canRemovePerson = sessionUser?.role === "administrator";
   const canManageInventory = sessionUser?.role === "administrator";
   const canRecordProcurement = sessionUser?.role === "administrator";
   const canRecordExpenses = sessionUser?.role === "administrator";
@@ -1499,6 +1505,37 @@ export const App = ({
       setEditError(message);
     } finally {
       setEditPending(false);
+    }
+  };
+
+  const handleRemovePerson = async (): Promise<void> => {
+    if (selectedPerson === null) {
+      setRemoveError("No person selected");
+      return;
+    }
+    if (removeReason.trim().length === 0) {
+      setRemoveError("A reason is required");
+      return;
+    }
+    setRemovePending(true);
+    setRemoveError(null);
+    try {
+      await peopleClient.removePerson(selectedPerson.id, removeReason.trim());
+      setRemovePersonModalOpen(false);
+      setRemoveReason("");
+      setSelectedPersonId(null);
+      setActiveView("person-search");
+      await loadPeople(search);
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message === "PERSON_HAS_POINTS_BALANCE"
+          ? "Cannot remove: person still has a points balance."
+          : error instanceof Error
+            ? error.message
+            : String(error);
+      setRemoveError(message);
+    } finally {
+      setRemovePending(false);
     }
   };
 
@@ -2477,6 +2514,12 @@ export const App = ({
                             variant="subtle"
                             onClick={() => {
                               setSelectedPersonId(person.id);
+                              setEditName(person.name);
+                              setEditSurname(person.surname);
+                              setEditIdNumber(person.idNumber ?? "");
+                              setEditPhone(person.phone ?? "");
+                              setEditAddress(person.address ?? "");
+                              setEditNotes(person.notes ?? "");
                               setActiveView("person-edit");
                             }}
                           >
@@ -2629,8 +2672,185 @@ export const App = ({
                       >
                         Save Changes
                       </Button>
+                      {canRemovePerson ? (
+                        <>
+                          <Divider />
+                          <Button
+                            color="red"
+                            variant="outline"
+                            onClick={() => {
+                              setRemoveError(null);
+                              setRemoveReason("");
+                              setRemovePersonModalOpen(true);
+                            }}
+                          >
+                            Remove Person
+                          </Button>
+                        </>
+                      ) : null}
                     </Stack>
                   )}
+                </Stack>
+              </Card>
+            ) : null}
+
+            <Modal
+              opened={removePersonModalOpen}
+              onClose={() => {
+                setRemovePersonModalOpen(false);
+              }}
+              title="Remove Person"
+            >
+              <Stack gap="sm">
+                <Text size="sm">
+                  {`Permanently remove ${selectedPerson?.name ?? ""} ${selectedPerson?.surname ?? ""}? This action cannot be undone. The person must have a zero points balance.`}
+                </Text>
+                <Textarea
+                  label="Reason"
+                  placeholder="Enter a reason for removing this person"
+                  value={removeReason}
+                  onChange={(event) => {
+                    setRemoveReason(event.currentTarget.value);
+                  }}
+                  required
+                />
+                {removeError !== null ? <Text c="red">{removeError}</Text> : null}
+                <Button
+                  color="red"
+                  loading={removePending}
+                  onClick={() => {
+                    void handleRemovePerson();
+                  }}
+                >
+                  Confirm Remove
+                </Button>
+              </Stack>
+            </Modal>
+
+            {activeView === "shop-log" ? (
+              <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                <Stack gap="sm">
+                  <Title order={4}>Record Sale</Title>
+                  <Select
+                    label="Sale Person"
+                    data={people.map((person) => ({
+                      value: person.id,
+                      label: `${person.name} ${person.surname}`,
+                    }))}
+                    value={salePersonId}
+                    onChange={setSalePersonId}
+                    searchable
+                    clearable
+                  />
+                  {saleLines.map((line, index) => {
+                    const lineBatches = inventoryBatches.filter(
+                      (batch) => batch.itemId === line.itemId,
+                    );
+                    return (
+                      <Card key={line.lineId} withBorder radius="md" padding="sm">
+                        <Stack gap="xs">
+                          <Select
+                            label={`Item ${String(index + 1)}`}
+                            data={items.map((item) => ({
+                              value: item.id,
+                              label: `${item.name} (${formatPointValue(item.pointsPrice)} pts)`,
+                            }))}
+                            value={line.itemId}
+                            onChange={(value) => {
+                              setSaleLines((previous) =>
+                                previous.map((entry) =>
+                                  entry.lineId === line.lineId
+                                    ? {
+                                        ...entry,
+                                        itemId: value,
+                                        inventoryBatchId: null,
+                                      }
+                                    : entry,
+                                ),
+                              );
+                            }}
+                            searchable
+                            clearable
+                            disabled={itemsLoading}
+                          />
+                          <Select
+                            label={`Batch ${String(index + 1)} (optional)`}
+                            data={lineBatches.map((batch) => ({
+                              value: batch.inventoryBatchId,
+                              label: `${batch.inventoryBatchId} (shop ${String(batch.quantities.shop)})`,
+                            }))}
+                            value={line.inventoryBatchId}
+                            onChange={(value) => {
+                              setSaleLines((previous) =>
+                                previous.map((entry) =>
+                                  entry.lineId === line.lineId
+                                    ? {
+                                        ...entry,
+                                        inventoryBatchId: value,
+                                      }
+                                    : entry,
+                                ),
+                              );
+                            }}
+                            searchable
+                            clearable
+                          />
+                          <TextInput
+                            label={`Quantity ${String(index + 1)}`}
+                            value={line.quantity}
+                            onChange={(event) => {
+                              const nextValue = event.currentTarget.value;
+                              setSaleLines((previous) =>
+                                previous.map((entry) =>
+                                  entry.lineId === line.lineId
+                                    ? {
+                                        ...entry,
+                                        quantity: nextValue,
+                                      }
+                                    : entry,
+                                ),
+                              );
+                            }}
+                          />
+                          <Button
+                            variant="default"
+                            size="xs"
+                            onClick={() => {
+                              setSaleLines((previous) =>
+                                previous.filter((entry) => entry.lineId !== line.lineId),
+                              );
+                            }}
+                          >
+                            Remove Sale Line
+                          </Button>
+                        </Stack>
+                      </Card>
+                    );
+                  })}
+                  <Button
+                    variant="light"
+                    size="xs"
+                    onClick={() => {
+                      setSaleLines((previous) => [
+                        ...previous,
+                        createSaleDraftLine(items[0]?.id ?? null),
+                      ]);
+                    }}
+                  >
+                    Add Sale Line
+                  </Button>
+                  <Text size="sm" c="dimmed">
+                    {`Sale total preview points: ${formatPointValue(saleTotalPreviewPoints)}`}
+                  </Text>
+                  {saleError !== null ? <Text c="red">{saleError}</Text> : null}
+                  <Button
+                    onClick={() => {
+                      void handleRecordSale();
+                    }}
+                    loading={salePending}
+                  >
+                    Record Sale
+                  </Button>
                 </Stack>
               </Card>
             ) : null}
@@ -3812,134 +4032,6 @@ export const App = ({
                 </Card>
               ) : null}
             </SimpleGrid>
-
-            {activeView === "shop-log" ? (
-              <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
-                <Stack gap="sm">
-                  <Title order={4}>Record Sale</Title>
-                  <Select
-                    label="Sale Person"
-                    data={people.map((person) => ({
-                      value: person.id,
-                      label: `${person.name} ${person.surname}`,
-                    }))}
-                    value={salePersonId}
-                    onChange={setSalePersonId}
-                    searchable
-                    clearable
-                  />
-                  {saleLines.map((line, index) => {
-                    const lineBatches = inventoryBatches.filter(
-                      (batch) => batch.itemId === line.itemId,
-                    );
-                    return (
-                      <Card key={line.lineId} withBorder radius="md" padding="sm">
-                        <Stack gap="xs">
-                          <Select
-                            label={`Item ${String(index + 1)}`}
-                            data={items.map((item) => ({
-                              value: item.id,
-                              label: `${item.name} (${formatPointValue(item.pointsPrice)} pts)`,
-                            }))}
-                            value={line.itemId}
-                            onChange={(value) => {
-                              setSaleLines((previous) =>
-                                previous.map((entry) =>
-                                  entry.lineId === line.lineId
-                                    ? {
-                                        ...entry,
-                                        itemId: value,
-                                        inventoryBatchId: null,
-                                      }
-                                    : entry,
-                                ),
-                              );
-                            }}
-                            searchable
-                            clearable
-                            disabled={itemsLoading}
-                          />
-                          <Select
-                            label={`Batch ${String(index + 1)} (optional)`}
-                            data={lineBatches.map((batch) => ({
-                              value: batch.inventoryBatchId,
-                              label: `${batch.inventoryBatchId} (shop ${String(batch.quantities.shop)})`,
-                            }))}
-                            value={line.inventoryBatchId}
-                            onChange={(value) => {
-                              setSaleLines((previous) =>
-                                previous.map((entry) =>
-                                  entry.lineId === line.lineId
-                                    ? {
-                                        ...entry,
-                                        inventoryBatchId: value,
-                                      }
-                                    : entry,
-                                ),
-                              );
-                            }}
-                            searchable
-                            clearable
-                          />
-                          <TextInput
-                            label={`Quantity ${String(index + 1)}`}
-                            value={line.quantity}
-                            onChange={(event) => {
-                              const nextValue = event.currentTarget.value;
-                              setSaleLines((previous) =>
-                                previous.map((entry) =>
-                                  entry.lineId === line.lineId
-                                    ? {
-                                        ...entry,
-                                        quantity: nextValue,
-                                      }
-                                    : entry,
-                                ),
-                              );
-                            }}
-                          />
-                          <Button
-                            variant="default"
-                            size="xs"
-                            onClick={() => {
-                              setSaleLines((previous) =>
-                                previous.filter((entry) => entry.lineId !== line.lineId),
-                              );
-                            }}
-                          >
-                            Remove Sale Line
-                          </Button>
-                        </Stack>
-                      </Card>
-                    );
-                  })}
-                  <Button
-                    variant="light"
-                    size="xs"
-                    onClick={() => {
-                      setSaleLines((previous) => [
-                        ...previous,
-                        createSaleDraftLine(items[0]?.id ?? null),
-                      ]);
-                    }}
-                  >
-                    Add Sale Line
-                  </Button>
-                  <Text size="sm" c="dimmed">
-                    {`Sale total preview points: ${formatPointValue(saleTotalPreviewPoints)}`}
-                  </Text>
-                  {saleError !== null ? <Text c="red">{saleError}</Text> : null}
-                  <Button
-                    onClick={() => {
-                      void handleRecordSale();
-                    }}
-                    loading={salePending}
-                  >
-                    Record Sale
-                  </Button>
-                </Stack>
-              </Card>
-            ) : null}
 
             <SimpleGrid cols={{ base: 1, lg: 2 }}>
               {activeView === "adjustments-points-request" ? (

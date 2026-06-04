@@ -44,14 +44,15 @@ model StaffUser {
 }
 
 model Person {
-  id        String   @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  id        String    @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
   name      String
   surname   String
-  idNumber  String?  @map("id_number")
+  idNumber  String?   @map("id_number")
   phone     String?
   address   String?
   notes     String?
-  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  createdAt DateTime  @default(now()) @db.Timestamptz(6) @map("created_at")
+  removedAt DateTime? @db.Timestamptz(6) @map("removed_at")
 
   @@map("person")
 }
@@ -85,6 +86,7 @@ enum StaffRole {
 enum EventType {
   person_created                 @map("person.created")
   person_profile_updated         @map("person.profile_updated")
+  person_removed                 @map("person.removed")
   material_type_created          @map("material_type.created")
   material_type_updated          @map("material_type.updated")
   item_created                   @map("item.created")

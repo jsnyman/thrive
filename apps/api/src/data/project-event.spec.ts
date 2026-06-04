@@ -92,6 +92,28 @@ describe("projectEventToReadModels", () => {
     expect(harness.personUpdate).toHaveBeenCalledTimes(1);
   });
 
+  test("projects person removed — sets removedAt on the person record", async () => {
+    const harness = createHarness();
+
+    const removed: Event = {
+      ...baseFields,
+      occurredAt: "2026-06-04T09:00:00.000Z",
+      eventType: "person.removed",
+      payload: {
+        personId: "person-1",
+        reason: "left the community",
+      },
+    };
+
+    await projectEventToReadModels(harness.executor, removed);
+
+    expect(harness.personUpdate).toHaveBeenCalledTimes(1);
+    expect(harness.personUpdate).toHaveBeenCalledWith({
+      where: { id: "person-1" },
+      data: { removedAt: new Date("2026-06-04T09:00:00.000Z") },
+    });
+  });
+
   test("projects material create and update", async () => {
     const harness = createHarness();
 

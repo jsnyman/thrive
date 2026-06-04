@@ -16,6 +16,7 @@ const permissionMap: Record<StaffRole, PermissionAction[]> = {
     "person.read",
     "person.create",
     "person.update",
+    "person.remove",
     "intake.record",
     "sale.record",
     "inventory.read",

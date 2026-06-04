@@ -18,6 +18,7 @@ export type EventSchemaVersion = 1;
 export type EventType =
   | "person.created"
   | "person.profile_updated"
+  | "person.removed"
   | "material_type.created"
   | "material_type.updated"
   | "item.created"
@@ -59,6 +60,11 @@ export type PersonProfileUpdates = {
 export type PersonProfileUpdatedPayload = {
   personId: PersonId;
   updates: PersonProfileUpdates;
+};
+
+export type PersonRemovedPayload = {
+  personId: PersonId;
+  reason: string;
 };
 
 export type MaterialTypeCreatedPayload = {
@@ -228,6 +234,7 @@ export type ConflictResolvedPayload = {
 export type EventPayloadMap = {
   "person.created": PersonCreatedPayload;
   "person.profile_updated": PersonProfileUpdatedPayload;
+  "person.removed": PersonRemovedPayload;
   "material_type.created": MaterialTypeCreatedPayload;
   "material_type.updated": MaterialTypeUpdatedPayload;
   "item.created": ItemCreatedPayload;

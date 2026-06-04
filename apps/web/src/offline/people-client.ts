@@ -70,7 +70,22 @@ export const createPeopleClient = (options?: { fetchFn?: typeof fetch; baseUrl?:
     return body["people"].map(parsePerson);
   };
 
+  const removePerson = async (personId: string, reason: string): Promise<void> => {
+    const response = await apiClient.request({
+      method: "POST",
+      path: `/people/${encodeURIComponent(personId)}/remove`,
+      body: { reason },
+    });
+    if (!response.ok) {
+      if (response.status === 409) {
+        throw new Error("PERSON_HAS_POINTS_BALANCE");
+      }
+      throw new Error(`Person remove failed with status ${String(response.status)}`);
+    }
+  };
+
   return {
     listPeople,
+    removePerson,
   };
 };

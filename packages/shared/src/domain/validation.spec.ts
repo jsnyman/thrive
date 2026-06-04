@@ -2,6 +2,36 @@ import { describe, expect, test } from "vitest";
 import { validateEvent, validateEventEnvelope, validateEventPayload } from "./validation";
 
 describe("validateEventPayload", () => {
+  test("accepts valid person.removed payload", () => {
+    const result = validateEventPayload("person.removed", {
+      personId: "person-1",
+      reason: "left the community",
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test("rejects person.removed payload when reason is missing", () => {
+    const result = validateEventPayload("person.removed", {
+      personId: "person-1",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("Expected validation to fail");
+    }
+    expect(result.issues.some((issue) => issue.path.includes("reason"))).toBe(true);
+  });
+
+  test("rejects person.removed payload when personId is missing", () => {
+    const result = validateEventPayload("person.removed", {
+      reason: "left",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("Expected validation to fail");
+    }
+    expect(result.issues.some((issue) => issue.path.includes("personId"))).toBe(true);
+  });
+
   test("accepts valid intake payload with floor-to-tenths points", () => {
     const result = validateEventPayload("intake.recorded", {
       personId: "person-1",

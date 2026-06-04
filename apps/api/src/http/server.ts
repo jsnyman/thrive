@@ -1922,6 +1922,56 @@ const handlePeopleUpdate = async (
   sendJson(res, 200, { person: toPersonResponse(updated) });
 };
 
+const handlePersonRemove = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+  personId: string,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "person.remove");
+  if (actor === null) {
+    return;
+  }
+  const person = await dependencies.getPersonById(personId);
+  if (person === null) {
+    sendJson(res, 404, { error: "PERSON_NOT_FOUND" });
+    return;
+  }
+  const balance = await dependencies.getLivePointsBalance(personId);
+  if (balance !== 0) {
+    sendJson(res, 409, { error: "PERSON_HAS_POINTS_BALANCE", balancePoints: balance });
+    return;
+  }
+  const bodyResult = await readJsonBody(req);
+  if (!bodyResult.ok) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const body = bodyResult.value;
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    typeof (body as Record<string, unknown>)["reason"] !== "string" ||
+    ((body as Record<string, unknown>)["reason"] as string).trim().length === 0
+  ) {
+    sendJson(res, 400, { error: "BAD_REQUEST", detail: "reason is required" });
+    return;
+  }
+  const reason = ((body as Record<string, unknown>)["reason"] as string).trim();
+
+  const event: Event = {
+    ...toBaseEventFields(dependencies, actor, req),
+    eventType: "person.removed",
+    payload: { personId, reason },
+  };
+  const appendResult = await dependencies.appendEventAndProject(event);
+  if (appendResult.status !== "accepted") {
+    sendJson(res, 400, { error: "BAD_REQUEST", reason: appendResult.reason ?? null });
+    return;
+  }
+  sendJson(res, 200, { personId });
+};
+
 const handleMaterialsList = async (
   req: IncomingMessage,
   res: ServerResponse,
@@ -3292,6 +3342,15 @@ const routeRequest = async (
     const personId = peopleUpdateMatch[1];
     if (personId !== undefined) {
       await handlePeopleUpdate(req, res, dependencies, personId);
+      return;
+    }
+  }
+
+  const peopleRemoveMatch = pathname.match(/^\/people\/([^/]+)\/remove$/);
+  if (method === "POST" && peopleRemoveMatch !== null) {
+    const personId = peopleRemoveMatch[1];
+    if (personId !== undefined) {
+      await handlePersonRemove(req, res, dependencies, personId);
       return;
     }
   }
