@@ -788,6 +788,16 @@ export const App = ({
     [intakeLinePreviews],
   );
 
+  useEffect(() => {
+    if (!intakeSuccess) return;
+    const timer = setTimeout(() => {
+      setIntakeSuccess(false);
+    }, 30_000);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [intakeSuccess]);
+
   const saleTotalPreviewPoints = useMemo(
     () =>
       saleLines.reduce<number>((sum, line) => {
@@ -1553,6 +1563,7 @@ export const App = ({
       await sync.syncNow();
       await loadLedger(intakePersonId);
       setLedgerPersonId(intakePersonId);
+      setIntakePersonId(null);
       setIntakeLines([createIntakeDraftLine(materials[0]?.id ?? null)]);
       setIntakeSuccess(true);
     } catch (error) {
@@ -3634,6 +3645,18 @@ export const App = ({
                 <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                   <Stack gap="sm">
                     <Title order={4}>Record Intake</Title>
+                    {intakeSuccess ? (
+                      <Alert
+                        color="green"
+                        title="Intake recorded"
+                        onClose={() => {
+                          setIntakeSuccess(false);
+                        }}
+                        withCloseButton
+                      >
+                        Collection saved successfully.
+                      </Alert>
+                    ) : null}
                     <Select
                       label="Person"
                       data={people.map((person) => ({
@@ -3642,6 +3665,9 @@ export const App = ({
                       }))}
                       value={intakePersonId}
                       onChange={setIntakePersonId}
+                      onFocus={() => {
+                        setIntakeSuccess(false);
+                      }}
                       searchable
                       clearable
                     />
@@ -3667,6 +3693,9 @@ export const App = ({
                                 ),
                               );
                             }}
+                            onFocus={() => {
+                              setIntakeSuccess(false);
+                            }}
                             searchable
                             clearable
                             disabled={materialsLoading}
@@ -3687,6 +3716,9 @@ export const App = ({
                                     : entry,
                                 ),
                               );
+                            }}
+                            onFocus={() => {
+                              setIntakeSuccess(false);
                             }}
                           />
                           <Text size="sm" c="dimmed">
@@ -3721,18 +3753,6 @@ export const App = ({
                     <Text size="sm" c="dimmed">
                       {`Total preview points: ${formatPointValue(intakeTotalPreviewPoints)}`}
                     </Text>
-                    {intakeSuccess ? (
-                      <Alert
-                        color="green"
-                        title="Intake recorded"
-                        onClose={() => {
-                          setIntakeSuccess(false);
-                        }}
-                        withCloseButton
-                      >
-                        Collection saved successfully.
-                      </Alert>
-                    ) : null}
                     {intakeError !== null ? <Text c="red">{intakeError}</Text> : null}
                     <Button
                       onClick={() => {
