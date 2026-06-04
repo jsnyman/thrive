@@ -265,6 +265,47 @@ describe("sync merge policy", () => {
     });
   });
 
+  test("accepts person.removed when person exists and removes them from state", () => {
+    const created = buildEvent({
+      eventId: "event-person-created",
+      eventType: "person.created",
+      payload: { personId: "person-1", name: "Amy", surname: "Zulu" },
+    });
+    const state = createMergeState([replayEvent(created, "2026-03-07T10:00:01.000Z")]);
+
+    const removed = buildEvent({
+      eventId: "event-person-removed",
+      eventType: "person.removed",
+      payload: { personId: "person-1", reason: "Duplicate account" },
+    });
+
+    const decision = evaluateMergeDecision(state, removed, null);
+    expect(decision.status).toBe("accepted");
+
+    applyAcceptedIncomingEvent(state, removed);
+
+    const subsequentIntake = buildEvent({
+      eventId: "event-intake-after-remove",
+      eventType: "person.profile_updated",
+      payload: { personId: "person-1", updates: { name: "Amy" } },
+    });
+    const afterDecision = evaluateMergeDecision(state, subsequentIntake, null);
+    expect(afterDecision.status).toBe("rejected");
+  });
+
+  test("rejects person.removed when person does not exist", () => {
+    const state = createMergeState([]);
+
+    const removed = buildEvent({
+      eventId: "event-person-removed",
+      eventType: "person.removed",
+      payload: { personId: "person-ghost", reason: "Cleanup" },
+    });
+
+    const decision = evaluateMergeDecision(state, removed, null);
+    expect(decision).toMatchObject({ status: "rejected", reason: "ENTITY_NOT_FOUND" });
+  });
+
   test("accepts create then update in same incoming batch", () => {
     const state = createMergeState([]);
     const create = buildEvent({
