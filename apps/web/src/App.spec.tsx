@@ -704,54 +704,30 @@ describe("App person registry", () => {
     expect(body.events[0]?.payload.totalPoints).toBe(12.3);
   });
 
-  test("intake validation blocks duplicate materials and invalid weights", async () => {
-    stubResizeObserver();
-    const queue = createEventQueue(createMemoryEventQueueStore());
-    const syncStateStore = createMemorySyncStateStore();
-
-    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+  function makeIntakeFetchMock(): ReturnType<typeof vi.fn<typeof fetch>> {
+    return vi.fn<typeof fetch>().mockImplementation(async (input) => {
       const url = String(input);
       if (url.endsWith("/auth/login")) {
         return jsonResponse({
-          user: {
-            id: "user-1",
-            username: "administrator",
-            role: "administrator",
-          },
+          user: { id: "user-1", username: "administrator", role: "administrator" },
           token: "token-1",
         });
       }
       if (url.includes("/people")) {
         return jsonResponse({
-          people: [
-            {
-              id: "person-1",
-              name: "Jane",
-              surname: "Doe",
-            },
-          ],
+          people: [{ id: "person-1", name: "Jane", surname: "Doe" }],
         });
       }
       if (url.includes("/materials")) {
         return jsonResponse({
           materials: [
-            {
-              id: "mat-1",
-              name: "PET",
-              pointsPerKg: 3,
-            },
-            {
-              id: "mat-2",
-              name: "Glass",
-              pointsPerKg: 2,
-            },
+            { id: "mat-1", name: "PET", pointsPerKg: 3 },
+            { id: "mat-2", name: "Glass", pointsPerKg: 2 },
           ],
         });
       }
       if (url.includes("/inventory/status-summary")) {
-        return jsonResponse({
-          summary: [{ status: "storage", totalQuantity: 10 }],
-        });
+        return jsonResponse({ summary: [{ status: "storage", totalQuantity: 10 }] });
       }
       if (url.includes("/inventory/batches")) {
         return jsonResponse({
@@ -759,14 +735,7 @@ describe("App person registry", () => {
             {
               inventoryBatchId: "batch-1",
               itemId: "item-1",
-              quantities: {
-                storage: 10,
-                shop: 0,
-                sold: 0,
-                spoiled: 0,
-                damaged: 0,
-                missing: 0,
-              },
+              quantities: { storage: 10, shop: 0, sold: 0, spoiled: 0, damaged: 0, missing: 0 },
             },
           ],
         });
@@ -776,8 +745,13 @@ describe("App person registry", () => {
       }
       return jsonResponse({ error: "NOT_EXPECTED" }, 500);
     });
+  }
 
-    vi.stubGlobal("fetch", fetchMock);
+  test("intake validation blocks invalid weights", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    vi.stubGlobal("fetch", makeIntakeFetchMock());
 
     const view = render(
       <MantineProvider>
@@ -799,16 +773,43 @@ describe("App person registry", () => {
     await waitFor(() => {
       expect(view.getByText("Each line weight must be greater than 0")).toBeInTheDocument();
     });
-
-    await userEvent.clear(view.getByLabelText("Weight Kg 1"));
-    await userEvent.type(view.getByLabelText("Weight Kg 1"), "1");
-    await userEvent.click(view.getByRole("button", { name: "Add Line" }));
-    await userEvent.type(view.getByLabelText("Weight Kg 2"), "1");
-    await userEvent.click(view.getByRole("button", { name: "Record Intake" }));
-    await waitFor(() => {
-      expect(view.getByText("Duplicate materials are not allowed")).toBeInTheDocument();
-    });
     await expect(queue.pendingCount()).resolves.toBe(0);
+  });
+
+  test("intake allows multiple lines with the same material (multiple bags)", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    vi.stubGlobal("fetch", makeIntakeFetchMock());
+
+    const view = render(
+      <MantineProvider>
+        <App queue={queue} syncStateStore={syncStateStore} />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+
+    // Both lines default to the first material (PET) — same material, two bags
+    await userEvent.type(view.getByLabelText("Weight Kg 1"), "1.5");
+    await userEvent.click(view.getByRole("button", { name: "Add Line" }));
+    await userEvent.type(view.getByLabelText("Weight Kg 2"), "2.0");
+
+    await userEvent.click(view.getByRole("button", { name: "Record Intake" }));
+
+    // Duplicate-material validation must not fire
+    expect(view.queryByText("Duplicate materials are not allowed")).not.toBeInTheDocument();
+    // Event is enqueued (sync may fail in test env, but enqueue happens before sync)
+    await waitFor(async () => {
+      await expect(queue.pendingCount()).resolves.toBeGreaterThanOrEqual(1);
+    });
   });
 
   test("intake validation blocks missing person", async () => {

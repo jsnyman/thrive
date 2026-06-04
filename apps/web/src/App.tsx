@@ -1516,16 +1516,11 @@ export const App = ({
       return;
     }
 
-    const seenMaterialIds = new Set<string>();
     const lines: IntakeEventLineInput[] = [];
 
     for (const line of intakeLines) {
       if (line.materialTypeId === null) {
         setIntakeError("Each line must include a material");
-        return;
-      }
-      if (seenMaterialIds.has(line.materialTypeId)) {
-        setIntakeError("Duplicate materials are not allowed");
         return;
       }
       const material = materials.find((entry) => entry.id === line.materialTypeId) ?? null;
@@ -1538,7 +1533,6 @@ export const App = ({
         setIntakeError("Each line weight must be greater than 0");
         return;
       }
-      seenMaterialIds.add(line.materialTypeId);
       lines.push({
         materialTypeId: line.materialTypeId,
         weightKg: weight,
