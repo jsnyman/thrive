@@ -139,7 +139,9 @@ type NavViewKey =
   | "person-create"
   | "person-edit"
   | "collection-log"
-  | "shop-log"
+  | "shop-sale"
+  | "shop-procurement"
+  | "shop-expense"
   | "adjustments-points-request"
   | "adjustments-inventory-request"
   | "adjustments-points-apply"
@@ -1433,8 +1435,16 @@ export const App = ({
       setCreateError("Queue is unavailable");
       return;
     }
-    if (createName.trim().length === 0 || createSurname.trim().length === 0) {
-      setCreateError("Name and surname are required");
+    if (createName.trim().length === 0) {
+      setCreateError("Name is required");
+      return;
+    }
+    if (
+      createSurname.trim().length === 0 &&
+      createAddress.trim().length === 0 &&
+      createNotes.trim().length === 0
+    ) {
+      setCreateError("A surname, address, or note is required when only a first name is provided");
       return;
     }
     setCreatePending(true);
@@ -2287,8 +2297,8 @@ export const App = ({
     );
   }
 
-  const showProcurementPanel = canManageInventory && activeView === "shop-log";
-  const showExpensePanel = canManageInventory && activeView === "shop-log";
+  const showProcurementPanel = canManageInventory && activeView === "shop-procurement";
+  const showExpensePanel = canManageInventory && activeView === "shop-expense";
   const showLedgerPanel = canManageInventory && activeView === "collection-log";
 
   return (
@@ -2341,13 +2351,35 @@ export const App = ({
             <Text className="navGroupTitle">Shop</Text>
             <Button
               className="navActionButton"
-              variant={activeView === "shop-log" ? "filled" : "light"}
+              variant={activeView === "shop-sale" ? "filled" : "light"}
               onClick={() => {
-                setActiveView("shop-log");
+                setActiveView("shop-sale");
               }}
             >
-              Log sale
+              Record Sale
             </Button>
+            {canManageInventory ? (
+              <Button
+                className="navActionButton"
+                variant={activeView === "shop-procurement" ? "filled" : "light"}
+                onClick={() => {
+                  setActiveView("shop-procurement");
+                }}
+              >
+                Record Procurement
+              </Button>
+            ) : null}
+            {canManageInventory ? (
+              <Button
+                className="navActionButton"
+                variant={activeView === "shop-expense" ? "filled" : "light"}
+                onClick={() => {
+                  setActiveView("shop-expense");
+                }}
+              >
+                Record Expense
+              </Button>
+            ) : null}
           </Stack>
           <Stack className="navGroup" gap="xs">
             <Group justify="space-between">
@@ -2484,7 +2516,7 @@ export const App = ({
               <Title order={2}>
                 {activeView === "collection-log"
                   ? "Collection"
-                  : activeView === "shop-log"
+                  : activeView.startsWith("shop-")
                     ? "Shop"
                     : activeView.startsWith("adjustments-")
                       ? "Adjustments"
@@ -2759,7 +2791,7 @@ export const App = ({
               </Stack>
             </Modal>
 
-            {activeView === "shop-log" ? (
+            {activeView === "shop-sale" ? (
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
                   <Title order={4}>Record Sale</Title>

@@ -1500,13 +1500,13 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
-    await userEvent.click(view.getByRole("button", { name: "Log sale" }));
+    await userEvent.click(view.getByRole("button", { name: "Record Sale" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Sale" })).toBeInTheDocument();
     });
     await userEvent.type(view.getByLabelText("Quantity 1"), "3");
-    await userEvent.click(view.getByRole("button", { name: "Record Sale" }));
+    await userEvent.click(view.getAllByRole("button", { name: "Record Sale" }).slice(-1)[0]!);
 
     await waitFor(() => {
       expect(capturedPushBody).not.toBeNull();
@@ -1638,14 +1638,16 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
-    await userEvent.click(view.getByRole("button", { name: "Log sale" }));
+    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
     });
     await userEvent.type(view.getByLabelText("Procurement Quantity 1"), "2");
     await userEvent.type(view.getByLabelText("Unit Cost 1"), "3");
-    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await userEvent.click(
+      view.getAllByRole("button", { name: "Record Procurement" }).slice(-1)[0]!,
+    );
 
     await waitFor(() => {
       expect(view.getByText("Pending events: 0")).toBeInTheDocument();
@@ -1673,6 +1675,149 @@ describe("App person registry", () => {
     expect(pushBody.events[0]?.payload.lines[0]?.unitCost).toBe(3);
     expect(pushBody.events[0]?.payload.lines[0]?.lineTotalCost).toBe(6);
     expect(typeof pushBody.events[0]?.payload.lines[0]?.inventoryBatchId).toBe("string");
+  });
+
+  function makeShopNavFetchMock(
+    role: "administrator" | "user",
+  ): ReturnType<typeof vi.fn<typeof fetch>> {
+    return vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: role, role },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+  }
+
+  test("shop nav shows Record Sale, Record Procurement, and Record Expense for administrator", async () => {
+    stubResizeObserver();
+    vi.stubGlobal("fetch", makeShopNavFetchMock("administrator"));
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    expect(view.getByRole("button", { name: "Record Sale" })).toBeInTheDocument();
+    expect(view.getByRole("button", { name: "Record Procurement" })).toBeInTheDocument();
+    expect(view.getByRole("button", { name: "Record Expense" })).toBeInTheDocument();
+  });
+
+  test("shop nav shows only Record Sale for non-administrator", async () => {
+    stubResizeObserver();
+    vi.stubGlobal("fetch", makeShopNavFetchMock("user"));
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "user");
+    await userEvent.type(view.getByLabelText("Passcode"), "9999");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    expect(view.getByRole("button", { name: "Record Sale" })).toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "Record Procurement" })).not.toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "Record Expense" })).not.toBeInTheDocument();
+  });
+
+  test("clicking Record Sale nav button shows only the sale panel", async () => {
+    stubResizeObserver();
+    vi.stubGlobal("fetch", makeShopNavFetchMock("administrator"));
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Record Sale" }));
+
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Record Sale" })).toBeInTheDocument();
+    });
+    expect(view.queryByRole("heading", { name: "Record Procurement" })).not.toBeInTheDocument();
+    expect(view.queryByRole("heading", { name: "Record Expense" })).not.toBeInTheDocument();
+  });
+
+  test("clicking Record Procurement nav button shows only the procurement panel", async () => {
+    stubResizeObserver();
+    vi.stubGlobal("fetch", makeShopNavFetchMock("administrator"));
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
+    });
+    expect(view.queryByRole("heading", { name: "Record Sale" })).not.toBeInTheDocument();
+    expect(view.queryByRole("heading", { name: "Record Expense" })).not.toBeInTheDocument();
+  });
+
+  test("clicking Record Expense nav button shows only the expense panel", async () => {
+    stubResizeObserver();
+    vi.stubGlobal("fetch", makeShopNavFetchMock("administrator"));
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Record Expense" }));
+
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Record Expense" })).toBeInTheDocument();
+    });
+    expect(view.queryByRole("heading", { name: "Record Sale" })).not.toBeInTheDocument();
+    expect(view.queryByRole("heading", { name: "Record Procurement" })).not.toBeInTheDocument();
   });
 
   test("procurement panel is hidden for non-administrator", async () => {
@@ -3780,7 +3925,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
-    await userEvent.click(view.getByRole("button", { name: "Log sale" }));
+    await userEvent.click(view.getByRole("button", { name: "Record Expense" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Expense" })).toBeInTheDocument();
@@ -3790,7 +3935,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Expense Cash Amount"), "45.5");
     await userEvent.type(view.getByLabelText("Expense Notes"), "Village route");
     await userEvent.type(view.getByLabelText("Expense Receipt Ref"), "R-77");
-    await userEvent.click(view.getByRole("button", { name: "Record Expense" }));
+    await userEvent.click(view.getAllByRole("button", { name: "Record Expense" }).slice(-1)[0]!);
 
     await waitFor(() => {
       expect(view.getByText("Pending events: 0")).toBeInTheDocument();
@@ -3865,32 +4010,32 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
-    await userEvent.click(view.getByRole("button", { name: "Log sale" }));
+    await userEvent.click(view.getByRole("button", { name: "Record Expense" }));
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Expense" })).toBeInTheDocument();
     });
 
-    await userEvent.click(view.getByRole("button", { name: "Record Expense" }));
+    await userEvent.click(view.getAllByRole("button", { name: "Record Expense" }).slice(-1)[0]!);
     await waitFor(() => {
       expect(view.getByText("Category is required")).toBeInTheDocument();
     });
 
     await userEvent.type(view.getByLabelText("Expense Category"), "Fuel");
     await userEvent.type(view.getByLabelText("Expense Cash Amount"), "-1");
-    await userEvent.click(view.getByRole("button", { name: "Record Expense" }));
+    await userEvent.click(view.getAllByRole("button", { name: "Record Expense" }).slice(-1)[0]!);
     await waitFor(() => {
       expect(view.getByText("Cash amount must be 0 or greater")).toBeInTheDocument();
     });
 
     await userEvent.clear(view.getByLabelText("Expense Cash Amount"));
     await userEvent.type(view.getByLabelText("Expense Cash Amount"), "12");
-    await userEvent.click(view.getByRole("button", { name: "Record Expense" }));
+    await userEvent.click(view.getAllByRole("button", { name: "Record Expense" }).slice(-1)[0]!);
     await waitFor(() => {
       expect(view.getByText("Sync error: Sync push failed with status 500")).toBeInTheDocument();
     });
   });
 
-  test("create person validation blocks empty name or surname", async () => {
+  test("create person validation blocks empty name", async () => {
     stubResizeObserver();
     const queue = createEventQueue(createMemoryEventQueueStore());
     const syncStateStore = createMemorySyncStateStore();
@@ -3928,13 +4073,54 @@ describe("App person registry", () => {
     await userEvent.click(view.getByRole("button", { name: "Create" }));
     await userEvent.click(view.getByRole("button", { name: "Save Person" }));
     await waitFor(() => {
-      expect(view.getByText("Name and surname are required")).toBeInTheDocument();
+      expect(view.getByText("Name is required")).toBeInTheDocument();
+    });
+  });
+
+  test("create person validation blocks first name only with no surname, address, or note", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App queue={queue} syncStateStore={syncStateStore} />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
 
+    await userEvent.click(view.getByRole("button", { name: "Create" }));
     await userEvent.type(view.getByLabelText("Name"), "Jane");
     await userEvent.click(view.getByRole("button", { name: "Save Person" }));
     await waitFor(() => {
-      expect(view.getByText("Name and surname are required")).toBeInTheDocument();
+      expect(
+        view.getByText(
+          "A surname, address, or note is required when only a first name is provided",
+        ),
+      ).toBeInTheDocument();
     });
   });
 
