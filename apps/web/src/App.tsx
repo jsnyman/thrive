@@ -1526,7 +1526,11 @@ export const App = ({
     setEditError(null);
     try {
       await queue.enqueue(buildUpdatePersonEvent(sessionUser, selectedPerson.id, updates));
-      await sync.syncNow();
+      const syncResult = await sync.syncNow();
+      if (syncResult !== null && syncResult.rejectedCount > 0) {
+        setEditError("Update could not be applied — a conflict was detected. Please try again.");
+        return;
+      }
       await Promise.all([loadPeople(search), loadAllPeople()]);
       setEditName("");
       setEditSurname("");
@@ -2578,12 +2582,13 @@ export const App = ({
                             variant="subtle"
                             onClick={() => {
                               setSelectedPersonId(person.id);
-                              setEditName(person.name);
-                              setEditSurname(person.surname);
-                              setEditIdNumber(person.idNumber ?? "");
-                              setEditPhone(person.phone ?? "");
-                              setEditAddress(person.address ?? "");
-                              setEditNotes(person.notes ?? "");
+                              setEditName("");
+                              setEditSurname("");
+                              setEditIdNumber("");
+                              setEditPhone("");
+                              setEditAddress("");
+                              setEditNotes("");
+                              setEditError(null);
                               setActiveView("person-edit");
                             }}
                           >

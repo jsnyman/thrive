@@ -20,7 +20,7 @@ export type SyncViewModel = {
   conflictStatus: "idle" | "loading" | "error" | "ready";
   conflictErrorMessage: string | null;
   resolvingConflictIds: string[];
-  syncNow: () => Promise<void>;
+  syncNow: () => Promise<SyncRunResult | null>;
   refreshConflicts: () => Promise<void>;
   resolveConflict: (
     conflictId: string,
@@ -99,13 +99,13 @@ export const useSync = (options: UseSyncOptions): SyncViewModel => {
     }
   }, []);
 
-  const syncNow = useCallback(async (): Promise<void> => {
+  const syncNow = useCallback(async (): Promise<SyncRunResult | null> => {
     const queue = options.queue;
     const syncStateStore = options.syncStateStore;
     if (queue === null || syncStateStore === null || client === null) {
       setErrorMessage("Sync is unavailable");
       setStatus("error");
-      return;
+      return null;
     }
 
     setStatus("running");
@@ -118,11 +118,13 @@ export const useSync = (options: UseSyncOptions): SyncViewModel => {
       setLastSyncAt(result.lastSyncAt);
       setStatus("success");
       await refreshConflicts();
+      return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setErrorMessage(message);
       setStatus("error");
       setPendingCount(await queue.pendingCount());
+      return null;
     }
   }, [client, options.queue, options.syncStateStore, refreshConflicts]);
 
