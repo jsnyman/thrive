@@ -184,6 +184,7 @@ describe("sync merge policy", () => {
             quantity: 2,
             unitCost: 5,
             lineTotalCost: 10,
+            unitSellingPrice: 0,
           },
         ],
       },

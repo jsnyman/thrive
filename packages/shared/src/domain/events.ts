@@ -150,6 +150,7 @@ export type ProcurementLine = {
   quantity: number;
   unitCost: number;
   lineTotalCost: number;
+  unitSellingPrice: number;
 };
 
 export type ProcurementRecordedPayload = {

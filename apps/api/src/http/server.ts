@@ -2752,6 +2752,7 @@ const handleProcurementCreate = async (
     quantity: number;
     unitCost: number;
     lineTotalCost: number;
+    unitSellingPrice: number;
   }> = [];
   let cashTotal = 0;
   for (const line of request.lines) {
@@ -2768,6 +2769,7 @@ const handleProcurementCreate = async (
       quantity: line.quantity,
       unitCost: line.unitCost,
       lineTotalCost,
+      unitSellingPrice: 0,
     });
   }
 
@@ -2820,6 +2822,7 @@ const handleBulkProcurementCreate = async (
     quantity: number;
     unitCost: number;
     lineTotalCost: number;
+    unitSellingPrice: number;
   }> = [];
   let cashTotal = 0;
 
@@ -2844,6 +2847,7 @@ const handleBulkProcurementCreate = async (
       quantity: row.quantity,
       unitCost,
       lineTotalCost: row.lineTotalCost,
+      unitSellingPrice: 0,
     });
   }
 

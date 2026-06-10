@@ -3,7 +3,7 @@ import type { RenderResult } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MantineProvider } from "@mantine/core";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { App } from "./App";
+import { App, roundUpToNearest10Cents } from "./App";
 import { createEventQueue, createMemoryEventQueueStore } from "./offline/event-queue";
 import { createMemorySyncStateStore } from "./offline/sync-state-store";
 
@@ -71,6 +71,47 @@ const openManagerPanel = async (view: RenderResult, buttonName: string): Promise
   }
   await userEvent.click(view.getByRole("button", { name: buttonName }));
 };
+
+describe("roundUpToNearest10Cents", () => {
+  test("returns 0 for 0", () => {
+    expect(roundUpToNearest10Cents(0)).toBe(0);
+  });
+
+  test("leaves exact 10-cent values unchanged", () => {
+    expect(roundUpToNearest10Cents(1.0)).toBe(1.0);
+    expect(roundUpToNearest10Cents(1.1)).toBe(1.1);
+    expect(roundUpToNearest10Cents(3.5)).toBe(3.5);
+  });
+
+  test("rounds up to next 10 cents", () => {
+    expect(roundUpToNearest10Cents(1.01)).toBe(1.1);
+    expect(roundUpToNearest10Cents(1.09)).toBe(1.1);
+    expect(roundUpToNearest10Cents(1.23)).toBe(1.3);
+    expect(roundUpToNearest10Cents(1.476)).toBe(1.5);
+    expect(roundUpToNearest10Cents(0.01)).toBe(0.1);
+    expect(roundUpToNearest10Cents(2.51)).toBe(2.6);
+  });
+
+  test("handles values less than 0.1", () => {
+    expect(roundUpToNearest10Cents(0.05)).toBe(0.1);
+    expect(roundUpToNearest10Cents(0.09)).toBe(0.1);
+  });
+
+  test("returns 0 for negative numbers, NaN, and Infinity", () => {
+    expect(roundUpToNearest10Cents(-1)).toBe(0);
+    expect(roundUpToNearest10Cents(-0.1)).toBe(0);
+    expect(roundUpToNearest10Cents(Number.NaN)).toBe(0);
+    expect(roundUpToNearest10Cents(Infinity)).toBe(0);
+    expect(roundUpToNearest10Cents(-Infinity)).toBe(0);
+  });
+
+  test("treats floating-point values on a boundary as exact (no spurious rounding up)", () => {
+    // 1.2999999999 is the closest float to 1.3 going downward;
+    // Math.round(price * 1000) absorbs the noise so it rounds to 1.3 not 1.4
+    expect(roundUpToNearest10Cents(1.2999999999)).toBe(1.3);
+    expect(roundUpToNearest10Cents(2.9999999999)).toBe(3.0);
+  });
+});
 
 describe("App person registry", () => {
   test("login inputs use a fixed sensible maximum width", () => {
@@ -1794,8 +1835,9 @@ describe("App person registry", () => {
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
     });
-    await userEvent.type(view.getByLabelText("Procurement Quantity 1"), "2");
-    await userEvent.type(view.getByLabelText("Unit Cost 1"), "3");
+    await userEvent.type(view.getByLabelText("Item Name 1"), "Soap");
+    await userEvent.type(view.getByLabelText("Quantity 1"), "2");
+    await userEvent.type(view.getByLabelText("Procurement Price 1"), "6");
     await userEvent.click(
       view.getAllByRole("button", { name: "Record Procurement" }).slice(-1)[0]!,
     );
@@ -1814,6 +1856,7 @@ describe("App person registry", () => {
             quantity: number;
             unitCost: number;
             lineTotalCost: number;
+            unitSellingPrice: number;
           }>;
         };
       }>;
@@ -1825,7 +1868,398 @@ describe("App person registry", () => {
     expect(pushBody.events[0]?.payload.lines[0]?.quantity).toBe(2);
     expect(pushBody.events[0]?.payload.lines[0]?.unitCost).toBe(3);
     expect(pushBody.events[0]?.payload.lines[0]?.lineTotalCost).toBe(6);
+    expect(pushBody.events[0]?.payload.lines[0]?.unitSellingPrice).toBe(3);
     expect(typeof pushBody.events[0]?.payload.lines[0]?.inventoryBatchId).toBe("string");
+  });
+
+  function makeProcurementBaseFetchMock(
+    items: Array<{ id: string; name: string; pointsPrice: number }> = [
+      { id: "item-1", name: "Soap", pointsPrice: 10 },
+    ],
+  ): ReturnType<typeof vi.fn<typeof fetch>> {
+    return vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+  }
+
+  function makeProcurementSyncFetchMock(
+    capturedPushBodyRef: { value: unknown },
+    items: Array<{ id: string; name: string; pointsPrice: number }> = [
+      { id: "item-1", name: "Soap", pointsPrice: 10 },
+    ],
+  ): ReturnType<typeof vi.fn<typeof fetch>> {
+    return vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      if (url.includes("/sync/push")) {
+        if (typeof init?.body === "string") {
+          capturedPushBodyRef.value = JSON.parse(init.body) as unknown;
+        }
+        return jsonResponse({
+          acknowledgements: extractEventIdsFromPushBody(capturedPushBodyRef.value).map(
+            (eventId) => ({ eventId, status: "accepted" as const }),
+          ),
+          latestCursor: "cursor-1",
+        });
+      }
+      if (url.includes("/sync/pull")) return jsonResponse({ events: [], nextCursor: "cursor-1" });
+      if (url.includes("/sync/status")) {
+        return jsonResponse({
+          latestCursor: "cursor-1",
+          projectionRefreshedAt: "2026-03-08T11:00:00.000Z",
+          projectionCursor: "cursor-1",
+        });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+  }
+
+  test("procurement validation blocks empty item name, unknown item, invalid quantity, invalid price, and invalid markup", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    vi.stubGlobal("fetch", makeProcurementBaseFetchMock());
+
+    const view = render(
+      <MantineProvider>
+        <App queue={queue} syncStateStore={syncStateStore} />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
+    });
+
+    // empty item name
+    await userEvent.click(
+      view.getAllByRole("button", { name: "Record Procurement" }).slice(-1)[0]!,
+    );
+    await waitFor(() => {
+      expect(view.getByText("Each line must include an item name")).toBeInTheDocument();
+    });
+
+    // item not in catalog
+    await userEvent.type(view.getByLabelText("Item Name 1"), "Widget");
+    await userEvent.click(
+      view.getAllByRole("button", { name: "Record Procurement" }).slice(-1)[0]!,
+    );
+    await waitFor(() => {
+      expect(view.getByText('Item "Widget" not found')).toBeInTheDocument();
+    });
+
+    // valid item name, empty quantity → NaN fails integer check
+    await userEvent.clear(view.getByLabelText("Item Name 1"));
+    await userEvent.type(view.getByLabelText("Item Name 1"), "Soap");
+    await userEvent.click(
+      view.getAllByRole("button", { name: "Record Procurement" }).slice(-1)[0]!,
+    );
+    await waitFor(() => {
+      expect(view.getByText("Each line quantity must be a positive integer")).toBeInTheDocument();
+    });
+
+    // quantity = "0" is not positive
+    await userEvent.type(view.getByLabelText("Quantity 1"), "0");
+    await userEvent.click(
+      view.getAllByRole("button", { name: "Record Procurement" }).slice(-1)[0]!,
+    );
+    await waitFor(() => {
+      expect(view.getByText("Each line quantity must be a positive integer")).toBeInTheDocument();
+    });
+
+    // valid quantity, empty procurement price → NaN
+    await userEvent.clear(view.getByLabelText("Quantity 1"));
+    await userEvent.type(view.getByLabelText("Quantity 1"), "2");
+    await userEvent.click(
+      view.getAllByRole("button", { name: "Record Procurement" }).slice(-1)[0]!,
+    );
+    await waitFor(() => {
+      expect(
+        view.getByText("Each line procurement price must be 0 or greater"),
+      ).toBeInTheDocument();
+    });
+
+    // negative procurement price
+    await userEvent.type(view.getByLabelText("Procurement Price 1"), "-1");
+    await userEvent.click(
+      view.getAllByRole("button", { name: "Record Procurement" }).slice(-1)[0]!,
+    );
+    await waitFor(() => {
+      expect(
+        view.getByText("Each line procurement price must be 0 or greater"),
+      ).toBeInTheDocument();
+    });
+
+    // markup > 100
+    await userEvent.clear(view.getByLabelText("Procurement Price 1"));
+    await userEvent.type(view.getByLabelText("Procurement Price 1"), "6");
+    await userEvent.clear(view.getByLabelText("Mark-up % 1"));
+    await userEvent.type(view.getByLabelText("Mark-up % 1"), "101");
+    await userEvent.click(
+      view.getAllByRole("button", { name: "Record Procurement" }).slice(-1)[0]!,
+    );
+    await waitFor(() => {
+      expect(view.getByText("Mark-up must be between 0 and 100")).toBeInTheDocument();
+    });
+  });
+
+  test("procurement case-insensitive item name lookup succeeds when casing differs", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    const capturedPushBodyRef = { value: null as unknown };
+    vi.stubGlobal("fetch", makeProcurementSyncFetchMock(capturedPushBodyRef));
+
+    const view = render(
+      <MantineProvider>
+        <App queue={queue} syncStateStore={syncStateStore} />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
+    });
+
+    await userEvent.type(view.getByLabelText("Item Name 1"), "soap");
+    await userEvent.type(view.getByLabelText("Quantity 1"), "1");
+    await userEvent.type(view.getByLabelText("Procurement Price 1"), "5");
+    await userEvent.click(
+      view.getAllByRole("button", { name: "Record Procurement" }).slice(-1)[0]!,
+    );
+
+    await waitFor(() => {
+      expect(view.getByText("Pending events: 0")).toBeInTheDocument();
+    });
+
+    const pushBody = capturedPushBodyRef.value as {
+      events: Array<{ payload: { lines: Array<{ itemId: string }> } }>;
+    };
+    expect(pushBody.events[0]?.payload.lines[0]?.itemId).toBe("item-1");
+  });
+
+  test("procurement non-zero markup is reflected in unitSellingPrice stored on the event", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    const capturedPushBodyRef = { value: null as unknown };
+    vi.stubGlobal("fetch", makeProcurementSyncFetchMock(capturedPushBodyRef));
+
+    const view = render(
+      <MantineProvider>
+        <App queue={queue} syncStateStore={syncStateStore} />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
+    });
+
+    // unitCost = 10 / 1 = 10; markup 50% → 10 * 1.5 = 15; roundUp(15) = 15
+    await userEvent.type(view.getByLabelText("Item Name 1"), "Soap");
+    await userEvent.type(view.getByLabelText("Quantity 1"), "1");
+    await userEvent.type(view.getByLabelText("Procurement Price 1"), "10");
+    await userEvent.clear(view.getByLabelText("Mark-up % 1"));
+    await userEvent.type(view.getByLabelText("Mark-up % 1"), "50");
+    await userEvent.click(
+      view.getAllByRole("button", { name: "Record Procurement" }).slice(-1)[0]!,
+    );
+
+    await waitFor(() => {
+      expect(view.getByText("Pending events: 0")).toBeInTheDocument();
+    });
+
+    const pushBody = capturedPushBodyRef.value as {
+      events: Array<{
+        payload: { lines: Array<{ unitCost: number; unitSellingPrice: number }> };
+      }>;
+    };
+    expect(pushBody.events[0]?.payload.lines[0]?.unitCost).toBe(10);
+    expect(pushBody.events[0]?.payload.lines[0]?.unitSellingPrice).toBe(15);
+  });
+
+  test("procurement form shows derived cost per unit and selling price as values are entered", async () => {
+    stubResizeObserver();
+    vi.stubGlobal("fetch", makeProcurementBaseFetchMock());
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
+    });
+
+    // incomplete inputs show dashes
+    expect(view.getByText("Cost per unit: -")).toBeInTheDocument();
+    expect(view.getByText("Selling price: -")).toBeInTheDocument();
+
+    // qty=2, price=6 → cost per unit = 3.00; markup defaults to 0% → selling = 3.00
+    await userEvent.type(view.getByLabelText("Quantity 1"), "2");
+    await userEvent.type(view.getByLabelText("Procurement Price 1"), "6");
+    await waitFor(() => {
+      expect(view.getByText("Cost per unit: 3.00")).toBeInTheDocument();
+    });
+    expect(view.getByText("Selling price: 3.00")).toBeInTheDocument();
+
+    // markup 20% → 3 * 1.2 = 3.6 → roundUp(3.6) = 3.6
+    await userEvent.clear(view.getByLabelText("Mark-up % 1"));
+    await userEvent.type(view.getByLabelText("Mark-up % 1"), "20");
+    await waitFor(() => {
+      expect(view.getByText("Selling price: 3.60")).toBeInTheDocument();
+    });
+    expect(view.getByText("Cost per unit: 3.00")).toBeInTheDocument();
+  });
+
+  test("procurement form resets to a blank line after a successful save", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    const capturedPushBodyRef = { value: null as unknown };
+    vi.stubGlobal("fetch", makeProcurementSyncFetchMock(capturedPushBodyRef));
+
+    const view = render(
+      <MantineProvider>
+        <App queue={queue} syncStateStore={syncStateStore} />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
+    });
+
+    await userEvent.type(view.getByLabelText("Item Name 1"), "Soap");
+    await userEvent.type(view.getByLabelText("Quantity 1"), "3");
+    await userEvent.type(view.getByLabelText("Procurement Price 1"), "9");
+    await userEvent.click(
+      view.getAllByRole("button", { name: "Record Procurement" }).slice(-1)[0]!,
+    );
+
+    await waitFor(() => {
+      expect(view.getByText("Pending events: 0")).toBeInTheDocument();
+    });
+
+    expect((view.getByLabelText("Item Name 1") as HTMLInputElement).value).toBe("");
+    expect((view.getByLabelText("Quantity 1") as HTMLInputElement).value).toBe("");
+    expect((view.getByLabelText("Procurement Price 1") as HTMLInputElement).value).toBe("");
+    expect((view.getByLabelText("Mark-up % 1") as HTMLInputElement).value).toBe("0");
+  });
+
+  test("procurement multi-line event has correct per-line unitCost and combined cashTotal", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    const capturedPushBodyRef = { value: null as unknown };
+    vi.stubGlobal(
+      "fetch",
+      makeProcurementSyncFetchMock(capturedPushBodyRef, [
+        { id: "item-1", name: "Soap", pointsPrice: 10 },
+        { id: "item-2", name: "Towel", pointsPrice: 5 },
+      ]),
+    );
+
+    const view = render(
+      <MantineProvider>
+        <App queue={queue} syncStateStore={syncStateStore} />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
+    });
+
+    // line 1: Soap, qty=2, price=6 → unitCost=3, lineTotalCost=6
+    await userEvent.type(view.getByLabelText("Item Name 1"), "Soap");
+    await userEvent.type(view.getByLabelText("Quantity 1"), "2");
+    await userEvent.type(view.getByLabelText("Procurement Price 1"), "6");
+
+    await userEvent.click(view.getByRole("button", { name: "Add Procurement Line" }));
+    await waitFor(() => {
+      expect(view.getByLabelText("Item Name 2")).toBeInTheDocument();
+    });
+
+    // line 2: Towel, qty=1, price=5 → unitCost=5, lineTotalCost=5
+    await userEvent.type(view.getByLabelText("Item Name 2"), "Towel");
+    await userEvent.type(view.getByLabelText("Quantity 2"), "1");
+    await userEvent.type(view.getByLabelText("Procurement Price 2"), "5");
+
+    await userEvent.click(
+      view.getAllByRole("button", { name: "Record Procurement" }).slice(-1)[0]!,
+    );
+
+    await waitFor(() => {
+      expect(view.getByText("Pending events: 0")).toBeInTheDocument();
+    });
+
+    const pushBody = capturedPushBodyRef.value as {
+      events: Array<{
+        payload: {
+          cashTotal: number;
+          lines: Array<{
+            itemId: string;
+            quantity: number;
+            unitCost: number;
+            lineTotalCost: number;
+          }>;
+        };
+      }>;
+    };
+    expect(pushBody.events[0]?.payload.lines).toHaveLength(2);
+    expect(pushBody.events[0]?.payload.lines[0]?.itemId).toBe("item-1");
+    expect(pushBody.events[0]?.payload.lines[0]?.unitCost).toBe(3);
+    expect(pushBody.events[0]?.payload.lines[0]?.lineTotalCost).toBe(6);
+    expect(pushBody.events[0]?.payload.lines[1]?.itemId).toBe("item-2");
+    expect(pushBody.events[0]?.payload.lines[1]?.unitCost).toBe(5);
+    expect(pushBody.events[0]?.payload.lines[1]?.lineTotalCost).toBe(5);
+    expect(pushBody.events[0]?.payload.cashTotal).toBe(11);
   });
 
   function makeShopNavFetchMock(
@@ -4341,5 +4775,124 @@ describe("App person registry", () => {
       expect(view.getByRole("heading", { name: "Search People" })).toBeInTheDocument();
     });
     expect(view.queryByRole("heading", { name: "Create Person" })).not.toBeInTheDocument();
+  });
+
+  test("create form fields are cleared when navigating to Create view", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App queue={queue} syncStateStore={syncStateStore} />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    // Open create, fill in some fields, then navigate away without saving
+    await userEvent.click(view.getByRole("button", { name: "Create" }));
+    await userEvent.type(view.getByLabelText("Name"), "Jane");
+    await userEvent.type(view.getByLabelText("Surname"), "Leftover");
+    await userEvent.click(view.getByRole("button", { name: "Search" }));
+
+    // Navigate back to Create — fields must be blank
+    await userEvent.click(view.getByRole("button", { name: "Create" }));
+    expect(view.getByLabelText("Name")).toHaveValue("");
+    expect(view.getByLabelText("Surname")).toHaveValue("");
+  });
+
+  test("create form shows error and stays on form when sync rejects the event", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue(
+      "22222222-2222-2222-2222-222222222222",
+    );
+
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      if (url.includes("/sync/push")) {
+        return jsonResponse({
+          acknowledgements: [
+            {
+              eventId: "22222222-2222-2222-2222-222222222222",
+              status: "rejected",
+              reason: "ENTITY_ALREADY_EXISTS",
+            },
+          ],
+          latestCursor: null,
+        });
+      }
+      if (url.includes("/sync/pull")) return jsonResponse({ events: [], nextCursor: null });
+      if (url.includes("/sync/status")) {
+        return jsonResponse({
+          latestCursor: null,
+          projectionRefreshedAt: null,
+          projectionCursor: null,
+        });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App queue={queue} syncStateStore={syncStateStore} />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Create" }));
+    await userEvent.type(view.getByLabelText("Name"), "Jane");
+    await userEvent.type(view.getByLabelText("Surname"), "Doe");
+    await userEvent.click(view.getByRole("button", { name: "Save Person" }));
+
+    await waitFor(() => {
+      expect(
+        view.getByText("Person could not be saved — a conflict was detected. Please try again."),
+      ).toBeInTheDocument();
+    });
+    expect(view.getByRole("heading", { name: "Create Person" })).toBeInTheDocument();
   });
 });

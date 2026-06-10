@@ -546,6 +546,7 @@ const validateProcurementRecordedPayload = (
       }
       expectNumber(line.unitCost, `${linePath}.unitCost`, issues, { min: 0 });
       expectNumber(line.lineTotalCost, `${linePath}.lineTotalCost`, issues, { min: 0 });
+      expectNumber(line.unitSellingPrice, `${linePath}.unitSellingPrice`, issues, { min: 0 });
       if (isInteger(line.quantity) && isNumber(line.unitCost) && isNumber(line.lineTotalCost)) {
         const expected = line.quantity * line.unitCost;
         if (line.lineTotalCost !== expected) {

@@ -236,8 +236,9 @@ const procurementLineSchema = objectSchema(
     quantity: integerSchema({ minimum: 0 }),
     unitCost: numberSchema({ minimum: 0 }),
     lineTotalCost: numberSchema({ minimum: 0 }),
+    unitSellingPrice: numberSchema({ minimum: 0 }),
   },
-  ["itemId", "inventoryBatchId", "quantity", "unitCost", "lineTotalCost"],
+  ["itemId", "inventoryBatchId", "quantity", "unitCost", "lineTotalCost", "unitSellingPrice"],
 );
 
 const procurementRecordedSchema = objectSchema(
