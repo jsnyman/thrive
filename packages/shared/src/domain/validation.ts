@@ -545,6 +545,7 @@ const validateProcurementRecordedPayload = (
   if (payload.tripDistanceKm !== undefined && payload.tripDistanceKm !== null) {
     expectNumber(payload.tripDistanceKm, `${path}.tripDistanceKm`, issues, { min: 0 });
   }
+  expectNullableIsoDate(payload.procuredDate, `${path}.procuredDate`, issues);
   expectNumber(payload.cashTotal, `${path}.cashTotal`, issues, { min: 0 });
   if (expectArray(payload.lines, `${path}.lines`, issues)) {
     if (payload.lines.length === 0) {

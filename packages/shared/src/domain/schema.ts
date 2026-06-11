@@ -255,6 +255,7 @@ const expenseRecordedSchema = objectSchema(
   {
     category: stringSchema(),
     cashAmount: numberSchema({ minimum: 0 }),
+    incurredDate: nullable(stringSchema({ format: "date" })),
     notes: nullable(stringSchema()),
     receiptRef: nullable(stringSchema()),
   },

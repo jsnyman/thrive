@@ -1850,6 +1850,7 @@ describe("App person registry", () => {
         eventType: string;
         payload: {
           cashTotal: number;
+          procuredDate: string | null;
           lines: Array<{
             itemId: string;
             inventoryBatchId: string;
@@ -1864,6 +1865,7 @@ describe("App person registry", () => {
     expect(pushBody.events).toHaveLength(1);
     expect(pushBody.events[0]?.eventType).toBe("procurement.recorded");
     expect(pushBody.events[0]?.payload.cashTotal).toBe(6);
+    expect(pushBody.events[0]?.payload.procuredDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(pushBody.events[0]?.payload.lines[0]?.itemId).toBe("item-1");
     expect(pushBody.events[0]?.payload.lines[0]?.quantity).toBe(2);
     expect(pushBody.events[0]?.payload.lines[0]?.unitCost).toBe(3);

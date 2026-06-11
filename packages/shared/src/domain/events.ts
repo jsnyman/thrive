@@ -156,6 +156,7 @@ export type ProcurementLine = {
 export type ProcurementRecordedPayload = {
   supplierName?: string | null;
   tripDistanceKm?: number | null;
+  procuredDate?: string | null;
   cashTotal: number;
   lines: ProcurementLine[];
 };

@@ -122,6 +122,7 @@ type ProcurementEventLineInput = {
 type ExpenseRecordedInput = {
   category: string;
   cashAmount: number;
+  incurredDate?: string | null;
   notes?: string | null;
   receiptRef?: string | null;
 };
@@ -471,6 +472,7 @@ const buildProcurementRecordedEvent = (
   payload: {
     supplierName?: string | null;
     tripDistanceKm?: number | null;
+    procuredDate?: string | null;
     lines: ProcurementEventLineInput[];
   },
 ): Event => {
@@ -496,6 +498,7 @@ const buildProcurementRecordedEvent = (
     payload: {
       supplierName: payload.supplierName ?? null,
       tripDistanceKm: payload.tripDistanceKm ?? null,
+      procuredDate: payload.procuredDate ?? null,
       cashTotal,
       lines,
     },
@@ -515,6 +518,7 @@ const buildExpenseRecordedEvent = (actor: AuthUser, payload: ExpenseRecordedInpu
   payload: {
     category: payload.category,
     cashAmount: payload.cashAmount,
+    incurredDate: payload.incurredDate ?? null,
     notes: payload.notes ?? null,
     receiptRef: payload.receiptRef ?? null,
   },
@@ -594,10 +598,14 @@ export const App = ({
   ]);
   const [procurementSupplierName, setProcurementSupplierName] = useState<string>("");
   const [procurementTripDistanceKm, setProcurementTripDistanceKm] = useState<string>("");
+  const [procurementDate, setProcurementDate] = useState<string>(() =>
+    new Date().toISOString().slice(0, 10),
+  );
   const [procurementPending, setProcurementPending] = useState<boolean>(false);
   const [procurementError, setProcurementError] = useState<string | null>(null);
   const [expenseCategory, setExpenseCategory] = useState<string>("");
   const [expenseCashAmount, setExpenseCashAmount] = useState<string>("");
+  const [expenseDate, setExpenseDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [expenseNotes, setExpenseNotes] = useState<string>("");
   const [expenseReceiptRef, setExpenseReceiptRef] = useState<string>("");
   const [expensePending, setExpensePending] = useState<boolean>(false);
@@ -1428,6 +1436,7 @@ export const App = ({
     setProcurementLines([createProcurementDraftLine()]);
     setProcurementSupplierName("");
     setProcurementTripDistanceKm("");
+    setProcurementDate(new Date().toISOString().slice(0, 10));
     setLedgerBalance(null);
     setLedgerEntries([]);
     setInventorySummary([]);
@@ -1866,6 +1875,7 @@ export const App = ({
         buildProcurementRecordedEvent(sessionUser, {
           supplierName: toNullableOrUndefined(procurementSupplierName) ?? null,
           tripDistanceKm: tripDistance,
+          procuredDate: procurementDate.trim().length > 0 ? procurementDate.trim() : null,
           lines,
         }),
       );
@@ -1874,6 +1884,7 @@ export const App = ({
       setProcurementLines([createProcurementDraftLine()]);
       setProcurementSupplierName("");
       setProcurementTripDistanceKm("");
+      setProcurementDate(new Date().toISOString().slice(0, 10));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setProcurementError(message);
@@ -1909,6 +1920,7 @@ export const App = ({
         buildExpenseRecordedEvent(sessionUser, {
           category,
           cashAmount,
+          incurredDate: expenseDate.trim() || null,
           notes: toNullableOrUndefined(expenseNotes) ?? null,
           receiptRef: toNullableOrUndefined(expenseReceiptRef) ?? null,
         }),
@@ -1920,6 +1932,7 @@ export const App = ({
       }
       setExpenseCategory("");
       setExpenseCashAmount("");
+      setExpenseDate(new Date().toISOString().slice(0, 10));
       setExpenseNotes("");
       setExpenseReceiptRef("");
     } catch (error) {
@@ -2976,6 +2989,14 @@ export const App = ({
                     }}
                   />
                   <TextInput
+                    label="Procurement Date"
+                    type="date"
+                    value={procurementDate}
+                    onChange={(event) => {
+                      setProcurementDate(event.currentTarget.value);
+                    }}
+                  />
+                  <TextInput
                     label="Trip Distance Km"
                     value={procurementTripDistanceKm}
                     onChange={(event) => {
@@ -3121,6 +3142,14 @@ export const App = ({
                     value={expenseCashAmount}
                     onChange={(event) => {
                       setExpenseCashAmount(event.currentTarget.value);
+                    }}
+                  />
+                  <TextInput
+                    label="Date Incurred"
+                    type="date"
+                    value={expenseDate}
+                    onChange={(event) => {
+                      setExpenseDate(event.currentTarget.value);
                     }}
                   />
                   <Textarea

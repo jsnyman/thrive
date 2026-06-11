@@ -235,6 +235,65 @@ describe("validateEventPayload", () => {
     expect(result.issues.some((issue) => issue.path === "payload.cashTotal")).toBe(true);
   });
 
+  test("accepts procurement payload with valid procuredDate", () => {
+    const result = validateEventPayload("procurement.recorded", {
+      supplierName: null,
+      procuredDate: "2026-06-10",
+      cashTotal: 8,
+      lines: [
+        {
+          itemId: "item-1",
+          inventoryBatchId: "batch-1",
+          quantity: 2,
+          unitCost: 4,
+          lineTotalCost: 8,
+          unitSellingPrice: 4,
+        },
+      ],
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test("accepts procurement payload with null procuredDate", () => {
+    const result = validateEventPayload("procurement.recorded", {
+      supplierName: null,
+      procuredDate: null,
+      cashTotal: 8,
+      lines: [
+        {
+          itemId: "item-1",
+          inventoryBatchId: "batch-1",
+          quantity: 2,
+          unitCost: 4,
+          lineTotalCost: 8,
+          unitSellingPrice: 4,
+        },
+      ],
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test("rejects procurement payload with invalid procuredDate", () => {
+    const result = validateEventPayload("procurement.recorded", {
+      supplierName: null,
+      procuredDate: "not-a-date",
+      cashTotal: 8,
+      lines: [
+        {
+          itemId: "item-1",
+          inventoryBatchId: "batch-1",
+          quantity: 2,
+          unitCost: 4,
+          lineTotalCost: 8,
+          unitSellingPrice: 4,
+        },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Expected validation to fail");
+    expect(result.issues.some((issue) => issue.path === "payload.procuredDate")).toBe(true);
+  });
+
   test("rejects conflict payloads with invalid entity type and empty detected events", () => {
     const detected = validateEventPayload("conflict.detected", {
       conflictId: "conflict-1",
@@ -269,7 +328,7 @@ describe("validateEventPayload", () => {
 });
 
 describe("expense.recorded payload", () => {
-  const makeExpenseEnvelope = (payload: Record<string, unknown>) => ({
+  const makeExpenseEvent = (payload: Record<string, unknown>) => ({
     eventId: "event-1",
     eventType: "expense.recorded",
     occurredAt: "2026-03-12T10:00:00.000Z",
@@ -284,8 +343,8 @@ describe("expense.recorded payload", () => {
   });
 
   test("accepts valid expense with incurredDate", () => {
-    const result = validateEventEnvelope(
-      makeExpenseEnvelope({
+    const result = validateEvent(
+      makeExpenseEvent({
         category: "Fuel",
         cashAmount: 12.5,
         incurredDate: "2026-06-01",
@@ -297,15 +356,15 @@ describe("expense.recorded payload", () => {
   });
 
   test("accepts expense without incurredDate", () => {
-    const result = validateEventEnvelope(
-      makeExpenseEnvelope({ category: "Fuel", cashAmount: 12.5, notes: null, receiptRef: null }),
+    const result = validateEvent(
+      makeExpenseEvent({ category: "Fuel", cashAmount: 12.5, notes: null, receiptRef: null }),
     );
     expect(result.ok).toBe(true);
   });
 
   test("accepts expense with null incurredDate", () => {
-    const result = validateEventEnvelope(
-      makeExpenseEnvelope({
+    const result = validateEvent(
+      makeExpenseEvent({
         category: "Fuel",
         cashAmount: 12.5,
         incurredDate: null,
@@ -317,8 +376,8 @@ describe("expense.recorded payload", () => {
   });
 
   test("rejects expense with invalid incurredDate", () => {
-    const result = validateEventEnvelope(
-      makeExpenseEnvelope({
+    const result = validateEvent(
+      makeExpenseEvent({
         category: "Fuel",
         cashAmount: 12.5,
         incurredDate: "not-a-date",
@@ -332,8 +391,8 @@ describe("expense.recorded payload", () => {
   });
 
   test("rejects expense with datetime string as incurredDate", () => {
-    const result = validateEventEnvelope(
-      makeExpenseEnvelope({
+    const result = validateEvent(
+      makeExpenseEvent({
         category: "Fuel",
         cashAmount: 12.5,
         incurredDate: "2026-06-01T10:00:00.000Z",
