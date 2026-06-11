@@ -3070,6 +3070,7 @@ export const App = ({
                           />
                           <Select
                             label={`Batch ${String(index + 1)} (optional)`}
+                            error={itemsError ?? undefined}
                             data={lineBatches.map((batch) => ({
                               value: batch.inventoryBatchId,
                               label: `${batch.inventoryBatchId} (shop ${String(batch.quantities.shop)})`,

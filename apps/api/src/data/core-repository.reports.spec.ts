@@ -171,7 +171,9 @@ describe("core repository materials report", () => {
         if (sql.includes("from event")) {
           return [
             {
+              event_id: "procurement-event-1",
               event_type: "procurement.recorded",
+              occurred_at: new Date("2026-01-01T00:00:00.000Z"),
               payload: {
                 lines: [
                   {
@@ -180,6 +182,7 @@ describe("core repository materials report", () => {
                     quantity: 10,
                     unitCost: 4.25,
                     lineTotalCost: 42.5,
+                    unitSellingPrice: 10.5,
                   },
                   {
                     itemId: "item-2",
@@ -187,6 +190,7 @@ describe("core repository materials report", () => {
                     quantity: 3,
                     unitCost: 7.5,
                     lineTotalCost: 22.5,
+                    unitSellingPrice: 20.0,
                   },
                 ],
               },
@@ -295,7 +299,9 @@ describe("core repository materials report", () => {
         if (sql.includes("order by recorded_at asc, event_id asc")) {
           return [
             {
+              event_id: "procurement-event-1",
               event_type: "procurement.recorded",
+              occurred_at: new Date("2026-01-01T00:00:00.000Z"),
               payload: {
                 lines: [
                   {
@@ -304,6 +310,7 @@ describe("core repository materials report", () => {
                     quantity: 10,
                     unitCost: 4.25,
                     lineTotalCost: 42.5,
+                    unitSellingPrice: 10.5,
                   },
                 ],
               },

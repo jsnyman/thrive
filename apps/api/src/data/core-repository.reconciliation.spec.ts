@@ -82,7 +82,9 @@ describe("core repository reconciliation", () => {
         if (queryText.includes("from event") && queryText.includes("procurement.recorded")) {
           return [
             {
+              event_id: "procurement-event-1",
               event_type: "procurement.recorded",
+              occurred_at: new Date("2026-01-01T00:00:00.000Z"),
               payload: {
                 lines: [
                   {
@@ -90,12 +92,16 @@ describe("core repository reconciliation", () => {
                     itemId: "item-1",
                     quantity: 1,
                     unitCost: 4.25,
+                    lineTotalCost: 4.25,
+                    unitSellingPrice: 5.0,
                   },
                 ],
               },
             },
             {
+              event_id: "status-event-1",
               event_type: "inventory.status_changed",
+              occurred_at: new Date("2026-01-02T00:00:00.000Z"),
               payload: {
                 inventoryBatchId: "batch-1",
                 fromStatus: "storage",
