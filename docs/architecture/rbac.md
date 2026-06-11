@@ -19,6 +19,7 @@ The `Code` column maps each action to the dotted permission identifier enforced 
 | Read person list and person detail  | `person.read`                  | Yes  | Yes           |
 | Register person                     | `person.create`                | Yes  | Yes           |
 | Update person profile               | `person.update`                | Yes  | Yes           |
+| Remove person                       | `person.remove`                | No   | Yes           |
 | View points ledger                  | `person.read`                  | Yes  | Yes           |
 | Record intake                       | `intake.record`                | Yes  | Yes           |
 | Record sale                         | `sale.record`                  | Yes  | Yes           |

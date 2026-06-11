@@ -12,7 +12,7 @@ Decision
 
 - Store the event envelope as typed columns.
 - Store the event payload as `jsonb`.
-- Add a GIN index on `payload` for containment queries.
+- Add a GIN index on `payload` for containment queries (described in `event_log_schema.sql`; not yet applied via a Prisma migration — add a raw SQL migration if payload filtering becomes a bottleneck).
 
 Consequences
 

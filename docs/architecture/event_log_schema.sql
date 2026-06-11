@@ -4,6 +4,7 @@
 create type event_type as enum (
   'person.created',
   'person.profile_updated',
+  'person.removed',
   'material_type.created',
   'material_type.updated',
   'item.created',
@@ -13,6 +14,7 @@ create type event_type as enum (
   'intake.recorded',
   'sale.recorded',
   'procurement.recorded',
+  'procurement.corrected',
   'expense.recorded',
   'inventory.status_changed',
   'inventory.adjustment_requested',

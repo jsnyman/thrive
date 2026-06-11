@@ -27,7 +27,7 @@ Current columns
 
 Indexing Notes
 
-- `event_payload_gin_idx` supports key existence (`?`) and containment (`@>`) queries.
+- A GIN index on `payload` (`event_payload_gin_idx`) is described in `event_log_schema.sql` for key existence (`?`) and containment (`@>`) queries. It has not yet been applied via a Prisma migration; add a raw SQL migration if payload filtering becomes a bottleneck.
 - Add functional indexes for hot keys (`payload ->> 'personId'`) as needed.
 
 Example Queries
