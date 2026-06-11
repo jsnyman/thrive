@@ -202,9 +202,13 @@ const conflictTarget = (
     case "sale.recorded":
       return { entityType: "sale", entityId: event.payload.personId };
     case "procurement.recorded":
+    case "procurement.corrected":
       return {
         entityType: "procurement",
-        entityId: event.payload.lines[0]?.inventoryBatchId ?? event.eventId,
+        entityId:
+          event.eventType === "procurement.corrected"
+            ? event.payload.procurementEventId
+            : (event.payload.lines[0]?.inventoryBatchId ?? event.eventId),
       };
     case "expense.recorded":
       return { entityType: "expense", entityId: event.eventId };
@@ -363,6 +367,12 @@ const applyStateMutation = (state: MergeState, event: Event, marker: MutationMar
       return;
     }
     case "procurement.recorded":
+      for (const line of event.payload.lines) {
+        state.inventoryBatches.add(line.inventoryBatchId);
+        addToBatchStatus(state, line.inventoryBatchId, "storage", line.quantity);
+      }
+      return;
+    case "procurement.corrected":
       for (const line of event.payload.lines) {
         state.inventoryBatches.add(line.inventoryBatchId);
         addToBatchStatus(state, line.inventoryBatchId, "storage", line.quantity);
@@ -591,6 +601,17 @@ export const evaluateMergeDecision = (
         }
         if (state.inventoryBatches.has(line.inventoryBatchId)) {
           return entityAlreadyExists(event);
+        }
+      }
+      return { status: "accepted" };
+    }
+    case "procurement.corrected": {
+      if (!state.knownEventIds.has(event.payload.procurementEventId)) {
+        return entityNotFound(event);
+      }
+      for (const line of event.payload.lines) {
+        if (!state.itemIds.has(line.itemId)) {
+          return entityNotFound(event);
         }
       }
       return { status: "accepted" };

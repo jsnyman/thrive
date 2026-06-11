@@ -192,6 +192,7 @@ const EVENT_TYPES: EventType[] = [
   "intake.recorded",
   "sale.recorded",
   "procurement.recorded",
+  "procurement.corrected",
   "expense.recorded",
   "inventory.status_changed",
   "inventory.adjustment_requested",
@@ -545,7 +546,6 @@ const validateProcurementRecordedPayload = (
   if (payload.tripDistanceKm !== undefined && payload.tripDistanceKm !== null) {
     expectNumber(payload.tripDistanceKm, `${path}.tripDistanceKm`, issues, { min: 0 });
   }
-  expectNullableIsoDate(payload.procuredDate, `${path}.procuredDate`, issues);
   expectNumber(payload.cashTotal, `${path}.cashTotal`, issues, { min: 0 });
   if (expectArray(payload.lines, `${path}.lines`, issues)) {
     if (payload.lines.length === 0) {
@@ -566,6 +566,10 @@ const validateProcurementRecordedPayload = (
       expectNumber(line.unitCost, `${linePath}.unitCost`, issues, { min: 0 });
       expectNumber(line.lineTotalCost, `${linePath}.lineTotalCost`, issues, { min: 0 });
       expectNumber(line.unitSellingPrice, `${linePath}.unitSellingPrice`, issues, { min: 0 });
+      expectNumber(line.markupPercent, `${linePath}.markupPercent`, issues, { min: 0 });
+      if (isNumber(line.markupPercent) && line.markupPercent > 100) {
+        addIssue(issues, `${linePath}.markupPercent`, "Expected number <= 100");
+      }
       if (isInteger(line.quantity) && isNumber(line.unitCost) && isNumber(line.lineTotalCost)) {
         const expected = line.quantity * line.unitCost;
         if (line.lineTotalCost !== expected) {
@@ -587,6 +591,26 @@ const validateProcurementRecordedPayload = (
         `Expected cashTotal to equal sum of lines = ${computedTotal}`,
       );
     }
+  }
+  return true;
+};
+
+const validateProcurementCorrectedPayload = (
+  payload: unknown,
+  issues: ValidationIssue[],
+  path: string,
+): payload is EventPayloadMap["procurement.corrected"] => {
+  if (!validateProcurementRecordedPayload(payload, issues, path)) {
+    return false;
+  }
+  if (!expectRecord(payload, path, issues)) {
+    return false;
+  }
+  const payloadRecord = payload as Record<string, unknown>;
+  expectString(payloadRecord.procurementEventId, `${path}.procurementEventId`, issues);
+  expectString(payloadRecord.reason, `${path}.reason`, issues);
+  if (typeof payloadRecord.reason === "string" && payloadRecord.reason.trim().length === 0) {
+    addIssue(issues, `${path}.reason`, "Expected non-empty string");
   }
   return true;
 };
@@ -822,6 +846,9 @@ export const validateEventPayload = <T extends EventType>(
       break;
     case "procurement.recorded":
       validateProcurementRecordedPayload(payload, issues, "payload");
+      break;
+    case "procurement.corrected":
+      validateProcurementCorrectedPayload(payload, issues, "payload");
       break;
     case "expense.recorded":
       validateExpenseRecordedPayload(payload, issues, "payload");

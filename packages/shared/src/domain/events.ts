@@ -28,6 +28,7 @@ export type EventType =
   | "intake.recorded"
   | "sale.recorded"
   | "procurement.recorded"
+  | "procurement.corrected"
   | "expense.recorded"
   | "inventory.status_changed"
   | "inventory.adjustment_requested"
@@ -151,14 +152,23 @@ export type ProcurementLine = {
   unitCost: number;
   lineTotalCost: number;
   unitSellingPrice: number;
+  markupPercent: number;
 };
 
 export type ProcurementRecordedPayload = {
   supplierName?: string | null;
   tripDistanceKm?: number | null;
-  procuredDate?: string | null;
   cashTotal: number;
   lines: ProcurementLine[];
+};
+
+export type ProcurementCorrectedPayload = {
+  procurementEventId: EventId;
+  supplierName?: string | null;
+  tripDistanceKm?: number | null;
+  cashTotal: number;
+  lines: ProcurementLine[];
+  reason: string;
 };
 
 export type ExpenseRecordedPayload = {
@@ -247,6 +257,7 @@ export type EventPayloadMap = {
   "intake.recorded": IntakeRecordedPayload;
   "sale.recorded": SaleRecordedPayload;
   "procurement.recorded": ProcurementRecordedPayload;
+  "procurement.corrected": ProcurementCorrectedPayload;
   "expense.recorded": ExpenseRecordedPayload;
   "inventory.status_changed": InventoryStatusChangedPayload;
   "inventory.adjustment_requested": InventoryAdjustmentRequestedPayload;

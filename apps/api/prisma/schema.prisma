@@ -96,6 +96,7 @@ enum EventType {
   intake_recorded                @map("intake.recorded")
   sale_recorded                  @map("sale.recorded")
   procurement_recorded           @map("procurement.recorded")
+  procurement_corrected          @map("procurement.corrected")
   expense_recorded               @map("expense.recorded")
   inventory_status_changed       @map("inventory.status_changed")
   inventory_adjustment_requested @map("inventory.adjustment_requested")

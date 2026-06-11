@@ -104,6 +104,26 @@ type InventoryStatusLogReportRow = {
   notes: string | null;
 };
 
+type ProcurementRecordLine = {
+  itemId: string;
+  inventoryBatchId: string;
+  quantity: number;
+  unitCost: number;
+  lineTotalCost: number;
+  unitSellingPrice: number;
+  markupPercent: number;
+};
+
+type ProcurementRecord = {
+  procurementEventId: string;
+  occurredAt: string;
+  supplierName: string | null;
+  tripDistanceKm: number | null;
+  cashTotal: number;
+  lines: ProcurementRecordLine[];
+  isEditable: boolean;
+};
+
 type SalesReportRow = {
   day: string;
   itemId: string;
@@ -480,6 +500,31 @@ const createDependencies = (options?: {
       expenseCount: 1,
     },
   ];
+  const procurements: ProcurementRecord[] = [];
+
+  const isProcurementEditable = (procurement: ProcurementRecord): boolean =>
+    procurement.lines.every((line) => {
+      const batch = inventoryBatches.find(
+        (entry) => entry.inventoryBatchId === line.inventoryBatchId,
+      );
+      if (batch === undefined) {
+        return false;
+      }
+      return (
+        batch.quantities.storage === line.quantity &&
+        batch.quantities.shop === 0 &&
+        batch.quantities.sold === 0 &&
+        batch.quantities.spoiled === 0 &&
+        batch.quantities.damaged === 0 &&
+        batch.quantities.missing === 0
+      );
+    });
+
+  const recomputeProcurementEditability = (): void => {
+    for (const procurement of procurements) {
+      procurement.isEditable = isProcurementEditable(procurement);
+    }
+  };
 
   const appendEventAndProject = async (event: Event) => {
     events.push(event);
@@ -581,6 +626,23 @@ const createDependencies = (options?: {
       }
     }
     if (event.eventType === "procurement.recorded") {
+      procurements.push({
+        procurementEventId: event.eventId,
+        occurredAt: event.occurredAt,
+        supplierName: event.payload.supplierName ?? null,
+        tripDistanceKm: event.payload.tripDistanceKm ?? null,
+        cashTotal: event.payload.cashTotal,
+        lines: event.payload.lines.map((line) => ({
+          itemId: line.itemId,
+          inventoryBatchId: line.inventoryBatchId,
+          quantity: line.quantity,
+          unitCost: line.unitCost,
+          lineTotalCost: line.lineTotalCost,
+          unitSellingPrice: line.unitSellingPrice,
+          markupPercent: line.markupPercent,
+        })),
+        isEditable: true,
+      });
       for (const line of event.payload.lines) {
         inventoryBatches.push({
           inventoryBatchId: line.inventoryBatchId,
@@ -595,6 +657,71 @@ const createDependencies = (options?: {
           },
         });
       }
+      recomputeProcurementEditability();
+    }
+    if (event.eventType === "procurement.corrected") {
+      const procurement = procurements.find(
+        (entry) => entry.procurementEventId === event.payload.procurementEventId,
+      );
+      if (procurement === undefined || !isProcurementEditable(procurement)) {
+        return { status: "rejected" as const, reason: "PROCUREMENT_NOT_EDITABLE" };
+      }
+
+      const nextLineIds = new Set(event.payload.lines.map((line) => line.inventoryBatchId));
+      for (const existingLine of procurement.lines) {
+        if (nextLineIds.has(existingLine.inventoryBatchId)) {
+          continue;
+        }
+        const batchIndex = inventoryBatches.findIndex(
+          (entry) => entry.inventoryBatchId === existingLine.inventoryBatchId,
+        );
+        if (batchIndex !== -1) {
+          inventoryBatches.splice(batchIndex, 1);
+        }
+      }
+
+      for (const line of event.payload.lines) {
+        const batch = inventoryBatches.find(
+          (entry) => entry.inventoryBatchId === line.inventoryBatchId,
+        );
+        if (batch === undefined) {
+          inventoryBatches.push({
+            inventoryBatchId: line.inventoryBatchId,
+            itemId: line.itemId,
+            quantities: {
+              storage: line.quantity,
+              shop: 0,
+              sold: 0,
+              spoiled: 0,
+              damaged: 0,
+              missing: 0,
+            },
+          });
+          continue;
+        }
+        batch.itemId = line.itemId;
+        batch.quantities.storage = line.quantity;
+        batch.quantities.shop = 0;
+        batch.quantities.sold = 0;
+        batch.quantities.spoiled = 0;
+        batch.quantities.damaged = 0;
+        batch.quantities.missing = 0;
+      }
+
+      procurement.occurredAt = event.occurredAt;
+      procurement.supplierName = event.payload.supplierName ?? null;
+      procurement.tripDistanceKm = event.payload.tripDistanceKm ?? null;
+      procurement.cashTotal = event.payload.cashTotal;
+      procurement.lines = event.payload.lines.map((line) => ({
+        itemId: line.itemId,
+        inventoryBatchId: line.inventoryBatchId,
+        quantity: line.quantity,
+        unitCost: line.unitCost,
+        lineTotalCost: line.lineTotalCost,
+        unitSellingPrice: line.unitSellingPrice,
+        markupPercent: line.markupPercent,
+      }));
+      recomputeProcurementEditability();
     }
     return { status: "accepted" as const };
   };
@@ -968,6 +1095,12 @@ const createDependencies = (options?: {
         const inToStatus = filters.toStatus === null || row.toStatus === filters.toStatus;
         return inFrom && inTo && inFromStatus && inToStatus;
       }),
+    listProcurements: async () => {
+      recomputeProcurementEditability();
+      return procurements
+        .slice()
+        .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt));
+    },
     listSalesReport: async (filters) => {
       const rows = salesReportRows.filter((row) => {
         const inFrom = filters.fromDate === null || row.day >= filters.fromDate;
@@ -1600,7 +1733,8 @@ describe("core HTTP endpoints", () => {
       .post("/procurements")
       .set("authorization", `Bearer ${managerToken}`)
       .send({
-        lines: [{ itemId: "item-1", quantity: 0, unitCost: 3 }],
+        occurredAt: "2026-06-11T00:00:00.000Z",
+        lines: [{ itemId: "item-1", quantity: 0, unitCost: 3, markupPercent: 0 }],
       });
     expect(badPayload.status).toBe(400);
 
@@ -1608,13 +1742,14 @@ describe("core HTTP endpoints", () => {
       .post("/procurements")
       .set("authorization", `Bearer ${managerToken}`)
       .send({
-        lines: [{ itemId: "item-missing", quantity: 2, unitCost: 3 }],
+        occurredAt: "2026-06-11T00:00:00.000Z",
+        lines: [{ itemId: "item-missing", quantity: 2, unitCost: 3, markupPercent: 0 }],
       });
     expect(missingItem.status).toBe(404);
     expect(missingItem.body.error).toBe("ITEM_NOT_FOUND");
   });
 
-  test("POST /procurements appends event and increases storage inventory", async () => {
+  test("POST /procurements appends event, stores occurredAt, and increases storage inventory", async () => {
     const server = createApiServer(createDependencies());
     const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
@@ -1627,9 +1762,10 @@ describe("core HTTP endpoints", () => {
       .post("/procurements")
       .set("authorization", `Bearer ${managerToken}`)
       .send({
+        occurredAt: "2026-06-10T00:00:00.000Z",
         supplierName: "Village Supplier",
         tripDistanceKm: 12,
-        lines: [{ itemId: "item-1", quantity: 2, unitCost: 3 }],
+        lines: [{ itemId: "item-1", quantity: 2, unitCost: 3, markupPercent: 15 }],
       });
 
     expect(response.status).toBe(201);
@@ -1637,6 +1773,7 @@ describe("core HTTP endpoints", () => {
     expect(response.body.cashTotal).toBe(6);
     expect(response.body.lines).toHaveLength(1);
     expect(response.body.lines[0]?.lineTotalCost).toBe(6);
+    expect(response.body.lines[0]?.markupPercent).toBe(15);
     expect(typeof response.body.lines[0]?.inventoryBatchId).toBe("string");
 
     const afterSummary = await supertest(server)
@@ -1646,6 +1783,173 @@ describe("core HTTP endpoints", () => {
     const rows = afterSummary.body.summary as InventoryStatusSummaryRecord[];
     const storage = rows.find((entry) => entry.status === "storage");
     expect(storage?.totalQuantity).toBe(12);
+  });
+
+  test("GET /procurements lists effective procurements with editability", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const created = await supertest(server)
+      .post("/procurements")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({
+        occurredAt: "2026-06-09T00:00:00.000Z",
+        supplierName: "Village Supplier",
+        tripDistanceKm: 10,
+        lines: [{ itemId: "item-1", quantity: 2, unitCost: 3, markupPercent: 20 }],
+      });
+
+    expect(created.status).toBe(201);
+    const createdBody: unknown = created.body;
+    const createdProcurement = createdBody as {
+      eventId: string;
+    };
+
+    const response = await supertest(server)
+      .get("/procurements")
+      .set("authorization", `Bearer ${managerToken}`);
+
+    const responseBody: unknown = response.body;
+    const procurements = (responseBody as { procurements: ProcurementRecord[] }).procurements;
+
+    expect(response.status).toBe(200);
+    expect(procurements).toHaveLength(1);
+    expect(procurements[0]).toMatchObject({
+      procurementEventId: createdProcurement.eventId,
+      occurredAt: "2026-06-09T00:00:00.000Z",
+      supplierName: "Village Supplier",
+      tripDistanceKm: 10,
+      cashTotal: 6,
+      isEditable: true,
+    });
+    expect(procurements[0]?.lines[0]?.markupPercent).toBe(20);
+  });
+
+  test("POST /procurements/:eventId/corrections updates untouched procurement", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const created = await supertest(server)
+      .post("/procurements")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({
+        occurredAt: "2026-06-09T00:00:00.000Z",
+        supplierName: "Village Supplier",
+        tripDistanceKm: 10,
+        lines: [{ itemId: "item-1", quantity: 2, unitCost: 3, markupPercent: 20 }],
+      });
+
+    expect(created.status).toBe(201);
+    const createdBody: unknown = created.body;
+    const createdProcurement = createdBody as {
+      eventId: string;
+      lines: Array<{
+        inventoryBatchId: string;
+      }>;
+    };
+    const firstCreatedLine = createdProcurement.lines[0];
+    expect(firstCreatedLine).toBeDefined();
+    const originalBatchId = firstCreatedLine!.inventoryBatchId;
+
+    const corrected = await supertest(server)
+      .post(`/procurements/${createdProcurement.eventId}/corrections`)
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({
+        occurredAt: "2026-06-11T00:00:00.000Z",
+        supplierName: "Village Supplier Updated",
+        tripDistanceKm: 14,
+        reason: "user edit",
+        lines: [
+          {
+            itemId: "item-1",
+            inventoryBatchId: originalBatchId,
+            quantity: 3,
+            unitCost: 4,
+            markupPercent: 25,
+          },
+        ],
+      });
+
+    expect(corrected.status).toBe(201);
+    expect(corrected.body.cashTotal).toBe(12);
+    expect(corrected.body.lines[0]?.markupPercent).toBe(25);
+
+    const listResponse = await supertest(server)
+      .get("/procurements")
+      .set("authorization", `Bearer ${managerToken}`);
+    const listResponseBody: unknown = listResponse.body;
+    const listedProcurements = (listResponseBody as { procurements: ProcurementRecord[] })
+      .procurements;
+
+    expect(listResponse.status).toBe(200);
+    expect(listedProcurements[0]).toMatchObject({
+      procurementEventId: createdProcurement.eventId,
+      occurredAt: "2026-06-11T00:00:00.000Z",
+      supplierName: "Village Supplier Updated",
+      tripDistanceKm: 14,
+      cashTotal: 12,
+      isEditable: true,
+    });
+    expect(listedProcurements[0]?.lines[0]).toMatchObject({
+      inventoryBatchId: originalBatchId,
+      quantity: 3,
+      unitCost: 4,
+      lineTotalCost: 12,
+      markupPercent: 25,
+    });
+  });
+
+  test("POST /procurements/:eventId/corrections rejects locked procurement", async () => {
+    const dependencies = createDependencies();
+    const server = createApiServer(dependencies);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const created = await supertest(server)
+      .post("/procurements")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({
+        occurredAt: "2026-06-09T00:00:00.000Z",
+        supplierName: "Village Supplier",
+        tripDistanceKm: 10,
+        lines: [{ itemId: "item-1", quantity: 2, unitCost: 3, markupPercent: 20 }],
+      });
+
+    expect(created.status).toBe(201);
+    const originalBatchId = created.body.lines[0]?.inventoryBatchId as string;
+
+    const moveToShop = await supertest(server)
+      .post("/inventory/status-changes")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({
+        inventoryBatchId: originalBatchId,
+        fromStatus: "storage",
+        toStatus: "shop",
+        quantity: 1,
+        reason: "Move to shop",
+      });
+    expect(moveToShop.status).toBe(201);
+
+    const corrected = await supertest(server)
+      .post(`/procurements/${created.body.eventId as string}/corrections`)
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({
+        occurredAt: "2026-06-11T00:00:00.000Z",
+        supplierName: "Village Supplier Updated",
+        tripDistanceKm: 14,
+        reason: "user edit",
+        lines: [
+          {
+            itemId: "item-1",
+            inventoryBatchId: originalBatchId,
+            quantity: 3,
+            unitCost: 4,
+            markupPercent: 25,
+          },
+        ],
+      });
+
+    expect(corrected.status).toBe(409);
+    expect(corrected.body.error).toBe("PROCUREMENT_NOT_EDITABLE");
   });
 
   test("POST /procurements/bulk enforces manager role", async () => {

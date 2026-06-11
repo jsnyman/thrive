@@ -63,6 +63,7 @@ const objectSchema = (properties: Record<string, JsonSchema>, required?: string[
 export const EVENT_TYPES: EventType[] = [
   "person.created",
   "person.profile_updated",
+  "person.removed",
   "material_type.created",
   "material_type.updated",
   "item.created",
@@ -72,6 +73,7 @@ export const EVENT_TYPES: EventType[] = [
   "intake.recorded",
   "sale.recorded",
   "procurement.recorded",
+  "procurement.corrected",
   "expense.recorded",
   "inventory.status_changed",
   "inventory.adjustment_requested",
@@ -120,6 +122,14 @@ const personProfileUpdatedSchema = objectSchema(
     ),
   },
   ["personId", "updates"],
+);
+
+const personRemovedSchema = objectSchema(
+  {
+    personId: stringSchema(),
+    reason: stringSchema(),
+  },
+  ["personId", "reason"],
 );
 
 const materialTypeCreatedSchema = objectSchema(
@@ -237,8 +247,17 @@ const procurementLineSchema = objectSchema(
     unitCost: numberSchema({ minimum: 0 }),
     lineTotalCost: numberSchema({ minimum: 0 }),
     unitSellingPrice: numberSchema({ minimum: 0 }),
+    markupPercent: numberSchema({ minimum: 0 }),
   },
-  ["itemId", "inventoryBatchId", "quantity", "unitCost", "lineTotalCost", "unitSellingPrice"],
+  [
+    "itemId",
+    "inventoryBatchId",
+    "quantity",
+    "unitCost",
+    "lineTotalCost",
+    "unitSellingPrice",
+    "markupPercent",
+  ],
 );
 
 const procurementRecordedSchema = objectSchema(
@@ -249,6 +268,18 @@ const procurementRecordedSchema = objectSchema(
     lines: arraySchema(procurementLineSchema, { minItems: 1 }),
   },
   ["cashTotal", "lines"],
+);
+
+const procurementCorrectedSchema = objectSchema(
+  {
+    procurementEventId: stringSchema(),
+    supplierName: nullable(stringSchema()),
+    tripDistanceKm: nullable(numberSchema({ minimum: 0 })),
+    cashTotal: numberSchema({ minimum: 0 }),
+    lines: arraySchema(procurementLineSchema, { minItems: 1 }),
+    reason: stringSchema(),
+  },
+  ["procurementEventId", "cashTotal", "lines", "reason"],
 );
 
 const expenseRecordedSchema = objectSchema(
@@ -354,6 +385,7 @@ const conflictResolvedSchema = objectSchema(
 export const eventPayloadSchemas: Record<EventType, JsonSchema> = {
   "person.created": personCreatedSchema,
   "person.profile_updated": personProfileUpdatedSchema,
+  "person.removed": personRemovedSchema,
   "material_type.created": materialTypeCreatedSchema,
   "material_type.updated": materialTypeUpdatedSchema,
   "item.created": itemCreatedSchema,
@@ -363,6 +395,7 @@ export const eventPayloadSchemas: Record<EventType, JsonSchema> = {
   "intake.recorded": intakeRecordedSchema,
   "sale.recorded": saleRecordedSchema,
   "procurement.recorded": procurementRecordedSchema,
+  "procurement.corrected": procurementCorrectedSchema,
   "expense.recorded": expenseRecordedSchema,
   "inventory.status_changed": inventoryStatusChangedSchema,
   "inventory.adjustment_requested": inventoryAdjustmentRequestedSchema,

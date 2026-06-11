@@ -1848,9 +1848,9 @@ describe("App person registry", () => {
     const pushBody = capturedPushBody as {
       events: Array<{
         eventType: string;
+        occurredAt: string;
         payload: {
           cashTotal: number;
-          procuredDate: string | null;
           lines: Array<{
             itemId: string;
             inventoryBatchId: string;
@@ -1858,6 +1858,7 @@ describe("App person registry", () => {
             unitCost: number;
             lineTotalCost: number;
             unitSellingPrice: number;
+            markupPercent: number;
           }>;
         };
       }>;
@@ -1865,12 +1866,13 @@ describe("App person registry", () => {
     expect(pushBody.events).toHaveLength(1);
     expect(pushBody.events[0]?.eventType).toBe("procurement.recorded");
     expect(pushBody.events[0]?.payload.cashTotal).toBe(6);
-    expect(pushBody.events[0]?.payload.procuredDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(pushBody.events[0]?.occurredAt).toMatch(/^\d{4}-\d{2}-\d{2}T00:00:00.000Z$/);
     expect(pushBody.events[0]?.payload.lines[0]?.itemId).toBe("item-1");
     expect(pushBody.events[0]?.payload.lines[0]?.quantity).toBe(2);
     expect(pushBody.events[0]?.payload.lines[0]?.unitCost).toBe(3);
     expect(pushBody.events[0]?.payload.lines[0]?.lineTotalCost).toBe(6);
     expect(pushBody.events[0]?.payload.lines[0]?.unitSellingPrice).toBe(3);
+    expect(pushBody.events[0]?.payload.lines[0]?.markupPercent).toBe(0);
     expect(typeof pushBody.events[0]?.payload.lines[0]?.inventoryBatchId).toBe("string");
   });
 
@@ -1892,6 +1894,7 @@ describe("App person registry", () => {
       if (url.includes("/items")) return jsonResponse({ items });
       if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
       if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/procurements")) return jsonResponse({ procurements: [] });
       if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
       return jsonResponse({ error: "NOT_EXPECTED" }, 500);
     });
@@ -1916,6 +1919,10 @@ describe("App person registry", () => {
       if (url.includes("/items")) return jsonResponse({ items });
       if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
       if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/procurements") && url.includes("/corrections")) {
+        return jsonResponse({ eventId: "event-procurement-correction-1" }, 201);
+      }
+      if (url.includes("/procurements")) return jsonResponse({ procurements: [] });
       if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
       if (url.includes("/sync/push")) {
         if (typeof init?.body === "string") {
@@ -2224,6 +2231,204 @@ describe("App person registry", () => {
     expect((view.getByLabelText("Quantity 1") as HTMLInputElement).value).toBe("");
     expect((view.getByLabelText("Procurement Price 1") as HTMLInputElement).value).toBe("");
     expect((view.getByLabelText("Mark-up % 1") as HTMLInputElement).value).toBe("0");
+  });
+
+  test("procurement history loads and saves an editable correction", async () => {
+    stubResizeObserver();
+    let procurements: Array<{
+      procurementEventId: string;
+      occurredAt: string;
+      supplierName: string | null;
+      tripDistanceKm: number | null;
+      cashTotal: number;
+      isEditable: boolean;
+      lines: Array<{
+        itemId: string;
+        inventoryBatchId: string;
+        quantity: number;
+        unitCost: number;
+        lineTotalCost: number;
+        unitSellingPrice: number;
+        markupPercent: number;
+      }>;
+    }> = [
+      {
+        procurementEventId: "event-procurement-1",
+        occurredAt: "2026-03-08T00:00:00.000Z",
+        supplierName: "Village Supplier",
+        tripDistanceKm: 12,
+        cashTotal: 6,
+        isEditable: true,
+        lines: [
+          {
+            itemId: "item-1",
+            inventoryBatchId: "batch-1",
+            quantity: 2,
+            unitCost: 3,
+            lineTotalCost: 6,
+            unitSellingPrice: 3.6,
+            markupPercent: 20,
+          },
+        ],
+      },
+    ];
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) {
+        return jsonResponse({ items: [{ id: "item-1", name: "Soap", pointsPrice: 10 }] });
+      }
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      if (url.includes("/procurements") && url.includes("/corrections")) {
+        if (typeof init?.body === "string") {
+          const body = JSON.parse(init.body) as {
+            occurredAt: string;
+            supplierName: string | null;
+            tripDistanceKm: number | null;
+            lines: Array<{
+              itemId: string;
+              inventoryBatchId?: string | null;
+              quantity: number;
+              unitCost: number;
+              markupPercent: number;
+            }>;
+          };
+          procurements = [
+            {
+              procurementEventId: "event-procurement-1",
+              occurredAt: body.occurredAt,
+              supplierName: body.supplierName ?? null,
+              tripDistanceKm: body.tripDistanceKm ?? null,
+              cashTotal: body.lines.reduce((sum, line) => sum + line.quantity * line.unitCost, 0),
+              isEditable: true,
+              lines: body.lines.map((line) => ({
+                itemId: line.itemId,
+                inventoryBatchId: line.inventoryBatchId ?? "batch-1",
+                quantity: line.quantity,
+                unitCost: line.unitCost,
+                lineTotalCost: line.quantity * line.unitCost,
+                unitSellingPrice: line.unitCost * (1 + line.markupPercent / 100),
+                markupPercent: line.markupPercent,
+              })),
+            },
+          ];
+        }
+        return jsonResponse({ eventId: "event-procurement-correction-1" }, 201);
+      }
+      if (url.includes("/procurements")) return jsonResponse({ procurements });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await waitFor(() => {
+      expect(view.getByText(/Village Supplier/)).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Edit Procurement" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Edit Procurement" })).toBeInTheDocument();
+    });
+
+    await userEvent.clear(view.getAllByLabelText("Supplier Name")[1]!);
+    await userEvent.type(view.getAllByLabelText("Supplier Name")[1]!, "Updated Supplier");
+    await userEvent.clear(view.getAllByLabelText("Procurement Price 1")[1]!);
+    await userEvent.type(view.getAllByLabelText("Procurement Price 1")[1]!, "9");
+    await userEvent.clear(view.getAllByLabelText("Quantity 1")[1]!);
+    await userEvent.type(view.getAllByLabelText("Quantity 1")[1]!, "3");
+    await userEvent.clear(view.getAllByLabelText("Mark-up % 1")[1]!);
+    await userEvent.type(view.getAllByLabelText("Mark-up % 1")[1]!, "25");
+    await userEvent.click(view.getByRole("button", { name: "Save Procurement Changes" }));
+
+    await waitFor(() => {
+      expect(view.getByText(/Updated Supplier/)).toBeInTheDocument();
+    });
+    expect(view.getByText(/Cash total 9.00/)).toBeInTheDocument();
+    expect(view.getByText(/Mark-up 25%/)).toBeInTheDocument();
+  });
+
+  test("procurement history shows locked procurements as non-editable", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) {
+        return jsonResponse({ items: [{ id: "item-1", name: "Soap", pointsPrice: 10 }] });
+      }
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      if (url.includes("/procurements")) {
+        return jsonResponse({
+          procurements: [
+            {
+              procurementEventId: "event-procurement-1",
+              occurredAt: "2026-03-08T00:00:00.000Z",
+              supplierName: "Village Supplier",
+              tripDistanceKm: 12,
+              cashTotal: 6,
+              isEditable: false,
+              lines: [
+                {
+                  itemId: "item-1",
+                  inventoryBatchId: "batch-1",
+                  quantity: 2,
+                  unitCost: 3,
+                  lineTotalCost: 6,
+                  unitSellingPrice: 3.6,
+                  markupPercent: 20,
+                },
+              ],
+            },
+          ],
+        });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+
+    await waitFor(() => {
+      expect(
+        view.getByText("This procurement is locked because stock has already moved."),
+      ).toBeInTheDocument();
+    });
+    expect(view.queryByRole("button", { name: "Edit Procurement" })).not.toBeInTheDocument();
   });
 
   test("procurement multi-line event has correct per-line unitCost and combined cashTotal", async () => {

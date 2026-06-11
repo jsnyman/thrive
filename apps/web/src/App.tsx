@@ -37,6 +37,7 @@ import { createItemsClient, type ItemRecord } from "./offline/items-client";
 import { createLedgerClient, type LedgerBalance, type LedgerEntry } from "./offline/ledger-client";
 import { createMaterialsClient, type MaterialRecord } from "./offline/materials-client";
 import { createPeopleClient, type PersonRecord } from "./offline/people-client";
+import { createProcurementClient, type ProcurementRecord } from "./offline/procurement-client";
 import { downloadCsv, type CsvRow } from "./offline/report-export";
 import {
   type CashflowReportResponse,
@@ -117,6 +118,16 @@ type ProcurementEventLineInput = {
   quantity: number;
   unitCost: number;
   unitSellingPrice: number;
+  markupPercent: number;
+};
+
+type ProcurementCorrectionDraftLine = {
+  lineId: string;
+  itemId: string | null;
+  inventoryBatchId: string | null;
+  procurementPrice: string;
+  quantity: string;
+  markupPercent: string;
 };
 
 type ExpenseRecordedInput = {
@@ -406,6 +417,19 @@ const createProcurementDraftLine = (): ProcurementDraftLine => ({
   markupPercent: "0",
 });
 
+const createProcurementCorrectionDraftLine = (
+  defaults?: Partial<ProcurementCorrectionDraftLine>,
+): ProcurementCorrectionDraftLine => ({
+  lineId: `${crypto.randomUUID()}-${Math.random().toString(36).slice(2)}`,
+  itemId: defaults?.itemId ?? null,
+  inventoryBatchId: defaults?.inventoryBatchId ?? null,
+  procurementPrice: defaults?.procurementPrice ?? "",
+  quantity: defaults?.quantity ?? "",
+  markupPercent: defaults?.markupPercent ?? "0",
+});
+
+const toDateInputOccurredAt = (dateText: string): string => `${dateText}T00:00:00.000Z`;
+
 export const roundUpToNearest10Cents = (price: number): number => {
   if (!Number.isFinite(price) || price <= 0) {
     return 0;
@@ -470,9 +494,9 @@ const buildCreateItemEvent = (
 const buildProcurementRecordedEvent = (
   actor: AuthUser,
   payload: {
+    occurredAt: string;
     supplierName?: string | null;
     tripDistanceKm?: number | null;
-    procuredDate?: string | null;
     lines: ProcurementEventLineInput[];
   },
 ): Event => {
@@ -483,12 +507,13 @@ const buildProcurementRecordedEvent = (
     unitCost: line.unitCost,
     lineTotalCost: line.quantity * line.unitCost,
     unitSellingPrice: line.unitSellingPrice,
+    markupPercent: line.markupPercent,
   }));
   const cashTotal = lines.reduce((sum, line) => sum + line.lineTotalCost, 0);
   return {
     eventId: crypto.randomUUID(),
     eventType: "procurement.recorded",
-    occurredAt: new Date().toISOString(),
+    occurredAt: payload.occurredAt,
     actorUserId: actor.id,
     deviceId: "web-registry",
     schemaVersion: 1,
@@ -498,7 +523,6 @@ const buildProcurementRecordedEvent = (
     payload: {
       supplierName: payload.supplierName ?? null,
       tripDistanceKm: payload.tripDistanceKm ?? null,
-      procuredDate: payload.procuredDate ?? null,
       cashTotal,
       lines,
     },
@@ -534,6 +558,7 @@ export const App = ({
   const materialsClient = useMemo(() => createMaterialsClient(), []);
   const itemsClient = useMemo(() => createItemsClient(), []);
   const inventoryClient = useMemo(() => createInventoryClient(), []);
+  const procurementClient = useMemo(() => createProcurementClient(), []);
   const ledgerClient = useMemo(() => createLedgerClient(), []);
   const reportsClient = useMemo(() => createReportsClient(), []);
   const reconciliationClient = useMemo(() => createReconciliationClient(), []);
@@ -603,6 +628,19 @@ export const App = ({
   );
   const [procurementPending, setProcurementPending] = useState<boolean>(false);
   const [procurementError, setProcurementError] = useState<string | null>(null);
+  const [procurementHistory, setProcurementHistory] = useState<ProcurementRecord[]>([]);
+  const [procurementHistoryLoading, setProcurementHistoryLoading] = useState<boolean>(false);
+  const [procurementHistoryError, setProcurementHistoryError] = useState<string | null>(null);
+  const [editingProcurementEventId, setEditingProcurementEventId] = useState<string | null>(null);
+  const [editingProcurementSupplierName, setEditingProcurementSupplierName] = useState<string>("");
+  const [editingProcurementTripDistanceKm, setEditingProcurementTripDistanceKm] =
+    useState<string>("");
+  const [editingProcurementDate, setEditingProcurementDate] = useState<string>("");
+  const [editingProcurementLines, setEditingProcurementLines] = useState<
+    ProcurementCorrectionDraftLine[]
+  >([]);
+  const [editingProcurementPending, setEditingProcurementPending] = useState<boolean>(false);
+  const [editingProcurementError, setEditingProcurementError] = useState<string | null>(null);
   const [expenseCategory, setExpenseCategory] = useState<string>("");
   const [expenseCashAmount, setExpenseCashAmount] = useState<string>("");
   const [expenseDate, setExpenseDate] = useState<string>(new Date().toISOString().slice(0, 10));
@@ -796,6 +834,9 @@ export const App = ({
   const canRecordExpenses = sessionUser?.role === "administrator";
   const canViewReports = sessionUser?.role === "administrator";
   const canManageUsers = sessionUser?.role === "administrator";
+  const showProcurementPanel = canManageInventory && activeView === "shop-procurement";
+  const showExpensePanel = canManageInventory && activeView === "shop-expense";
+  const showLedgerPanel = canManageInventory && activeView === "collection-log";
   const isManagerPanelOpen = (panel: ManagerPanelKey): boolean => openManagerPanels[panel];
   const selectedReconciliationIssue = useMemo(
     () =>
@@ -973,6 +1014,28 @@ export const App = ({
       setInventoryError(message);
     } finally {
       setInventoryLoading(false);
+    }
+  };
+
+  const loadProcurements = async (): Promise<void> => {
+    setProcurementHistoryLoading(true);
+    setProcurementHistoryError(null);
+    try {
+      const next = await procurementClient.listProcurements();
+      setProcurementHistory(next);
+      if (
+        editingProcurementEventId !== null &&
+        !next.some((procurement) => procurement.procurementEventId === editingProcurementEventId)
+      ) {
+        setEditingProcurementEventId(null);
+        setEditingProcurementLines([]);
+        setEditingProcurementError(null);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setProcurementHistoryError(message);
+    } finally {
+      setProcurementHistoryLoading(false);
     }
   };
 
@@ -1311,6 +1374,14 @@ export const App = ({
     setLoadedManagerPanels(createClosedManagerPanels());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionStatus, canViewReports]);
+
+  useEffect(() => {
+    if (!showProcurementPanel) {
+      return;
+    }
+    void loadProcurements();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showProcurementPanel]);
 
   useEffect(() => {
     if (sessionStatus !== "authenticated") {
@@ -1849,10 +1920,15 @@ export const App = ({
         quantity,
         unitCost,
         unitSellingPrice,
+        markupPercent,
       });
     }
     if (lines.length === 0) {
       setProcurementError("Add at least one procurement line");
+      return;
+    }
+    if (procurementDate.trim().length === 0) {
+      setProcurementError("Procurement date is required");
       return;
     }
 
@@ -1873,14 +1949,14 @@ export const App = ({
       }
       await queue.enqueue(
         buildProcurementRecordedEvent(sessionUser, {
+          occurredAt: toDateInputOccurredAt(procurementDate.trim()),
           supplierName: toNullableOrUndefined(procurementSupplierName) ?? null,
           tripDistanceKm: tripDistance,
-          procuredDate: procurementDate.trim().length > 0 ? procurementDate.trim() : null,
           lines,
         }),
       );
       await sync.syncNow();
-      await loadInventory();
+      await Promise.all([loadInventory(), loadProcurements()]);
       setProcurementLines([createProcurementDraftLine()]);
       setProcurementSupplierName("");
       setProcurementTripDistanceKm("");
@@ -1890,6 +1966,107 @@ export const App = ({
       setProcurementError(message);
     } finally {
       setProcurementPending(false);
+    }
+  };
+
+  const startEditingProcurement = (procurement: ProcurementRecord): void => {
+    setEditingProcurementEventId(procurement.procurementEventId);
+    setEditingProcurementSupplierName(procurement.supplierName ?? "");
+    setEditingProcurementTripDistanceKm(
+      procurement.tripDistanceKm === null ? "" : String(procurement.tripDistanceKm),
+    );
+    setEditingProcurementDate(procurement.occurredAt.slice(0, 10));
+    setEditingProcurementLines(
+      procurement.lines.map((line) =>
+        createProcurementCorrectionDraftLine({
+          itemId: line.itemId,
+          inventoryBatchId: line.inventoryBatchId,
+          procurementPrice: String(line.lineTotalCost),
+          quantity: String(line.quantity),
+          markupPercent: String(line.markupPercent),
+        }),
+      ),
+    );
+    setEditingProcurementError(null);
+  };
+
+  const handleSaveProcurementCorrection = async (): Promise<void> => {
+    if (editingProcurementEventId === null) {
+      setEditingProcurementError("Select a procurement to edit");
+      return;
+    }
+    if (editingProcurementLines.length === 0) {
+      setEditingProcurementError("Add at least one procurement line");
+      return;
+    }
+    if (editingProcurementDate.trim().length === 0) {
+      setEditingProcurementError("Procurement date is required");
+      return;
+    }
+
+    const tripDistance =
+      editingProcurementTripDistanceKm.trim().length === 0
+        ? null
+        : Number.parseFloat(editingProcurementTripDistanceKm);
+    if (tripDistance !== null && (!Number.isFinite(tripDistance) || tripDistance < 0)) {
+      setEditingProcurementError("Trip distance must be 0 or greater");
+      return;
+    }
+
+    const lines: Array<{
+      itemId: string;
+      inventoryBatchId?: string | null;
+      quantity: number;
+      unitCost: number;
+      markupPercent: number;
+    }> = [];
+    for (const line of editingProcurementLines) {
+      if (line.itemId === null) {
+        setEditingProcurementError("Each line must include an item");
+        return;
+      }
+      const quantity = Number.parseInt(line.quantity, 10);
+      if (!Number.isInteger(quantity) || quantity <= 0) {
+        setEditingProcurementError("Each line quantity must be a positive integer");
+        return;
+      }
+      const procurementPrice = Number.parseFloat(line.procurementPrice);
+      if (!Number.isFinite(procurementPrice) || procurementPrice < 0) {
+        setEditingProcurementError("Each line procurement price must be 0 or greater");
+        return;
+      }
+      const markupPercent = Number.parseFloat(line.markupPercent);
+      if (!Number.isFinite(markupPercent) || markupPercent < 0 || markupPercent > 100) {
+        setEditingProcurementError("Mark-up must be between 0 and 100");
+        return;
+      }
+      lines.push({
+        itemId: line.itemId,
+        inventoryBatchId: line.inventoryBatchId,
+        quantity,
+        unitCost: procurementPrice / quantity,
+        markupPercent,
+      });
+    }
+
+    setEditingProcurementPending(true);
+    setEditingProcurementError(null);
+    try {
+      await procurementClient.correctProcurement(editingProcurementEventId, {
+        occurredAt: toDateInputOccurredAt(editingProcurementDate.trim()),
+        supplierName: toNullableOrUndefined(editingProcurementSupplierName) ?? null,
+        tripDistanceKm: tripDistance,
+        reason: "user edit",
+        lines,
+      });
+      await Promise.all([loadProcurements(), loadInventory()]);
+      setEditingProcurementEventId(null);
+      setEditingProcurementLines([]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setEditingProcurementError(message);
+    } finally {
+      setEditingProcurementPending(false);
     }
   };
 
@@ -2346,10 +2523,6 @@ export const App = ({
       </div>
     );
   }
-
-  const showProcurementPanel = canManageInventory && activeView === "shop-procurement";
-  const showExpensePanel = canManageInventory && activeView === "shop-expense";
-  const showLedgerPanel = canManageInventory && activeView === "collection-log";
 
   return (
     <AppShell
@@ -2978,152 +3151,400 @@ export const App = ({
             ) : null}
 
             {showProcurementPanel ? (
-              <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
-                <Stack gap="sm">
-                  <Title order={4}>Record Procurement</Title>
-                  <TextInput
-                    label="Supplier Name"
-                    value={procurementSupplierName}
-                    onChange={(event) => {
-                      setProcurementSupplierName(event.currentTarget.value);
-                    }}
-                  />
-                  <TextInput
-                    label="Procurement Date"
-                    type="date"
-                    value={procurementDate}
-                    onChange={(event) => {
-                      setProcurementDate(event.currentTarget.value);
-                    }}
-                  />
-                  <TextInput
-                    label="Trip Distance Km"
-                    value={procurementTripDistanceKm}
-                    onChange={(event) => {
-                      setProcurementTripDistanceKm(event.currentTarget.value);
-                    }}
-                  />
-                  {procurementLines.map((line, index) => {
-                    const qty = Number.parseInt(line.quantity, 10);
-                    const price = Number.parseFloat(line.procurementPrice);
-                    const markup = Number.parseFloat(line.markupPercent);
-                    const hasValidQtyAndPrice =
-                      Number.isInteger(qty) && qty > 0 && Number.isFinite(price) && price >= 0;
-                    const unitCostDerived = hasValidQtyAndPrice ? price / qty : null;
-                    const hasValidMarkup = Number.isFinite(markup) && markup >= 0 && markup <= 100;
-                    const sellingPriceDerived =
-                      unitCostDerived !== null && hasValidMarkup
-                        ? roundUpToNearest10Cents(unitCostDerived * (1 + markup / 100))
-                        : null;
-                    return (
-                      <Card key={line.lineId} withBorder radius="md" padding="sm">
-                        <Stack gap="xs">
-                          <TextInput
-                            label={`Item Name ${String(index + 1)}`}
-                            value={line.itemName}
-                            onChange={(event) => {
-                              const nextValue = event.currentTarget.value;
-                              setProcurementLines((previous) =>
-                                previous.map((entry) =>
-                                  entry.lineId === line.lineId
-                                    ? { ...entry, itemName: nextValue }
-                                    : entry,
-                                ),
-                              );
-                            }}
-                          />
-                          <TextInput
-                            label={`Procurement Price ${String(index + 1)}`}
-                            description="Total cost for this line"
-                            value={line.procurementPrice}
-                            onChange={(event) => {
-                              const nextValue = event.currentTarget.value;
-                              setProcurementLines((previous) =>
-                                previous.map((entry) =>
-                                  entry.lineId === line.lineId
-                                    ? { ...entry, procurementPrice: nextValue }
-                                    : entry,
-                                ),
-                              );
-                            }}
-                          />
-                          <TextInput
-                            label={`Quantity ${String(index + 1)}`}
-                            description="Number of units"
-                            value={line.quantity}
-                            onChange={(event) => {
-                              const nextValue = event.currentTarget.value;
-                              setProcurementLines((previous) =>
-                                previous.map((entry) =>
-                                  entry.lineId === line.lineId
-                                    ? { ...entry, quantity: nextValue }
-                                    : entry,
-                                ),
-                              );
-                            }}
-                          />
-                          <Text size="sm" c="dimmed">
-                            {`Cost per unit: ${unitCostDerived !== null ? unitCostDerived.toFixed(2) : "-"}`}
-                          </Text>
-                          <TextInput
-                            label={`Mark-up % ${String(index + 1)}`}
-                            description="Percentage between 0 and 100"
-                            value={line.markupPercent}
-                            onChange={(event) => {
-                              const nextValue = event.currentTarget.value;
-                              setProcurementLines((previous) =>
-                                previous.map((entry) =>
-                                  entry.lineId === line.lineId
-                                    ? { ...entry, markupPercent: nextValue }
-                                    : entry,
-                                ),
-                              );
-                            }}
-                          />
-                          <Text size="sm" c="dimmed">
-                            {`Selling price: ${sellingPriceDerived !== null ? sellingPriceDerived.toFixed(2) : "-"}`}
-                          </Text>
-                          <Button
-                            variant="default"
-                            size="xs"
-                            onClick={() => {
-                              setProcurementLines((previous) =>
-                                previous.filter((entry) => entry.lineId !== line.lineId),
-                              );
-                            }}
-                          >
-                            Remove Procurement Line
-                          </Button>
-                        </Stack>
-                      </Card>
-                    );
-                  })}
-                  <Button
-                    variant="light"
-                    size="xs"
-                    onClick={() => {
-                      setProcurementLines((previous) => [
-                        ...previous,
-                        createProcurementDraftLine(),
-                      ]);
-                    }}
-                  >
-                    Add Procurement Line
-                  </Button>
-                  <Text size="sm" c="dimmed">
-                    {`Procurement total preview cash: ${String(procurementTotalPreviewCost)}`}
-                  </Text>
-                  {procurementError !== null ? <Text c="red">{procurementError}</Text> : null}
-                  <Button
-                    onClick={() => {
-                      void handleRecordProcurement();
-                    }}
-                    loading={procurementPending}
-                  >
-                    Record Procurement
-                  </Button>
-                </Stack>
-              </Card>
+              <>
+                <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                  <Stack gap="sm">
+                    <Title order={4}>Record Procurement</Title>
+                    <TextInput
+                      label="Supplier Name"
+                      value={procurementSupplierName}
+                      onChange={(event) => {
+                        setProcurementSupplierName(event.currentTarget.value);
+                      }}
+                    />
+                    <TextInput
+                      label="Procurement Date"
+                      type="date"
+                      value={procurementDate}
+                      onChange={(event) => {
+                        setProcurementDate(event.currentTarget.value);
+                      }}
+                    />
+                    <TextInput
+                      label="Trip Distance Km"
+                      value={procurementTripDistanceKm}
+                      onChange={(event) => {
+                        setProcurementTripDistanceKm(event.currentTarget.value);
+                      }}
+                    />
+                    {procurementLines.map((line, index) => {
+                      const qty = Number.parseInt(line.quantity, 10);
+                      const price = Number.parseFloat(line.procurementPrice);
+                      const markup = Number.parseFloat(line.markupPercent);
+                      const hasValidQtyAndPrice =
+                        Number.isInteger(qty) && qty > 0 && Number.isFinite(price) && price >= 0;
+                      const unitCostDerived = hasValidQtyAndPrice ? price / qty : null;
+                      const hasValidMarkup =
+                        Number.isFinite(markup) && markup >= 0 && markup <= 100;
+                      const sellingPriceDerived =
+                        unitCostDerived !== null && hasValidMarkup
+                          ? roundUpToNearest10Cents(unitCostDerived * (1 + markup / 100))
+                          : null;
+                      return (
+                        <Card key={line.lineId} withBorder radius="md" padding="sm">
+                          <Stack gap="xs">
+                            <TextInput
+                              label={`Item Name ${String(index + 1)}`}
+                              value={line.itemName}
+                              onChange={(event) => {
+                                const nextValue = event.currentTarget.value;
+                                setProcurementLines((previous) =>
+                                  previous.map((entry) =>
+                                    entry.lineId === line.lineId
+                                      ? { ...entry, itemName: nextValue }
+                                      : entry,
+                                  ),
+                                );
+                              }}
+                            />
+                            <TextInput
+                              label={`Procurement Price ${String(index + 1)}`}
+                              description="Total cost for this line"
+                              value={line.procurementPrice}
+                              onChange={(event) => {
+                                const nextValue = event.currentTarget.value;
+                                setProcurementLines((previous) =>
+                                  previous.map((entry) =>
+                                    entry.lineId === line.lineId
+                                      ? { ...entry, procurementPrice: nextValue }
+                                      : entry,
+                                  ),
+                                );
+                              }}
+                            />
+                            <TextInput
+                              label={`Quantity ${String(index + 1)}`}
+                              description="Number of units"
+                              value={line.quantity}
+                              onChange={(event) => {
+                                const nextValue = event.currentTarget.value;
+                                setProcurementLines((previous) =>
+                                  previous.map((entry) =>
+                                    entry.lineId === line.lineId
+                                      ? { ...entry, quantity: nextValue }
+                                      : entry,
+                                  ),
+                                );
+                              }}
+                            />
+                            <Text size="sm" c="dimmed">
+                              {`Cost per unit: ${unitCostDerived !== null ? unitCostDerived.toFixed(2) : "-"}`}
+                            </Text>
+                            <TextInput
+                              label={`Mark-up % ${String(index + 1)}`}
+                              description="Percentage between 0 and 100"
+                              value={line.markupPercent}
+                              onChange={(event) => {
+                                const nextValue = event.currentTarget.value;
+                                setProcurementLines((previous) =>
+                                  previous.map((entry) =>
+                                    entry.lineId === line.lineId
+                                      ? { ...entry, markupPercent: nextValue }
+                                      : entry,
+                                  ),
+                                );
+                              }}
+                            />
+                            <Text size="sm" c="dimmed">
+                              {`Selling price: ${sellingPriceDerived !== null ? sellingPriceDerived.toFixed(2) : "-"}`}
+                            </Text>
+                            <Button
+                              variant="default"
+                              size="xs"
+                              onClick={() => {
+                                setProcurementLines((previous) =>
+                                  previous.filter((entry) => entry.lineId !== line.lineId),
+                                );
+                              }}
+                            >
+                              Remove Procurement Line
+                            </Button>
+                          </Stack>
+                        </Card>
+                      );
+                    })}
+                    <Button
+                      variant="light"
+                      size="xs"
+                      onClick={() => {
+                        setProcurementLines((previous) => [
+                          ...previous,
+                          createProcurementDraftLine(),
+                        ]);
+                      }}
+                    >
+                      Add Procurement Line
+                    </Button>
+                    <Text size="sm" c="dimmed">
+                      {`Procurement total preview cash: ${String(procurementTotalPreviewCost)}`}
+                    </Text>
+                    {procurementError !== null ? <Text c="red">{procurementError}</Text> : null}
+                    <Button
+                      onClick={() => {
+                        void handleRecordProcurement();
+                      }}
+                      loading={procurementPending}
+                    >
+                      Record Procurement
+                    </Button>
+                  </Stack>
+                </Card>
+
+                <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                  <Stack gap="sm">
+                    <Group justify="space-between">
+                      <Title order={4}>Procurement History</Title>
+                      <Button
+                        variant="default"
+                        onClick={() => {
+                          void loadProcurements();
+                        }}
+                        loading={procurementHistoryLoading}
+                      >
+                        Refresh History
+                      </Button>
+                    </Group>
+                    {procurementHistoryError !== null ? (
+                      <Text c="red">{procurementHistoryError}</Text>
+                    ) : null}
+                    <Stack gap="xs">
+                      {procurementHistory.map((procurement) => (
+                        <Card
+                          key={procurement.procurementEventId}
+                          withBorder
+                          radius="md"
+                          padding="sm"
+                        >
+                          <Stack gap="xs">
+                            <Group justify="space-between" align="flex-start">
+                              <div>
+                                <Text size="sm" fw={600}>
+                                  {`${procurement.occurredAt.slice(0, 10)} | ${procurement.supplierName ?? "No supplier"}`}
+                                </Text>
+                                <Text size="xs" c="dimmed">
+                                  {`Cash total ${formatCurrencyValue(procurement.cashTotal)} | ${String(procurement.lines.length)} lines`}
+                                </Text>
+                              </div>
+                              <Badge color={procurement.isEditable ? "green" : "gray"}>
+                                {procurement.isEditable ? "Editable" : "Locked"}
+                              </Badge>
+                            </Group>
+                            <Stack gap={2}>
+                              {procurement.lines.map((line, index) => {
+                                const itemName =
+                                  items.find((item) => item.id === line.itemId)?.name ??
+                                  line.itemId;
+                                return (
+                                  <Text
+                                    key={`${procurement.procurementEventId}-${line.inventoryBatchId}`}
+                                    size="xs"
+                                    c="dimmed"
+                                  >
+                                    {`${String(index + 1)}. ${itemName} | Qty ${String(line.quantity)} | Cost ${formatCurrencyValue(line.lineTotalCost)} | Mark-up ${String(line.markupPercent)}%`}
+                                  </Text>
+                                );
+                              })}
+                            </Stack>
+                            {procurement.isEditable ? (
+                              <Button
+                                size="xs"
+                                variant="light"
+                                onClick={() => {
+                                  startEditingProcurement(procurement);
+                                }}
+                              >
+                                Edit Procurement
+                              </Button>
+                            ) : (
+                              <Text size="xs" c="dimmed">
+                                This procurement is locked because stock has already moved.
+                              </Text>
+                            )}
+                          </Stack>
+                        </Card>
+                      ))}
+                      {procurementHistory.length === 0 && !procurementHistoryLoading ? (
+                        <Text size="sm" c="dimmed">
+                          No procurements found.
+                        </Text>
+                      ) : null}
+                    </Stack>
+                  </Stack>
+                </Card>
+
+                {editingProcurementEventId !== null ? (
+                  <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                    <Stack gap="sm">
+                      <Title order={4}>Edit Procurement</Title>
+                      <TextInput
+                        label="Supplier Name"
+                        value={editingProcurementSupplierName}
+                        onChange={(event) => {
+                          setEditingProcurementSupplierName(event.currentTarget.value);
+                        }}
+                      />
+                      <TextInput
+                        label="Procurement Date"
+                        type="date"
+                        value={editingProcurementDate}
+                        onChange={(event) => {
+                          setEditingProcurementDate(event.currentTarget.value);
+                        }}
+                      />
+                      <TextInput
+                        label="Trip Distance Km"
+                        value={editingProcurementTripDistanceKm}
+                        onChange={(event) => {
+                          setEditingProcurementTripDistanceKm(event.currentTarget.value);
+                        }}
+                      />
+                      {editingProcurementLines.map((line, index) => {
+                        const qty = Number.parseInt(line.quantity, 10);
+                        const price = Number.parseFloat(line.procurementPrice);
+                        const markup = Number.parseFloat(line.markupPercent);
+                        const hasValidQtyAndPrice =
+                          Number.isInteger(qty) && qty > 0 && Number.isFinite(price) && price >= 0;
+                        const unitCostDerived = hasValidQtyAndPrice ? price / qty : null;
+                        const hasValidMarkup =
+                          Number.isFinite(markup) && markup >= 0 && markup <= 100;
+                        const sellingPriceDerived =
+                          unitCostDerived !== null && hasValidMarkup
+                            ? roundUpToNearest10Cents(unitCostDerived * (1 + markup / 100))
+                            : null;
+                        return (
+                          <Card key={line.lineId} withBorder radius="md" padding="sm">
+                            <Stack gap="xs">
+                              <Select
+                                label={`Item ${String(index + 1)}`}
+                                data={items.map((item) => ({
+                                  value: item.id,
+                                  label: item.name,
+                                }))}
+                                value={line.itemId}
+                                onChange={(value) => {
+                                  setEditingProcurementLines((previous) =>
+                                    previous.map((entry) =>
+                                      entry.lineId === line.lineId
+                                        ? { ...entry, itemId: value }
+                                        : entry,
+                                    ),
+                                  );
+                                }}
+                                searchable
+                                clearable
+                              />
+                              <TextInput
+                                label={`Procurement Price ${String(index + 1)}`}
+                                value={line.procurementPrice}
+                                onChange={(event) => {
+                                  const nextValue = event.currentTarget.value;
+                                  setEditingProcurementLines((previous) =>
+                                    previous.map((entry) =>
+                                      entry.lineId === line.lineId
+                                        ? { ...entry, procurementPrice: nextValue }
+                                        : entry,
+                                    ),
+                                  );
+                                }}
+                              />
+                              <TextInput
+                                label={`Quantity ${String(index + 1)}`}
+                                value={line.quantity}
+                                onChange={(event) => {
+                                  const nextValue = event.currentTarget.value;
+                                  setEditingProcurementLines((previous) =>
+                                    previous.map((entry) =>
+                                      entry.lineId === line.lineId
+                                        ? { ...entry, quantity: nextValue }
+                                        : entry,
+                                    ),
+                                  );
+                                }}
+                              />
+                              <Text size="sm" c="dimmed">
+                                {`Cost per unit: ${unitCostDerived !== null ? unitCostDerived.toFixed(2) : "-"}`}
+                              </Text>
+                              <TextInput
+                                label={`Mark-up % ${String(index + 1)}`}
+                                value={line.markupPercent}
+                                onChange={(event) => {
+                                  const nextValue = event.currentTarget.value;
+                                  setEditingProcurementLines((previous) =>
+                                    previous.map((entry) =>
+                                      entry.lineId === line.lineId
+                                        ? { ...entry, markupPercent: nextValue }
+                                        : entry,
+                                    ),
+                                  );
+                                }}
+                              />
+                              <Text size="sm" c="dimmed">
+                                {`Selling price: ${sellingPriceDerived !== null ? sellingPriceDerived.toFixed(2) : "-"}`}
+                              </Text>
+                              <Button
+                                variant="default"
+                                size="xs"
+                                onClick={() => {
+                                  setEditingProcurementLines((previous) =>
+                                    previous.filter((entry) => entry.lineId !== line.lineId),
+                                  );
+                                }}
+                              >
+                                Remove Procurement Line
+                              </Button>
+                            </Stack>
+                          </Card>
+                        );
+                      })}
+                      <Button
+                        variant="light"
+                        size="xs"
+                        onClick={() => {
+                          setEditingProcurementLines((previous) => [
+                            ...previous,
+                            createProcurementCorrectionDraftLine(),
+                          ]);
+                        }}
+                      >
+                        Add Procurement Line
+                      </Button>
+                      {editingProcurementError !== null ? (
+                        <Text c="red">{editingProcurementError}</Text>
+                      ) : null}
+                      <Group>
+                        <Button
+                          onClick={() => {
+                            void handleSaveProcurementCorrection();
+                          }}
+                          loading={editingProcurementPending}
+                        >
+                          Save Procurement Changes
+                        </Button>
+                        <Button
+                          variant="default"
+                          onClick={() => {
+                            setEditingProcurementEventId(null);
+                            setEditingProcurementLines([]);
+                            setEditingProcurementError(null);
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                      </Group>
+                    </Stack>
+                  </Card>
+                ) : null}
+              </>
             ) : null}
 
             {showExpensePanel ? (

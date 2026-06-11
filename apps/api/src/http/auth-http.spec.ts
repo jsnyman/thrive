@@ -129,6 +129,7 @@ const createDependencies = (overrides?: Partial<ApiServerDependencies>): ApiServ
     rows: [],
   }),
   listInventoryStatusLogReport: async () => [],
+  listProcurements: async () => [],
   listAdjustmentRequests: async () => ({
     requests: [],
     nextCursor: null,

@@ -218,6 +218,26 @@ type InventoryStatusLogReportRow = {
   notes: string | null;
 };
 
+type ProcurementRecordLine = {
+  itemId: string;
+  inventoryBatchId: string;
+  quantity: number;
+  unitCost: number;
+  lineTotalCost: number;
+  unitSellingPrice: number;
+  markupPercent: number;
+};
+
+type ProcurementRecord = {
+  procurementEventId: string;
+  occurredAt: string;
+  supplierName: string | null;
+  tripDistanceKm: number | null;
+  cashTotal: number;
+  lines: ProcurementRecordLine[];
+  isEditable: boolean;
+};
+
 type InventoryAdjustmentStatus = "spoiled" | "damaged" | "missing";
 type AdjustmentRequestType = "points" | "inventory";
 type AdjustmentRequestStatus = "pending" | "approved" | "rejected";
@@ -284,13 +304,10 @@ type LedgerEntryRow = {
   source_event_id: string;
 };
 
-type InventoryStatusSummaryRow = {
-  status: string;
-  total_quantity: number;
-};
-
-type InventoryEventRow = {
+type ProcurementEventRow = {
+  event_id: string;
   event_type: string;
+  occurred_at: Date;
   payload: unknown;
 };
 
@@ -612,6 +629,22 @@ const createInventoryBatchCostState = (
   quantities: createEmptyInventoryQuantities(),
 });
 
+const cloneInventoryBatchCostState = (
+  batch: InventoryBatchCostStateRecord,
+): InventoryBatchCostStateRecord => ({
+  inventoryBatchId: batch.inventoryBatchId,
+  itemId: batch.itemId,
+  unitCost: batch.unitCost,
+  quantities: {
+    storage: batch.quantities.storage,
+    shop: batch.quantities.shop,
+    sold: batch.quantities.sold,
+    spoiled: batch.quantities.spoiled,
+    damaged: batch.quantities.damaged,
+    missing: batch.quantities.missing,
+  },
+});
+
 const compareSyncCursors = (left: SyncCursor | null, right: SyncCursor | null): number => {
   if (left === right) {
     return 0;
@@ -694,29 +727,16 @@ export const createCoreRepository = (prisma: PrismaClient) => {
     return rows.map(toItemRecord);
   };
 
-  const listInventoryStatusSummary = async (): Promise<InventoryStatusSummaryRecord[]> => {
-    const rows = await prisma.$queryRaw<InventoryStatusSummaryRow[]>`
-      select status, total_quantity
-      from mv_inventory_status_summary
-    `;
-    const totals = new Map<InventoryStatus, number>();
-    for (const row of rows) {
-      if (INVENTORY_STATUSES.includes(row.status as InventoryStatus)) {
-        totals.set(row.status as InventoryStatus, row.total_quantity);
-      }
-    }
-    return INVENTORY_STATUSES.map((status) => ({
-      status,
-      totalQuantity: totals.get(status) ?? 0,
-    }));
-  };
-
-  const listInventoryBatchCostState = async (): Promise<InventoryBatchCostStateRecord[]> => {
-    const rows = await prisma.$queryRaw<InventoryEventRow[]>`
-      select event_type::text as event_type, payload
+  const listEffectiveProcurementSnapshot = async (): Promise<{
+    batches: Map<string, InventoryBatchCostStateRecord>;
+    procurements: ProcurementRecord[];
+  }> => {
+    const rows = await prisma.$queryRaw<ProcurementEventRow[]>`
+      select event_id, event_type::text as event_type, occurred_at, payload
       from event
       where event_type in (
         'procurement.recorded',
+        'procurement.corrected',
         'sale.recorded',
         'inventory.status_changed',
         'inventory.adjustment_applied'
@@ -724,13 +744,16 @@ export const createCoreRepository = (prisma: PrismaClient) => {
       order by recorded_at asc, event_id asc
     `;
     const stateByBatch = new Map<string, InventoryBatchCostStateRecord>();
+    const procurementsById = new Map<string, ProcurementRecord>();
+
     for (const row of rows) {
       const payload = row.payload as Record<string, unknown>;
-      if (row.event_type === "procurement.recorded") {
+      if (row.event_type === "procurement.recorded" || row.event_type === "procurement.corrected") {
         const linesRaw = payload["lines"];
         if (!Array.isArray(linesRaw)) {
           continue;
         }
+        const parsedLines: ProcurementRecordLine[] = [];
         for (const line of linesRaw) {
           if (typeof line !== "object" || line === null || Array.isArray(line)) {
             continue;
@@ -740,26 +763,114 @@ export const createCoreRepository = (prisma: PrismaClient) => {
           const itemId = lineRecord["itemId"];
           const quantity = lineRecord["quantity"];
           const unitCost = lineRecord["unitCost"];
+          const lineTotalCost = lineRecord["lineTotalCost"];
+          const unitSellingPrice = lineRecord["unitSellingPrice"];
+          const markupPercentRaw = lineRecord["markupPercent"];
+          const derivedMarkupPercent =
+            typeof markupPercentRaw === "number" && Number.isFinite(markupPercentRaw)
+              ? markupPercentRaw
+              : typeof unitCost === "number" &&
+                  Number.isFinite(unitCost) &&
+                  unitCost > 0 &&
+                  typeof unitSellingPrice === "number" &&
+                  Number.isFinite(unitSellingPrice)
+                ? Number(((unitSellingPrice / unitCost - 1) * 100).toFixed(2))
+                : 0;
           if (
             typeof inventoryBatchId !== "string" ||
             typeof itemId !== "string" ||
             typeof quantity !== "number" ||
             !Number.isFinite(quantity) ||
             typeof unitCost !== "number" ||
-            !Number.isFinite(unitCost)
+            !Number.isFinite(unitCost) ||
+            typeof lineTotalCost !== "number" ||
+            !Number.isFinite(lineTotalCost) ||
+            typeof unitSellingPrice !== "number" ||
+            !Number.isFinite(unitSellingPrice)
           ) {
             continue;
           }
-          const existing =
-            stateByBatch.get(inventoryBatchId) ??
-            createInventoryBatchCostState(inventoryBatchId, itemId, unitCost);
-          existing.itemId = itemId;
-          existing.unitCost = unitCost;
-          existing.quantities.storage += quantity;
-          stateByBatch.set(inventoryBatchId, existing);
+          parsedLines.push({
+            itemId,
+            inventoryBatchId,
+            quantity,
+            unitCost,
+            lineTotalCost,
+            unitSellingPrice,
+            markupPercent: derivedMarkupPercent,
+          });
         }
+
+        if (row.event_type === "procurement.recorded") {
+          for (const line of parsedLines) {
+            const existing =
+              stateByBatch.get(line.inventoryBatchId) ??
+              createInventoryBatchCostState(line.inventoryBatchId, line.itemId, line.unitCost);
+            existing.itemId = line.itemId;
+            existing.unitCost = line.unitCost;
+            existing.quantities.storage += line.quantity;
+            stateByBatch.set(line.inventoryBatchId, existing);
+          }
+          procurementsById.set(row.event_id, {
+            procurementEventId: row.event_id,
+            occurredAt: row.occurred_at.toISOString(),
+            supplierName:
+              typeof payload["supplierName"] === "string" ? payload["supplierName"] : null,
+            tripDistanceKm:
+              typeof payload["tripDistanceKm"] === "number" &&
+              Number.isFinite(payload["tripDistanceKm"])
+                ? payload["tripDistanceKm"]
+                : null,
+            cashTotal:
+              typeof payload["cashTotal"] === "number" && Number.isFinite(payload["cashTotal"])
+                ? payload["cashTotal"]
+                : parsedLines.reduce((sum, line) => sum + line.lineTotalCost, 0),
+            lines: parsedLines,
+            isEditable: false,
+          });
+          continue;
+        }
+
+        const procurementEventId = payload["procurementEventId"];
+        if (typeof procurementEventId !== "string") {
+          continue;
+        }
+        const existingProcurement = procurementsById.get(procurementEventId);
+        if (existingProcurement === undefined) {
+          continue;
+        }
+        const nextBatchIds = new Set(parsedLines.map((line) => line.inventoryBatchId));
+        for (const line of existingProcurement.lines) {
+          if (!nextBatchIds.has(line.inventoryBatchId)) {
+            stateByBatch.delete(line.inventoryBatchId);
+          }
+        }
+        for (const line of parsedLines) {
+          const batch =
+            stateByBatch.get(line.inventoryBatchId) ??
+            createInventoryBatchCostState(line.inventoryBatchId, line.itemId, line.unitCost);
+          batch.itemId = line.itemId;
+          batch.unitCost = line.unitCost;
+          batch.quantities = createEmptyInventoryQuantities();
+          batch.quantities.storage = line.quantity;
+          stateByBatch.set(line.inventoryBatchId, batch);
+        }
+        existingProcurement.occurredAt = row.occurred_at.toISOString();
+        existingProcurement.supplierName =
+          typeof payload["supplierName"] === "string" ? payload["supplierName"] : null;
+        existingProcurement.tripDistanceKm =
+          typeof payload["tripDistanceKm"] === "number" &&
+          Number.isFinite(payload["tripDistanceKm"])
+            ? payload["tripDistanceKm"]
+            : null;
+        existingProcurement.cashTotal =
+          typeof payload["cashTotal"] === "number" && Number.isFinite(payload["cashTotal"])
+            ? payload["cashTotal"]
+            : parsedLines.reduce((sum, line) => sum + line.lineTotalCost, 0);
+        existingProcurement.lines = parsedLines;
         continue;
       }
+
       if (row.event_type === "sale.recorded") {
         const linesRaw = payload["lines"];
         if (!Array.isArray(linesRaw)) {
@@ -813,7 +924,46 @@ export const createCoreRepository = (prisma: PrismaClient) => {
       existing.quantities[toStatus as InventoryStatus] += quantity;
       stateByBatch.set(inventoryBatchId, existing);
     }
-    return Array.from(stateByBatch.values());
+
+    const procurements = Array.from(procurementsById.values()).map((procurement) => ({
+      ...procurement,
+      lines: procurement.lines.map((line) => ({ ...line })),
+      isEditable: procurement.lines.every((line) => {
+        const batch = stateByBatch.get(line.inventoryBatchId);
+        return (
+          batch !== undefined &&
+          batch.quantities.storage === line.quantity &&
+          batch.quantities.shop === 0 &&
+          batch.quantities.sold === 0 &&
+          batch.quantities.spoiled === 0 &&
+          batch.quantities.damaged === 0 &&
+          batch.quantities.missing === 0
+        );
+      }),
+    }));
+
+    return {
+      batches: new Map(
+        Array.from(stateByBatch.entries()).map(([batchId, batch]) => [
+          batchId,
+          cloneInventoryBatchCostState(batch),
+        ]),
+      ),
+      procurements,
+    };
+  };
+
+  const listInventoryStatusSummary = async (): Promise<InventoryStatusSummaryRecord[]> => {
+    const batches = await listInventoryBatches();
+    return INVENTORY_STATUSES.map((status) => ({
+      status,
+      totalQuantity: batches.reduce((sum, batch) => sum + batch.quantities[status], 0),
+    }));
+  };
+
+  const listInventoryBatchCostState = async (): Promise<InventoryBatchCostStateRecord[]> => {
+    const snapshot = await listEffectiveProcurementSnapshot();
+    return Array.from(snapshot.batches.values());
   };
 
   const listInventoryBatches = async (): Promise<InventoryBatchStateRecord[]> => {
@@ -1572,6 +1722,13 @@ export const createCoreRepository = (prisma: PrismaClient) => {
         const inToStatus = filters.toStatus === null || row.toStatus === filters.toStatus;
         return inFrom && inTo && inFromStatus && inToStatus;
       });
+  };
+
+  const listProcurements = async (): Promise<ProcurementRecord[]> => {
+    const snapshot = await listEffectiveProcurementSnapshot();
+    return snapshot.procurements.sort((left, right) =>
+      right.occurredAt.localeCompare(left.occurredAt),
+    );
   };
 
   const buildSyncReconciliationIssues = async (): Promise<SyncReconciliationIssue[]> => {
@@ -2756,6 +2913,7 @@ export const createCoreRepository = (prisma: PrismaClient) => {
     listPointsLiabilityReport,
     listInventoryStatusReport,
     listInventoryStatusLogReport,
+    listProcurements,
     listAdjustmentRequests,
     listStaffUsers,
     createStaffUser,

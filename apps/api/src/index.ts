@@ -102,6 +102,7 @@ export const startApiServer = async (): Promise<ReturnType<typeof createApiServe
       createCoreRepository(getPrismaClient()).listInventoryStatusReport(),
     listInventoryStatusLogReport: async (filters) =>
       createCoreRepository(getPrismaClient()).listInventoryStatusLogReport(filters),
+    listProcurements: async () => createCoreRepository(getPrismaClient()).listProcurements(),
     listAdjustmentRequests: async (filters) =>
       createCoreRepository(getPrismaClient()).listAdjustmentRequests(filters),
     listStaffUsers: async () => createCoreRepository(getPrismaClient()).listStaffUsers(),

@@ -231,12 +231,29 @@ type SaleCreateInput = {
 };
 
 type ProcurementCreateInput = {
+  occurredAt: string;
   supplierName?: string | null;
   tripDistanceKm?: number | null;
   lines: Array<{
     itemId: string;
     quantity: number;
     unitCost: number;
+    markupPercent: number;
+  }>;
+  locationText?: string | null;
+};
+
+type ProcurementCorrectionInput = {
+  occurredAt: string;
+  supplierName?: string | null;
+  tripDistanceKm?: number | null;
+  reason: string;
+  lines: Array<{
+    itemId: string;
+    inventoryBatchId?: string | null;
+    quantity: number;
+    unitCost: number;
+    markupPercent: number;
   }>;
   locationText?: string | null;
 };
@@ -250,6 +267,26 @@ type BulkProcurementCreateInput = {
     lineTotalCost: number;
   }>;
   locationText?: string | null;
+};
+
+type ProcurementRecordLine = {
+  itemId: string;
+  inventoryBatchId: string;
+  quantity: number;
+  unitCost: number;
+  lineTotalCost: number;
+  unitSellingPrice: number;
+  markupPercent: number;
+};
+
+type ProcurementRecord = {
+  procurementEventId: string;
+  occurredAt: string;
+  supplierName: string | null;
+  tripDistanceKm: number | null;
+  cashTotal: number;
+  lines: ProcurementRecordLine[];
+  isEditable: boolean;
 };
 
 type ExpenseCreateInput = {
@@ -480,6 +517,7 @@ type ApiServerDependencies = {
   listInventoryStatusLogReport: (
     filters: InventoryStatusLogReportFilter,
   ) => Promise<InventoryStatusLogReportRow[]>;
+  listProcurements: () => Promise<ProcurementRecord[]>;
   listAdjustmentRequests: (
     filters: AdjustmentRequestFilter,
   ) => Promise<ListAdjustmentRequestsResponse>;
@@ -586,6 +624,14 @@ const parseNullableString = (value: unknown): string | null | undefined => {
     return undefined;
   }
   return value;
+};
+
+const parseIsoDateTimeString = (value: unknown): string | null => {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return null;
+  }
+  const normalized = value.trim();
+  return Number.isNaN(Date.parse(normalized)) ? null : normalized;
 };
 
 const parseTenthsPointNumber = (value: unknown): number | null => {
@@ -893,10 +939,14 @@ const parseProcurementCreateRequest = (body: unknown): ProcurementCreateInput | 
     return null;
   }
   const record = body as Record<string, unknown>;
+  const occurredAt = parseIsoDateTimeString(record["occurredAt"]);
   const supplierName = parseNullableString(record["supplierName"]);
   const tripDistanceKm = record["tripDistanceKm"];
   const lines = record["lines"];
   const locationText = parseNullableString(record["locationText"]);
+  if (occurredAt === null) {
+    return null;
+  }
   if (!Array.isArray(lines) || lines.length === 0) {
     return null;
   }
@@ -909,6 +959,7 @@ const parseProcurementCreateRequest = (body: unknown): ProcurementCreateInput | 
     const itemId = lineRecord["itemId"];
     const quantity = lineRecord["quantity"];
     const unitCost = lineRecord["unitCost"];
+    const markupPercent = lineRecord["markupPercent"];
     if (typeof itemId !== "string" || itemId.trim().length === 0) {
       return null;
     }
@@ -918,10 +969,19 @@ const parseProcurementCreateRequest = (body: unknown): ProcurementCreateInput | 
     if (typeof unitCost !== "number" || !Number.isFinite(unitCost) || unitCost < 0) {
       return null;
     }
+    if (
+      typeof markupPercent !== "number" ||
+      !Number.isFinite(markupPercent) ||
+      markupPercent < 0 ||
+      markupPercent > 100
+    ) {
+      return null;
+    }
     parsedLines.push({
       itemId,
       quantity,
       unitCost,
+      markupPercent,
     });
   }
   if (supplierName === undefined && record["supplierName"] !== undefined) {
@@ -938,8 +998,92 @@ const parseProcurementCreateRequest = (body: unknown): ProcurementCreateInput | 
     return null;
   }
   return {
+    occurredAt,
     supplierName: supplierName ?? null,
     tripDistanceKm: (tripDistanceKm as number | null | undefined) ?? null,
+    lines: parsedLines,
+    locationText: locationText ?? null,
+  };
+};
+
+const parseProcurementCorrectionRequest = (body: unknown): ProcurementCorrectionInput | null => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+  const record = body as Record<string, unknown>;
+  const occurredAt = parseIsoDateTimeString(record["occurredAt"]);
+  const supplierName = parseNullableString(record["supplierName"]);
+  const tripDistanceKm = record["tripDistanceKm"];
+  const reason = record["reason"];
+  const lines = record["lines"];
+  const locationText = parseNullableString(record["locationText"]);
+  if (occurredAt === null || typeof reason !== "string" || reason.trim().length === 0) {
+    return null;
+  }
+  if (!Array.isArray(lines) || lines.length === 0) {
+    return null;
+  }
+  const parsedLines: ProcurementCorrectionInput["lines"] = [];
+  for (const line of lines) {
+    if (typeof line !== "object" || line === null || Array.isArray(line)) {
+      return null;
+    }
+    const lineRecord = line as Record<string, unknown>;
+    const itemId = lineRecord["itemId"];
+    const inventoryBatchId = lineRecord["inventoryBatchId"];
+    const quantity = lineRecord["quantity"];
+    const unitCost = lineRecord["unitCost"];
+    const markupPercent = lineRecord["markupPercent"];
+    if (typeof itemId !== "string" || itemId.trim().length === 0) {
+      return null;
+    }
+    if (
+      inventoryBatchId !== undefined &&
+      inventoryBatchId !== null &&
+      (typeof inventoryBatchId !== "string" || inventoryBatchId.trim().length === 0)
+    ) {
+      return null;
+    }
+    if (typeof quantity !== "number" || !Number.isInteger(quantity) || quantity <= 0) {
+      return null;
+    }
+    if (typeof unitCost !== "number" || !Number.isFinite(unitCost) || unitCost < 0) {
+      return null;
+    }
+    if (
+      typeof markupPercent !== "number" ||
+      !Number.isFinite(markupPercent) ||
+      markupPercent < 0 ||
+      markupPercent > 100
+    ) {
+      return null;
+    }
+    parsedLines.push({
+      itemId,
+      inventoryBatchId: inventoryBatchId === undefined ? null : inventoryBatchId,
+      quantity,
+      unitCost,
+      markupPercent,
+    });
+  }
+  if (supplierName === undefined && record["supplierName"] !== undefined) {
+    return null;
+  }
+  if (
+    tripDistanceKm !== undefined &&
+    tripDistanceKm !== null &&
+    (typeof tripDistanceKm !== "number" || !Number.isFinite(tripDistanceKm) || tripDistanceKm < 0)
+  ) {
+    return null;
+  }
+  if (locationText === undefined && record["locationText"] !== undefined) {
+    return null;
+  }
+  return {
+    occurredAt,
+    supplierName: supplierName ?? null,
+    tripDistanceKm: (tripDistanceKm as number | null | undefined) ?? null,
+    reason: reason.trim(),
     lines: parsedLines,
     locationText: locationText ?? null,
   };
@@ -1726,6 +1870,7 @@ const toBaseEventFields = (
   actor: StaffIdentity,
   req: IncomingMessage,
   locationText?: string | null,
+  occurredAt?: string,
 ): Pick<
   Event,
   | "eventId"
@@ -1738,7 +1883,7 @@ const toBaseEventFields = (
   | "locationText"
 > => ({
   eventId: randomUUID(),
-  occurredAt: nowIso(dependencies),
+  occurredAt: occurredAt ?? nowIso(dependencies),
   actorUserId: actor.id,
   deviceId: getHeader(req, "x-device-id") ?? "api-server",
   schemaVersion: 1,
@@ -2753,6 +2898,7 @@ const handleProcurementCreate = async (
     unitCost: number;
     lineTotalCost: number;
     unitSellingPrice: number;
+    markupPercent: number;
   }> = [];
   let cashTotal = 0;
   for (const line of request.lines) {
@@ -2770,11 +2916,12 @@ const handleProcurementCreate = async (
       unitCost: line.unitCost,
       lineTotalCost,
       unitSellingPrice: 0,
+      markupPercent: line.markupPercent,
     });
   }
 
   const event: Event = {
-    ...toBaseEventFields(dependencies, actor, req, request.locationText),
+    ...toBaseEventFields(dependencies, actor, req, request.locationText, request.occurredAt),
     eventType: "procurement.recorded",
     payload: {
       supplierName: request.supplierName ?? null,
@@ -2785,6 +2932,100 @@ const handleProcurementCreate = async (
   };
   const appendResult = await dependencies.appendEventAndProject(event);
   if (appendResult.status !== "accepted") {
+    sendJson(res, 400, { error: "BAD_REQUEST", reason: appendResult.reason ?? null });
+    return;
+  }
+  sendJson(res, 201, {
+    eventId: event.eventId,
+    cashTotal,
+    lines,
+  });
+};
+
+const handleProcurementList = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "procurement.record");
+  if (actor === null) {
+    return;
+  }
+  const procurements = await dependencies.listProcurements();
+  sendJson(res, 200, { procurements });
+};
+
+const handleProcurementCorrectionCreate = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+  procurementEventId: string,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "procurement.record");
+  if (actor === null) {
+    return;
+  }
+  const bodyResult = await readJsonBody(req);
+  if (!bodyResult.ok) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const request = parseProcurementCorrectionRequest(bodyResult.value);
+  if (request === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const procurement = (await dependencies.listProcurements()).find(
+    (entry) => entry.procurementEventId === procurementEventId,
+  );
+  if (procurement === undefined) {
+    sendJson(res, 404, { error: "PROCUREMENT_NOT_FOUND" });
+    return;
+  }
+  if (!procurement.isEditable) {
+    sendJson(res, 409, { error: "PROCUREMENT_NOT_EDITABLE" });
+    return;
+  }
+
+  const lines: ProcurementRecordLine[] = [];
+  let cashTotal = 0;
+  for (const line of request.lines) {
+    const item = await dependencies.getItemById(line.itemId);
+    if (item === null) {
+      sendJson(res, 404, { error: "ITEM_NOT_FOUND" });
+      return;
+    }
+    const lineTotalCost = line.quantity * line.unitCost;
+    cashTotal += lineTotalCost;
+    lines.push({
+      itemId: line.itemId,
+      inventoryBatchId: line.inventoryBatchId ?? randomUUID(),
+      quantity: line.quantity,
+      unitCost: line.unitCost,
+      lineTotalCost,
+      unitSellingPrice: 0,
+      markupPercent: line.markupPercent,
+    });
+  }
+
+  const event: Event = {
+    ...toBaseEventFields(dependencies, actor, req, request.locationText, request.occurredAt),
+    eventType: "procurement.corrected",
+    payload: {
+      procurementEventId,
+      supplierName: request.supplierName ?? null,
+      tripDistanceKm: request.tripDistanceKm ?? null,
+      cashTotal,
+      lines,
+      reason: request.reason,
+    },
+  };
+  const appendResult = await dependencies.appendEventAndProject(event);
+  if (appendResult.status !== "accepted") {
+    if (appendResult.reason === "PROCUREMENT_NOT_EDITABLE") {
+      sendJson(res, 409, { error: "PROCUREMENT_NOT_EDITABLE" });
+      return;
+    }
     sendJson(res, 400, { error: "BAD_REQUEST", reason: appendResult.reason ?? null });
     return;
   }
@@ -2823,6 +3064,7 @@ const handleBulkProcurementCreate = async (
     unitCost: number;
     lineTotalCost: number;
     unitSellingPrice: number;
+    markupPercent: number;
   }> = [];
   let cashTotal = 0;
 
@@ -2848,6 +3090,7 @@ const handleBulkProcurementCreate = async (
       unitCost,
       lineTotalCost: row.lineTotalCost,
       unitSellingPrice: 0,
+      markupPercent: 0,
     });
   }
 
@@ -3475,6 +3718,20 @@ const routeRequest = async (
   if (method === "POST" && pathname === "/sales") {
     await handleSaleCreate(req, res, dependencies);
     return;
+  }
+
+  if (method === "GET" && pathname === "/procurements") {
+    await handleProcurementList(req, res, dependencies);
+    return;
+  }
+
+  const procurementCorrectionMatch = pathname.match(/^\/procurements\/([^/]+)\/corrections$/);
+  if (method === "POST" && procurementCorrectionMatch !== null) {
+    const procurementEventId = procurementCorrectionMatch[1];
+    if (procurementEventId !== undefined) {
+      await handleProcurementCorrectionCreate(req, res, dependencies, procurementEventId);
+      return;
+    }
   }
 
   if (method === "POST" && pathname === "/procurements") {

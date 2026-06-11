@@ -221,6 +221,8 @@ describe("validateEventPayload", () => {
           quantity: 2,
           unitCost: 4,
           lineTotalCost: 9,
+          unitSellingPrice: 5,
+          markupPercent: 25,
         },
       ],
     });
@@ -235,10 +237,9 @@ describe("validateEventPayload", () => {
     expect(result.issues.some((issue) => issue.path === "payload.cashTotal")).toBe(true);
   });
 
-  test("accepts procurement payload with valid procuredDate", () => {
+  test("accepts procurement payload with markup percent", () => {
     const result = validateEventPayload("procurement.recorded", {
       supplierName: null,
-      procuredDate: "2026-06-10",
       cashTotal: 8,
       lines: [
         {
@@ -248,16 +249,16 @@ describe("validateEventPayload", () => {
           unitCost: 4,
           lineTotalCost: 8,
           unitSellingPrice: 4,
+          markupPercent: 0,
         },
       ],
     });
     expect(result.ok).toBe(true);
   });
 
-  test("accepts procurement payload with null procuredDate", () => {
+  test("rejects procurement payload with invalid markup percent", () => {
     const result = validateEventPayload("procurement.recorded", {
       supplierName: null,
-      procuredDate: null,
       cashTotal: 8,
       lines: [
         {
@@ -267,31 +268,61 @@ describe("validateEventPayload", () => {
           unitCost: 4,
           lineTotalCost: 8,
           unitSellingPrice: 4,
-        },
-      ],
-    });
-    expect(result.ok).toBe(true);
-  });
-
-  test("rejects procurement payload with invalid procuredDate", () => {
-    const result = validateEventPayload("procurement.recorded", {
-      supplierName: null,
-      procuredDate: "not-a-date",
-      cashTotal: 8,
-      lines: [
-        {
-          itemId: "item-1",
-          inventoryBatchId: "batch-1",
-          quantity: 2,
-          unitCost: 4,
-          lineTotalCost: 8,
-          unitSellingPrice: 4,
+          markupPercent: 101,
         },
       ],
     });
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("Expected validation to fail");
-    expect(result.issues.some((issue) => issue.path === "payload.procuredDate")).toBe(true);
+    expect(result.issues.some((issue) => issue.path === "payload.lines[0].markupPercent")).toBe(
+      true,
+    );
+  });
+
+  test("accepts procurement correction payload", () => {
+    const result = validateEventPayload("procurement.corrected", {
+      procurementEventId: "event-procurement-1",
+      supplierName: "Supplier A",
+      tripDistanceKm: 12,
+      cashTotal: 12,
+      reason: "user edit",
+      lines: [
+        {
+          itemId: "item-1",
+          inventoryBatchId: "batch-1",
+          quantity: 2,
+          unitCost: 6,
+          lineTotalCost: 12,
+          unitSellingPrice: 7.2,
+          markupPercent: 20,
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  test("rejects procurement correction payload with blank reason", () => {
+    const result = validateEventPayload("procurement.corrected", {
+      procurementEventId: "event-procurement-1",
+      cashTotal: 12,
+      reason: "   ",
+      lines: [
+        {
+          itemId: "item-1",
+          inventoryBatchId: "batch-1",
+          quantity: 2,
+          unitCost: 6,
+          lineTotalCost: 12,
+          unitSellingPrice: 7.2,
+          markupPercent: 20,
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Expected validation to fail");
+    expect(result.issues.some((issue) => issue.path === "payload.reason")).toBe(true);
   });
 
   test("rejects conflict payloads with invalid entity type and empty detected events", () => {
