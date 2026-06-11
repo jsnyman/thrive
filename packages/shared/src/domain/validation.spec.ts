@@ -268,6 +268,85 @@ describe("validateEventPayload", () => {
   });
 });
 
+describe("expense.recorded payload", () => {
+  const makeExpenseEnvelope = (payload: Record<string, unknown>) => ({
+    eventId: "event-1",
+    eventType: "expense.recorded",
+    occurredAt: "2026-03-12T10:00:00.000Z",
+    recordedAt: "2026-03-12T10:00:01.000Z",
+    actorUserId: "user-1",
+    deviceId: "device-1",
+    locationText: null,
+    schemaVersion: 1,
+    correlationId: null,
+    causationId: null,
+    payload,
+  });
+
+  test("accepts valid expense with incurredDate", () => {
+    const result = validateEventEnvelope(
+      makeExpenseEnvelope({
+        category: "Fuel",
+        cashAmount: 12.5,
+        incurredDate: "2026-06-01",
+        notes: null,
+        receiptRef: null,
+      }),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  test("accepts expense without incurredDate", () => {
+    const result = validateEventEnvelope(
+      makeExpenseEnvelope({ category: "Fuel", cashAmount: 12.5, notes: null, receiptRef: null }),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  test("accepts expense with null incurredDate", () => {
+    const result = validateEventEnvelope(
+      makeExpenseEnvelope({
+        category: "Fuel",
+        cashAmount: 12.5,
+        incurredDate: null,
+        notes: null,
+        receiptRef: null,
+      }),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  test("rejects expense with invalid incurredDate", () => {
+    const result = validateEventEnvelope(
+      makeExpenseEnvelope({
+        category: "Fuel",
+        cashAmount: 12.5,
+        incurredDate: "not-a-date",
+        notes: null,
+        receiptRef: null,
+      }),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Expected validation to fail");
+    expect(result.issues.some((issue) => issue.path === "payload.incurredDate")).toBe(true);
+  });
+
+  test("rejects expense with datetime string as incurredDate", () => {
+    const result = validateEventEnvelope(
+      makeExpenseEnvelope({
+        category: "Fuel",
+        cashAmount: 12.5,
+        incurredDate: "2026-06-01T10:00:00.000Z",
+        notes: null,
+        receiptRef: null,
+      }),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Expected validation to fail");
+    expect(result.issues.some((issue) => issue.path === "payload.incurredDate")).toBe(true);
+  });
+});
+
 describe("validateEventEnvelope", () => {
   test("accepts valid event envelope", () => {
     const result = validateEventEnvelope({

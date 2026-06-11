@@ -38,6 +38,24 @@ const isInteger = (value: unknown): value is number => isNumber(value) && Number
 const isIsoDateTime = (value: unknown): value is string =>
   isString(value) && !Number.isNaN(Date.parse(value));
 
+const isIsoDate = (value: unknown): value is string =>
+  isString(value) && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value));
+
+const expectNullableIsoDate = (
+  value: unknown,
+  path: string,
+  issues: ValidationIssue[],
+): value is string | null | undefined => {
+  if (value === undefined || value === null) {
+    return true;
+  }
+  if (!isIsoDate(value)) {
+    addIssue(issues, path, "Expected ISO date string (YYYY-MM-DD)");
+    return false;
+  }
+  return true;
+};
+
 const addIssue = (issues: ValidationIssue[], path: string, message: string) => {
   issues.push({ path, message });
 };
@@ -582,6 +600,7 @@ const validateExpenseRecordedPayload = (
   }
   expectString(payload.category, `${path}.category`, issues);
   expectNumber(payload.cashAmount, `${path}.cashAmount`, issues, { min: 0 });
+  expectNullableIsoDate(payload.incurredDate, `${path}.incurredDate`, issues);
   expectNullableString(payload.notes, `${path}.notes`, issues, { allowEmpty: true });
   expectNullableString(payload.receiptRef, `${path}.receiptRef`, issues);
   return true;

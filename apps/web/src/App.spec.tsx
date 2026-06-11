@@ -1966,17 +1966,7 @@ describe("App person registry", () => {
       expect(view.getByText("Each line must include an item name")).toBeInTheDocument();
     });
 
-    // item not in catalog
-    await userEvent.type(view.getByLabelText("Item Name 1"), "Widget");
-    await userEvent.click(
-      view.getAllByRole("button", { name: "Record Procurement" }).slice(-1)[0]!,
-    );
-    await waitFor(() => {
-      expect(view.getByText('Item "Widget" not found')).toBeInTheDocument();
-    });
-
     // valid item name, empty quantity → NaN fails integer check
-    await userEvent.clear(view.getByLabelText("Item Name 1"));
     await userEvent.type(view.getByLabelText("Item Name 1"), "Soap");
     await userEvent.click(
       view.getAllByRole("button", { name: "Record Procurement" }).slice(-1)[0]!,
@@ -2066,6 +2056,51 @@ describe("App person registry", () => {
       events: Array<{ payload: { lines: Array<{ itemId: string }> } }>;
     };
     expect(pushBody.events[0]?.payload.lines[0]?.itemId).toBe("item-1");
+  });
+
+  test("procurement auto-creates item.created event for unknown item names before procurement.recorded", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    const capturedPushBodyRef = { value: null as unknown };
+    vi.stubGlobal("fetch", makeProcurementSyncFetchMock(capturedPushBodyRef, []));
+
+    const view = render(
+      <MantineProvider>
+        <App queue={queue} syncStateStore={syncStateStore} />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
+    });
+
+    await userEvent.type(view.getByLabelText("Item Name 1"), "Chappies Bubblegum");
+    await userEvent.type(view.getByLabelText("Quantity 1"), "5");
+    await userEvent.type(view.getByLabelText("Procurement Price 1"), "10");
+    await userEvent.click(
+      view.getAllByRole("button", { name: "Record Procurement" }).slice(-1)[0]!,
+    );
+
+    await waitFor(() => {
+      expect(view.getByText("Pending events: 0")).toBeInTheDocument();
+    });
+
+    const pushBody = capturedPushBodyRef.value as {
+      events: Array<{ eventType: string; payload: Record<string, unknown> }>;
+    };
+    expect(pushBody.events).toHaveLength(2);
+    const createEvent = pushBody.events[0]!;
+    const procurementEvent = pushBody.events[1]!;
+    expect(createEvent.eventType).toBe("item.created");
+    expect(createEvent.payload["name"]).toBe("Chappies Bubblegum");
+    expect(procurementEvent.eventType).toBe("procurement.recorded");
+    const procLines = procurementEvent.payload["lines"] as Array<{ itemId: string }>;
+    expect(procLines[0]?.itemId).toBe(createEvent.payload["itemId"]);
   });
 
   test("procurement non-zero markup is reflected in unitSellingPrice stored on the event", async () => {

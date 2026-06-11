@@ -163,6 +163,7 @@ export type ProcurementRecordedPayload = {
 export type ExpenseRecordedPayload = {
   category: string;
   cashAmount: number;
+  incurredDate?: string | null;
   notes?: string | null;
   receiptRef?: string | null;
 };

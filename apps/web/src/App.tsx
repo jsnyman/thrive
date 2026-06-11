@@ -446,6 +446,26 @@ const buildSaleRecordedEvent = (
   };
 };
 
+const buildCreateItemEvent = (
+  actor: AuthUser,
+  payload: { itemId: string; name: string },
+): Event => ({
+  eventId: crypto.randomUUID(),
+  eventType: "item.created",
+  occurredAt: new Date().toISOString(),
+  actorUserId: actor.id,
+  deviceId: "web-registry",
+  schemaVersion: 1,
+  correlationId: null,
+  causationId: null,
+  locationText: null,
+  payload: {
+    itemId: payload.itemId,
+    name: payload.name,
+    pointsPrice: 0,
+  },
+});
+
 const buildProcurementRecordedEvent = (
   actor: AuthUser,
   payload: {
@@ -1775,16 +1795,27 @@ export const App = ({
     }
 
     const lines: ProcurementEventLineInput[] = [];
+    const newItemEvents: Event[] = [];
+    const newItemsByName = new Map<string, string>();
     for (const line of procurementLines) {
       if (line.itemName.trim() === "") {
         setProcurementError("Each line must include an item name");
         return;
       }
       const normalizedName = line.itemName.trim().toLowerCase();
-      const item = items.find((entry) => entry.name.toLowerCase() === normalizedName) ?? null;
-      if (item === null) {
-        setProcurementError(`Item "${line.itemName}" not found`);
-        return;
+      const existingItem =
+        items.find((entry) => entry.name.toLowerCase() === normalizedName) ?? null;
+      let itemId: string;
+      if (existingItem !== null) {
+        itemId = existingItem.id;
+      } else if (newItemsByName.has(normalizedName)) {
+        itemId = newItemsByName.get(normalizedName)!;
+      } else {
+        itemId = crypto.randomUUID();
+        newItemsByName.set(normalizedName, itemId);
+        newItemEvents.push(
+          buildCreateItemEvent(sessionUser, { itemId, name: line.itemName.trim() }),
+        );
       }
       const quantity = Number.parseInt(line.quantity, 10);
       if (!Number.isInteger(quantity) || quantity <= 0) {
@@ -1804,7 +1835,7 @@ export const App = ({
       }
       const unitSellingPrice = roundUpToNearest10Cents(unitCost * (1 + markupPercent / 100));
       lines.push({
-        itemId: item.id,
+        itemId,
         inventoryBatchId: crypto.randomUUID(),
         quantity,
         unitCost,
@@ -1828,6 +1859,9 @@ export const App = ({
     setProcurementPending(true);
     setProcurementError(null);
     try {
+      for (const event of newItemEvents) {
+        await queue.enqueue(event);
+      }
       await queue.enqueue(
         buildProcurementRecordedEvent(sessionUser, {
           supplierName: toNullableOrUndefined(procurementSupplierName) ?? null,
