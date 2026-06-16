@@ -1339,7 +1339,7 @@ describe("App person registry", () => {
     await userEvent.click(view.getByRole("button", { name: "Adjust inventory" }));
     await userEvent.click(view.getAllByLabelText("Item")[0]!);
     await userEvent.click(await view.findByRole("option", { name: "Plastic Bottles" }));
-    await userEvent.click(view.getByLabelText("Batch"));
+    await userEvent.click(view.getAllByLabelText("Batch")[0]!);
     await userEvent.click(await view.findByRole("option", { name: "Plastic Bottles — batch-1" }));
 
     await userEvent.type(view.getByLabelText("Quantity"), "4");
@@ -1435,7 +1435,7 @@ describe("App person registry", () => {
     // Select item-2 (Cardboard) — only batch-2 should appear in the batch dropdown
     await userEvent.click(view.getAllByLabelText("Item")[0]!);
     await userEvent.click(await view.findByRole("option", { name: "Cardboard" }));
-    await userEvent.click(view.getByLabelText("Batch"));
+    await userEvent.click(view.getAllByLabelText("Batch")[0]!);
 
     expect(await view.findByRole("option", { name: "Cardboard — batch-2" })).toBeInTheDocument();
     expect(view.queryByRole("option", { name: /Plastic Bottles/ })).not.toBeInTheDocument();
