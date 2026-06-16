@@ -137,6 +137,46 @@ describe("useSync", () => {
     expect(listConflicts).toHaveBeenCalled();
   });
 
+  test("syncNow normalizes recoverable sqlite errors and does not rethrow when pending count also fails", async () => {
+    const queue = {
+      ...createQueue(),
+      pendingCount: vi.fn(async () => {
+        throw new Error("RuntimeError: unreachable executed");
+      }),
+    };
+    const syncStateStore = createSyncStore();
+
+    syncClientModule.createSyncClient.mockReturnValue({
+      runSyncCycle: vi.fn(async () => {
+        throw new Error("RuntimeError: unreachable executed");
+      }),
+    });
+    conflictClientModule.createConflictClient.mockReturnValue({
+      listConflicts: vi.fn(async () => ({ conflicts: [], nextCursor: null })),
+      resolveConflict: vi.fn(),
+    });
+
+    const { result } = renderHook(() =>
+      useSync({
+        queue,
+        syncStateStore,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.conflictStatus).toBe("ready");
+    });
+
+    await act(async () => {
+      await expect(result.current.syncNow()).resolves.toBeNull();
+    });
+
+    expect(result.current.status).toBe("error");
+    expect(result.current.errorMessage).toBe(
+      "Offline storage became unavailable. Reload after clearing site data.",
+    );
+  });
+
   test("resolveConflict validates notes before request", async () => {
     const queue = createQueue();
     const syncStateStore = createSyncStore();

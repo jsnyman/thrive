@@ -5,6 +5,7 @@ import type {
 } from "../../../../packages/shared/src/domain/sync";
 import { createConflictClient } from "./conflict-client";
 import type { EventQueue } from "./event-queue";
+import { isRecoverableSqliteError } from "./sqlite-recovery";
 import { createSyncClient, type SyncRunResult } from "./sync-client";
 import type { SyncStateStore } from "./sync-state-store";
 
@@ -32,6 +33,16 @@ export type SyncViewModel = {
 type UseSyncOptions = {
   queue: EventQueue | null;
   syncStateStore: SyncStateStore | null;
+};
+
+const STORAGE_UNAVAILABLE_MESSAGE =
+  "Offline storage became unavailable. Reload after clearing site data.";
+
+const toSyncErrorMessage = (error: unknown): string => {
+  if (isRecoverableSqliteError(error)) {
+    return STORAGE_UNAVAILABLE_MESSAGE;
+  }
+  return error instanceof Error ? error.message : String(error);
 };
 
 export const useSync = (options: UseSyncOptions): SyncViewModel => {
@@ -67,13 +78,20 @@ export const useSync = (options: UseSyncOptions): SyncViewModel => {
     let cancelled = false;
 
     const load = async (): Promise<void> => {
-      const [count, last] = await Promise.all([
-        queue.pendingCount(),
-        syncStateStore.getLastSyncAt(),
-      ]);
-      if (!cancelled) {
-        setPendingCount(count);
-        setLastSyncAt(last);
+      try {
+        const [count, last] = await Promise.all([
+          queue.pendingCount(),
+          syncStateStore.getLastSyncAt(),
+        ]);
+        if (!cancelled) {
+          setPendingCount(count);
+          setLastSyncAt(last);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setErrorMessage(toSyncErrorMessage(error));
+          setStatus("error");
+        }
       }
     };
 
@@ -120,10 +138,13 @@ export const useSync = (options: UseSyncOptions): SyncViewModel => {
       await refreshConflicts();
       return result;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setErrorMessage(message);
+      setErrorMessage(toSyncErrorMessage(error));
       setStatus("error");
-      setPendingCount(await queue.pendingCount());
+      try {
+        setPendingCount(await queue.pendingCount());
+      } catch {
+        setPendingCount(0);
+      }
       return null;
     }
   }, [client, options.queue, options.syncStateStore, refreshConflicts]);
