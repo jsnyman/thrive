@@ -1986,7 +1986,17 @@ export const App = ({
     setItemEditError(null);
     try {
       await queue.enqueue(buildUpdateItemEvent(sessionUser, { itemId: itemEditingId, updates }));
-      await sync.syncNow();
+      const result = await sync.syncNow();
+      if (result === null) {
+        setItemEditError("Sync failed — check your connection and try again.");
+        return;
+      }
+      if (result.rejectedCount > 0) {
+        setItemEditError(
+          "Update could not be applied — a conflict was detected. Refresh and try again.",
+        );
+        return;
+      }
       await loadItems();
       setItemEditingId(null);
     } catch (error) {

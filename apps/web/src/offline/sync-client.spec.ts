@@ -36,6 +36,7 @@ describe("createSyncClient", () => {
 
     const fetchFn = vi
       .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ events: [], nextCursor: "cursor-1" }))
       .mockResolvedValueOnce(
         jsonResponse({
           acknowledgements: [
@@ -45,7 +46,6 @@ describe("createSyncClient", () => {
           latestCursor: "cursor-1",
         }),
       )
-      .mockResolvedValueOnce(jsonResponse({ events: [], nextCursor: "cursor-1" }))
       .mockResolvedValueOnce(
         jsonResponse({
           latestCursor: "cursor-1",
@@ -67,7 +67,7 @@ describe("createSyncClient", () => {
     await expect(queue.pendingCount()).resolves.toBe(1);
     await expect(syncStateStore.getCursor()).resolves.toBe("cursor-1");
 
-    const pushCall = fetchFn.mock.calls[0];
+    const pushCall = fetchFn.mock.calls[1];
     expect(pushCall?.[0]).toBe("/api/sync/push");
   });
 
@@ -137,13 +137,46 @@ describe("createSyncClient", () => {
     await expect(syncStateStore.getCursor()).resolves.toBe("cursor-next-2");
   });
 
-  test("throws deterministic error and leaves queue untouched on push failure", async () => {
+  test("pulls before pushing so null cursor never causes stale-conflict rejections", async () => {
     const queue = createEventQueue(createMemoryEventQueueStore());
     const syncStateStore = createMemorySyncStateStore();
     await queue.enqueue(buildEvent("event-1"));
 
     const fetchFn = vi
       .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ events: [], nextCursor: "cursor-established" }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          acknowledgements: [{ eventId: "event-1", status: "accepted" }],
+          latestCursor: "cursor-established",
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          latestCursor: "cursor-established",
+          projectionRefreshedAt: "2026-03-07T08:01:00.000Z",
+          projectionCursor: "cursor-established",
+        }),
+      );
+
+    const client = createSyncClient({ queue, syncStateStore, fetchFn });
+    const result = await client.runSyncCycle();
+
+    const calls = fetchFn.mock.calls.map((c) => String(c[0]));
+    expect(calls[0]).toContain("/sync/pull");
+    expect(calls[1]).toContain("/sync/push");
+    expect(result.acknowledgedCount).toBe(1);
+  });
+
+  test("throws deterministic error and leaves queue untouched on push failure", async () => {
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    await syncStateStore.setCursor("cursor-start");
+    await queue.enqueue(buildEvent("event-1"));
+
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ events: [], nextCursor: "cursor-start" }))
       .mockResolvedValueOnce(jsonResponse({ error: "BAD" }, 500));
 
     const client = createSyncClient({

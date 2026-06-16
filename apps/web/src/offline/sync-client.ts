@@ -139,6 +139,38 @@ export const createSyncClient = (
     const queuedEvents = await options.queue.dequeueBatch(batchSize);
     let cursor = await options.syncStateStore.getCursor();
 
+    // Pull first so the cursor is up-to-date before we push. Without this,
+    // a null cursor (fresh session) causes the server merge policy to reject
+    // updates to existing entities as stale conflicts.
+    let pulledCount = 0;
+    let pullIterations = 0;
+    while (pullIterations < pullIterationLimit) {
+      pullIterations += 1;
+      const query =
+        cursor === null ? "" : `?cursor=${encodeURIComponent(cursor)}&limit=${String(batchSize)}`;
+      const pullResponse = await apiClient.request({
+        method: "GET",
+        path: `/sync/pull${query}`,
+      });
+      if (!pullResponse.ok) {
+        throw new Error(`Sync pull failed with status ${String(pullResponse.status)}`);
+      }
+      const pullJson = await apiClient.readJson<unknown>(pullResponse, "sync pull");
+      const parsedPull = parsePullResponse(pullJson);
+      pulledCount += parsedPull.events.length;
+
+      const previousCursor = cursor;
+      const nextCursor = parsedPull.nextCursor;
+      if (nextCursor !== previousCursor) {
+        cursor = nextCursor;
+        await options.syncStateStore.setCursor(cursor);
+      }
+
+      if (parsedPull.events.length === 0 || nextCursor === previousCursor) {
+        break;
+      }
+    }
+
     let acknowledgedCount = 0;
     let rejectedCount = 0;
 
@@ -171,35 +203,6 @@ export const createSyncClient = (
       if (parsedPush.latestCursor !== null) {
         cursor = parsedPush.latestCursor;
         await options.syncStateStore.setCursor(cursor);
-      }
-    }
-
-    let pulledCount = 0;
-    let pullIterations = 0;
-    while (pullIterations < pullIterationLimit) {
-      pullIterations += 1;
-      const query =
-        cursor === null ? "" : `?cursor=${encodeURIComponent(cursor)}&limit=${String(batchSize)}`;
-      const pullResponse = await apiClient.request({
-        method: "GET",
-        path: `/sync/pull${query}`,
-      });
-      if (!pullResponse.ok) {
-        throw new Error(`Sync pull failed with status ${String(pullResponse.status)}`);
-      }
-      const pullJson = await apiClient.readJson<unknown>(pullResponse, "sync pull");
-      const parsedPull = parsePullResponse(pullJson);
-      pulledCount += parsedPull.events.length;
-
-      const previousCursor = cursor;
-      const nextCursor = parsedPull.nextCursor;
-      if (nextCursor !== previousCursor) {
-        cursor = nextCursor;
-        await options.syncStateStore.setCursor(cursor);
-      }
-
-      if (parsedPull.events.length === 0 || nextCursor === previousCursor) {
-        break;
       }
     }
 

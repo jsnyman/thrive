@@ -704,6 +704,12 @@ describe("App person registry", () => {
       if (url.includes("/inventory/batches")) {
         return jsonResponse({ batches: [] });
       }
+      if (url.includes("/items")) {
+        return jsonResponse({ items: [] });
+      }
+      if (url.includes("/sync/pull")) {
+        return jsonResponse({ events: [], nextCursor: null });
+      }
       if (url.includes("/sync/push")) {
         return jsonResponse({ error: "BAD" }, 500);
       }
@@ -5234,6 +5240,9 @@ describe("App person registry", () => {
       if (url.includes("/sync/conflicts")) {
         return jsonResponse({ conflicts: [], nextCursor: null });
       }
+      if (url.includes("/sync/pull")) {
+        return jsonResponse({ events: [], nextCursor: null });
+      }
       if (url.includes("/sync/push")) {
         return jsonResponse({ error: "BAD" }, 500);
       }
@@ -5766,6 +5775,157 @@ describe("App person registry", () => {
     expect(pushBody.events[0]?.payload.itemId).toBe("item-1");
     expect(pushBody.events[0]?.payload.updates.name).toBe("Soap");
     expect(pushBody.events[0]?.payload.updates.pointsPrice).toBe(5);
+  }, 20000);
+
+  test("shows error and keeps edit form open when server rejects item.updated", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items"))
+        return jsonResponse({ items: [{ id: "item-1", name: "Soap", pointsPrice: 10 }] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      if (url.includes("/sync/pull")) return jsonResponse({ events: [], nextCursor: "cursor-1" });
+      if (url.includes("/sync/push")) {
+        const eventIds = extractEventIdsFromPushBody(
+          typeof init?.body === "string" ? (JSON.parse(init.body) as unknown) : null,
+        );
+        return jsonResponse({
+          acknowledgements: eventIds.map((eventId) => ({
+            eventId,
+            status: "rejected" as const,
+            reason: "STALE_CONFLICT",
+          })),
+          latestCursor: "cursor-1",
+        });
+      }
+      if (url.includes("/sync/status")) {
+        return jsonResponse({
+          latestCursor: "cursor-1",
+          projectionRefreshedAt: "2026-06-16T12:00:00.000Z",
+          projectionCursor: "cursor-1",
+        });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App queue={queue} syncStateStore={syncStateStore} />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await userEvent.click(view.getByRole("button", { name: "Manage Items" }));
+
+    await waitFor(() => {
+      expect(view.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Edit" }));
+
+    await waitFor(() => {
+      expect(view.getByLabelText("Points Price")).toBeInTheDocument();
+    });
+    await userEvent.clear(view.getByLabelText("Points Price"));
+    await userEvent.type(view.getByLabelText("Points Price"), "5");
+    await userEvent.click(view.getByRole("button", { name: "Save Item" }));
+
+    await waitFor(() => {
+      expect(view.getByText(/Update could not be applied/)).toBeInTheDocument();
+    });
+    expect(view.getByLabelText("Points Price")).toBeInTheDocument();
+  }, 20000);
+
+  test("items list shows updated values after successful item save", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    let itemsCallCount = 0;
+
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) {
+        itemsCallCount += 1;
+        const price = itemsCallCount === 1 ? 10 : 5;
+        return jsonResponse({ items: [{ id: "item-1", name: "Soap", pointsPrice: price }] });
+      }
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      if (url.includes("/sync/pull")) return jsonResponse({ events: [], nextCursor: "cursor-1" });
+      if (url.includes("/sync/push")) {
+        const eventIds = extractEventIdsFromPushBody(
+          typeof init?.body === "string" ? (JSON.parse(init.body) as unknown) : null,
+        );
+        return jsonResponse({
+          acknowledgements: eventIds.map((eventId) => ({
+            eventId,
+            status: "accepted" as const,
+          })),
+          latestCursor: "cursor-1",
+        });
+      }
+      if (url.includes("/sync/status")) {
+        return jsonResponse({
+          latestCursor: "cursor-1",
+          projectionRefreshedAt: "2026-06-16T12:00:00.000Z",
+          projectionCursor: "cursor-1",
+        });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App queue={queue} syncStateStore={syncStateStore} />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await userEvent.click(view.getByRole("button", { name: "Manage Items" }));
+
+    await waitFor(() => {
+      expect(view.getByText("10.0 pts")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Edit" }));
+    await waitFor(() => {
+      expect(view.getByLabelText("Points Price")).toBeInTheDocument();
+    });
+    await userEvent.clear(view.getByLabelText("Points Price"));
+    await userEvent.type(view.getByLabelText("Points Price"), "5");
+    await userEvent.click(view.getByRole("button", { name: "Save Item" }));
+
+    await waitFor(() => {
+      expect(view.getByText("5.0 pts")).toBeInTheDocument();
+    });
+    expect(view.queryByLabelText("Points Price")).not.toBeInTheDocument();
   }, 20000);
 
   test("manage items is not accessible to non-administrator users", async () => {
