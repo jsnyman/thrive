@@ -2157,6 +2157,9 @@ export const App = ({
       for (const event of newItemEvents) {
         await queue!.enqueue(event);
       }
+      if (newItemEvents.length > 0) {
+        await sync.syncNow();
+      }
       await procurementClient.correctProcurement(editingProcurementEventId, {
         occurredAt: toDateInputOccurredAt(editingProcurementDate.trim()),
         supplierName: toNullableOrUndefined(editingProcurementSupplierName) ?? null,

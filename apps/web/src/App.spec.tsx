@@ -2453,6 +2453,113 @@ describe("App person registry", () => {
     expect(view.getByText(/Mark-up 25%/)).toBeInTheDocument();
   });
 
+  test("procurement correction with a new item name syncs the item before sending the correction", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    const callOrder: string[] = [];
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items"))
+        return jsonResponse({ items: [{ id: "item-1", name: "Soap", pointsPrice: 10 }] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      if (url.includes("/sync/push")) {
+        callOrder.push("sync/push");
+        const body =
+          typeof init?.body === "string"
+            ? (JSON.parse(init.body) as { events: Array<{ eventType: string }> })
+            : { events: [] };
+        return jsonResponse({
+          acknowledgements: body.events.map((e: { eventType: string }, i: number) => ({
+            eventId: `ack-${i}`,
+            status: "accepted",
+          })),
+          latestCursor: "cursor-1",
+        });
+      }
+      if (url.includes("/sync/pull")) return jsonResponse({ events: [], nextCursor: "cursor-1" });
+      if (url.includes("/sync/status"))
+        return jsonResponse({
+          latestCursor: "cursor-1",
+          projectionRefreshedAt: "2026-06-01T00:00:00.000Z",
+        });
+      if (url.includes("/procurements") && url.includes("/corrections")) {
+        callOrder.push("corrections");
+        return jsonResponse({ eventId: "event-correction-1" }, 201);
+      }
+      if (url.includes("/procurements")) {
+        return jsonResponse({
+          procurements: [
+            {
+              procurementEventId: "event-procurement-1",
+              occurredAt: "2026-03-08T00:00:00.000Z",
+              supplierName: "Village Supplier",
+              tripDistanceKm: 12,
+              cashTotal: 6,
+              isEditable: true,
+              lines: [
+                {
+                  itemId: "item-1",
+                  inventoryBatchId: "batch-1",
+                  quantity: 2,
+                  unitCost: 3,
+                  lineTotalCost: 6,
+                  unitSellingPrice: 3.6,
+                  markupPercent: 20,
+                },
+              ],
+            },
+          ],
+        });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App queue={queue} syncStateStore={syncStateStore} />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await waitFor(() => {
+      expect(view.getByText(/Village Supplier/)).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Edit Procurement" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Edit Procurement" })).toBeInTheDocument();
+    });
+
+    // Change item name to a brand-new item (does not exist in the items list)
+    // The edit form uses "Item 1" label (record form uses "Item Name 1")
+    await userEvent.clear(view.getByLabelText("Item 1"));
+    await userEvent.type(view.getByLabelText("Item 1"), "Blanket");
+    await userEvent.click(view.getByRole("button", { name: "Save Procurement Changes" }));
+
+    await waitFor(() => {
+      expect(callOrder).toContain("corrections");
+    });
+
+    // The item creation event must be synced before the correction is sent
+    expect(callOrder.indexOf("sync/push")).toBeLessThan(callOrder.indexOf("corrections"));
+    expect(view.queryByText(/Procurement correction failed/)).toBeNull();
+  });
+
   test("procurement history shows locked procurements as non-editable", async () => {
     stubResizeObserver();
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
