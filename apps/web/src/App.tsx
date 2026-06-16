@@ -17,7 +17,7 @@ import {
   Textarea,
   Title,
 } from "@mantine/core";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Event, ItemUpdates } from "../../../packages/shared/src/domain/events";
 import {
   floorPointsToTenths,
@@ -762,6 +762,7 @@ export const App = ({
   const [cashflowReportLoading, setCashflowReportLoading] = useState<boolean>(false);
   const [cashflowReportError, setCashflowReportError] = useState<string | null>(null);
   const cashflowReportRequestRef = useRef<number>(0);
+  const [deferredSyncNotice, setDeferredSyncNotice] = useState<string | null>(null);
   const [reconciliationIssues, setReconciliationIssues] = useState<SyncReconciliationIssue[]>([]);
   const [reconciliationSummary, setReconciliationSummary] = useState<
     SyncReconciliationReportResponse["summary"] | null
@@ -1547,6 +1548,26 @@ export const App = ({
     setAdjustmentBatchId(null);
   };
 
+  const triggerDeferredSync = useCallback(
+    (options?: { onAccepted?: () => Promise<void> | void; onRejectedMessage?: string }): void => {
+      setDeferredSyncNotice(null);
+      void (async () => {
+        const result = await sync.syncNow();
+        if (result === null) {
+          return;
+        }
+        if (result.rejectedCount > 0) {
+          if (options?.onRejectedMessage !== undefined) {
+            setDeferredSyncNotice(options.onRejectedMessage);
+          }
+          return;
+        }
+        await options?.onAccepted?.();
+      })();
+    },
+    [sync],
+  );
+
   const handleCreate = async (): Promise<void> => {
     if (queue === null || sessionUser === null) {
       setCreateError("Queue is unavailable");
@@ -1577,12 +1598,13 @@ export const App = ({
           notes: toNullableOrUndefined(createNotes) ?? null,
         }),
       );
-      const syncResult = await sync.syncNow();
-      if (syncResult !== null && syncResult.rejectedCount > 0) {
-        setCreateError("Person could not be saved — a conflict was detected. Please try again.");
-        return;
-      }
-      await Promise.all([loadPeople(search), loadAllPeople()]);
+      triggerDeferredSync({
+        onAccepted: async () => {
+          await Promise.all([loadPeople(search), loadAllPeople()]);
+        },
+        onRejectedMessage:
+          "Person could not be saved - a conflict was detected. Refresh and try again.",
+      });
       setCreateName("");
       setCreateSurname("");
       setCreateIdNumber("");
@@ -1590,6 +1612,7 @@ export const App = ({
       setCreateAddress("");
       setCreateNotes("");
       setActiveView("person-search");
+      return;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setCreateError(message);
@@ -1647,7 +1670,23 @@ export const App = ({
     setEditError(null);
     try {
       await queue.enqueue(buildUpdatePersonEvent(sessionUser, selectedPerson.id, updates));
-      const syncResult = await sync.syncNow();
+      triggerDeferredSync({
+        onAccepted: async () => {
+          await Promise.all([loadPeople(search), loadAllPeople()]);
+        },
+        onRejectedMessage:
+          "Update could not be applied - a conflict was detected. Refresh and try again.",
+      });
+      setEditName("");
+      setEditSurname("");
+      setEditIdNumber("");
+      setEditPhone("");
+      setEditAddress("");
+      setEditNotes("");
+      setSelectedPersonId(null);
+      setActiveView("person-search");
+      return;
+      const syncResult = { rejectedCount: 0 };
       if (syncResult !== null && syncResult.rejectedCount > 0) {
         setEditError("Update could not be applied — a conflict was detected. Please try again.");
         return;
@@ -1758,8 +1797,18 @@ export const App = ({
           lines,
         }),
       );
+      triggerDeferredSync({
+        onAccepted: async () => {
+          await loadLedger(intakePersonId);
+        },
+      });
+      setLedgerPersonId(intakePersonId);
+      setIntakePersonId(null);
+      setIntakeLines([createIntakeDraftLine(materials[0]?.id ?? null)]);
+      setIntakeSuccess(true);
+      return;
       await sync.syncNow();
-      await loadLedger(intakePersonId);
+      await loadLedger(intakePersonId ?? "");
       setLedgerPersonId(intakePersonId);
       setIntakePersonId(null);
       setIntakeLines([createIntakeDraftLine(materials[0]?.id ?? null)]);
@@ -1880,8 +1929,17 @@ export const App = ({
           lines: eventLines,
         }),
       );
+      triggerDeferredSync({
+        onAccepted: async () => {
+          await Promise.all([loadInventory(), loadLedger(salePersonId)]);
+        },
+      });
+      setLedgerPersonId(salePersonId);
+      setSaleLines([createSaleDraftLine(items[0]?.id ?? null)]);
+      setSaleSuccess("Sale recorded successfully");
+      return;
       await sync.syncNow();
-      await Promise.all([loadInventory(), loadLedger(salePersonId)]);
+      await Promise.all([loadInventory(), loadLedger(salePersonId ?? "")]);
       setLedgerPersonId(salePersonId);
       setSaleLines([createSaleDraftLine(items[0]?.id ?? null)]);
       setSaleSuccess("Sale recorded successfully");
@@ -2034,6 +2092,16 @@ export const App = ({
           lines,
         }),
       );
+      triggerDeferredSync({
+        onAccepted: async () => {
+          await Promise.all([loadInventory(), loadProcurements()]);
+        },
+      });
+      setProcurementLines([createProcurementDraftLine()]);
+      setProcurementSupplierName("");
+      setProcurementTripDistanceKm("");
+      setProcurementDate(new Date().toISOString().slice(0, 10));
+      return;
       await sync.syncNow();
       await Promise.all([loadInventory(), loadProcurements()]);
       setProcurementLines([createProcurementDraftLine()]);
@@ -2221,10 +2289,24 @@ export const App = ({
           receiptRef: toNullableOrUndefined(expenseReceiptRef) ?? null,
         }),
       );
+      triggerDeferredSync({
+        onAccepted: async () => {
+          await loadInventory();
+          if (ledgerPersonId !== null) {
+            await loadLedger(ledgerPersonId);
+          }
+        },
+      });
+      setExpenseCategory("");
+      setExpenseCashAmount("");
+      setExpenseDate(new Date().toISOString().slice(0, 10));
+      setExpenseNotes("");
+      setExpenseReceiptRef("");
+      return;
       await sync.syncNow();
       await loadInventory();
       if (ledgerPersonId !== null) {
-        await loadLedger(ledgerPersonId);
+        await loadLedger(ledgerPersonId ?? "");
       }
       setExpenseCategory("");
       setExpenseCashAmount("");
@@ -2892,6 +2974,11 @@ export const App = ({
               <Text c="dimmed" size="sm">{`Last sync: ${sync.lastSyncAt ?? "never"}`}</Text>
               {sync.errorMessage !== null ? (
                 <Text c="red" size="sm">{`Sync error: ${sync.errorMessage}`}</Text>
+              ) : null}
+              {deferredSyncNotice !== null ? (
+                <Text c="red" size="sm">
+                  {deferredSyncNotice}
+                </Text>
               ) : null}
               {materialsError !== null ? (
                 <Text c="red" size="sm">{`Materials error: ${materialsError}`}</Text>

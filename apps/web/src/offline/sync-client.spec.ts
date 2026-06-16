@@ -102,6 +102,41 @@ describe("createSyncClient", () => {
     await expect(syncStateStore.getCursor()).resolves.toBe("cursor-next");
   });
 
+  test("limits pull iterations so one sync run stays bounded", async () => {
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    await syncStateStore.setCursor("cursor-start");
+
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        jsonResponse({ events: [buildEvent("e-1")], nextCursor: "cursor-next-1" }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ events: [buildEvent("e-2")], nextCursor: "cursor-next-2" }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          latestCursor: "cursor-next-2",
+          projectionRefreshedAt: "2026-03-07T08:02:00.000Z",
+          projectionCursor: "cursor-next-2",
+        }),
+      );
+
+    const client = createSyncClient({
+      queue,
+      syncStateStore,
+      fetchFn,
+      pullIterationLimit: 2,
+    });
+
+    const result = await client.runSyncCycle();
+
+    expect(result.pulledCount).toBe(2);
+    expect(fetchFn).toHaveBeenCalledTimes(3);
+    await expect(syncStateStore.getCursor()).resolves.toBe("cursor-next-2");
+  });
+
   test("throws deterministic error and leaves queue untouched on push failure", async () => {
     const queue = createEventQueue(createMemoryEventQueueStore());
     const syncStateStore = createMemorySyncStateStore();

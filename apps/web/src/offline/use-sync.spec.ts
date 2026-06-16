@@ -36,6 +36,7 @@ const createSyncStore = () => ({
 
 afterEach(() => {
   vi.clearAllMocks();
+  vi.useRealTimers();
 });
 
 describe("useSync", () => {
@@ -135,6 +136,124 @@ describe("useSync", () => {
     expect(result.current.lastSyncAt).toBe("2026-03-08T08:02:00.000Z");
     expect(runSyncCycle).toHaveBeenCalledTimes(1);
     expect(listConflicts).toHaveBeenCalled();
+  });
+
+  test("reuses the in-flight sync run for concurrent requests", async () => {
+    const queue = createQueue();
+    const syncStateStore = createSyncStore();
+
+    const runResult: SyncRunResult = {
+      acknowledgedCount: 0,
+      rejectedCount: 0,
+      pulledCount: 0,
+      latestCursor: "cursor-1",
+      status: {
+        latestCursor: "cursor-1",
+        projectionCursor: "cursor-1",
+        projectionRefreshedAt: "2026-03-08T08:02:00.000Z",
+      },
+      pendingCount: 0,
+      lastSyncAt: "2026-03-08T08:02:00.000Z",
+    };
+
+    let resolveRun: ((value: SyncRunResult) => void) | null = null;
+    const runSyncCycle = vi.fn(
+      () =>
+        new Promise<SyncRunResult>((resolve) => {
+          resolveRun = resolve;
+        }),
+    );
+
+    syncClientModule.createSyncClient.mockReturnValue({
+      runSyncCycle,
+    });
+    conflictClientModule.createConflictClient.mockReturnValue({
+      listConflicts: vi.fn(async () => ({ conflicts: [], nextCursor: null })),
+      resolveConflict: vi.fn(),
+    });
+
+    const { result } = renderHook(() =>
+      useSync({
+        queue,
+        syncStateStore,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.conflictStatus).toBe("ready");
+    });
+
+    let firstPromise: Promise<SyncRunResult | null> | null = null;
+    let secondPromise: Promise<SyncRunResult | null> | null = null;
+
+    await act(async () => {
+      firstPromise = result.current.syncNow();
+      secondPromise = result.current.syncNow();
+    });
+
+    expect(runSyncCycle).toHaveBeenCalledTimes(1);
+
+    resolveRun!(runResult);
+    let firstResult: SyncRunResult | null = null;
+    let secondResult: SyncRunResult | null = null;
+    await act(async () => {
+      firstResult = await firstPromise;
+      secondResult = await secondPromise;
+    });
+
+    expect(firstResult).toStrictEqual(runResult);
+    expect(secondResult).toStrictEqual(runResult);
+    expect(result.current.status).toBe("success");
+  });
+
+  test("auto-syncs pending events on an interval", async () => {
+    vi.useFakeTimers();
+
+    const queue = createQueue();
+    const syncStateStore = createSyncStore();
+
+    const runSyncCycle = vi.fn(
+      async (): Promise<SyncRunResult> => ({
+        acknowledgedCount: 1,
+        rejectedCount: 0,
+        pulledCount: 0,
+        latestCursor: "cursor-1",
+        status: {
+          latestCursor: "cursor-1",
+          projectionCursor: "cursor-1",
+          projectionRefreshedAt: "2026-03-08T08:02:00.000Z",
+        },
+        pendingCount: 0,
+        lastSyncAt: "2026-03-08T08:02:00.000Z",
+      }),
+    );
+
+    syncClientModule.createSyncClient.mockReturnValue({
+      runSyncCycle,
+    });
+    conflictClientModule.createConflictClient.mockReturnValue({
+      listConflicts: vi.fn(async () => ({ conflicts: [], nextCursor: null })),
+      resolveConflict: vi.fn(),
+    });
+
+    const { result } = renderHook(() =>
+      useSync({
+        queue,
+        syncStateStore,
+      }),
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(result.current.pendingCount).toBe(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+
+    expect(runSyncCycle).toHaveBeenCalledTimes(1);
   });
 
   test("syncNow normalizes recoverable sqlite errors and does not rethrow when pending count also fails", async () => {

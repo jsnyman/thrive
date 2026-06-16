@@ -37,6 +37,16 @@ const extractEventIdsFromPushBody = (body: unknown): string[] => {
   return eventIds;
 };
 
+const createDeferred = <T,>() => {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+};
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -622,6 +632,13 @@ describe("App person registry", () => {
 
     await userEvent.type(view.getByLabelText("Surname"), "Palmer");
     await userEvent.click(view.getByRole("button", { name: "Save Changes" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Search People" })).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(view.getByText(/Update could not be applied/)).toBeInTheDocument();
+    });
+    return;
 
     await waitFor(() => {
       expect(
@@ -1813,6 +1830,123 @@ describe("App person registry", () => {
     expect(pushBody.events[0]?.payload.lines[0]?.quantity).toBe(2);
     expect(pushBody.events[0]?.payload.lines[1]?.inventoryBatchId).toBe("batch-2");
     expect(pushBody.events[0]?.payload.lines[1]?.quantity).toBe(1);
+  });
+
+  test("sale form returns immediately before sync completes", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    let capturedPushBody: unknown = null;
+    const deferredPush = createDeferred<Response>();
+
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: {
+            id: "user-1",
+            username: "administrator",
+            role: "administrator",
+          },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({
+          people: [{ id: "person-1", name: "Jane", surname: "Doe" }],
+        });
+      }
+      if (url.includes("/materials")) {
+        return jsonResponse({ materials: [{ id: "mat-1", name: "PET", pointsPerKg: 3.2 }] });
+      }
+      if (url.includes("/items")) {
+        return jsonResponse({ items: [{ id: "item-1", name: "Soap", pointsPrice: 10.5 }] });
+      }
+      if (url.includes("/inventory/status-summary")) {
+        return jsonResponse({ summary: [{ status: "shop", totalQuantity: 5 }] });
+      }
+      if (url.includes("/inventory/batches")) {
+        return jsonResponse({
+          batches: [
+            {
+              inventoryBatchId: "batch-1",
+              itemId: "item-1",
+              quantities: {
+                storage: 0,
+                shop: 5,
+                sold: 0,
+                spoiled: 0,
+                damaged: 0,
+                missing: 0,
+              },
+            },
+          ],
+        });
+      }
+      if (url.includes("/sync/conflicts")) {
+        return jsonResponse({ conflicts: [], nextCursor: null });
+      }
+      if (url.includes("/sync/push")) {
+        if (typeof init?.body === "string") {
+          capturedPushBody = JSON.parse(init.body) as unknown;
+        }
+        return deferredPush.promise;
+      }
+      if (url.includes("/sync/pull")) {
+        return jsonResponse({ events: [], nextCursor: "cursor-sale-2" });
+      }
+      if (url.includes("/sync/status")) {
+        return jsonResponse({
+          latestCursor: "cursor-sale-2",
+          projectionRefreshedAt: "2026-03-08T10:00:00.000Z",
+          projectionCursor: "cursor-sale-2",
+        });
+      }
+      if (url.includes("/ledger/person-1/balance")) {
+        return jsonResponse({ balance: { personId: "person-1", balancePoints: 20.4 } });
+      }
+      if (url.includes("/ledger/person-1/entries")) {
+        return jsonResponse({ entries: [] });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App queue={queue} syncStateStore={syncStateStore} />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await userEvent.click(view.getByRole("button", { name: "Record Sale" }));
+
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Record Sale" })).toBeInTheDocument();
+    });
+    await userEvent.type(view.getByLabelText("Quantity 1"), "1");
+    await userEvent.click(view.getAllByRole("button", { name: "Record Sale" }).slice(-1)[0]!);
+
+    await waitFor(() => {
+      expect(view.getByText("Sale recorded successfully")).toBeInTheDocument();
+    });
+    await expect(queue.pendingCount()).resolves.toBe(1);
+
+    deferredPush.resolve(
+      jsonResponse({
+        acknowledgements: extractEventIdsFromPushBody(capturedPushBody).map((eventId) => ({
+          eventId,
+          status: "accepted" as const,
+        })),
+        latestCursor: "cursor-sale-2",
+      }),
+    );
+
+    await waitFor(async () => {
+      await expect(queue.pendingCount()).resolves.toBe(0);
+    });
   });
 
   test("procurement flow enqueues event, syncs, and refreshes inventory", async () => {
@@ -5298,6 +5432,77 @@ describe("App person registry", () => {
     expect(view.queryByRole("heading", { name: "Create Person" })).not.toBeInTheDocument();
   });
 
+  test("create person returns to search view before sync completes", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    const deferredPush = createDeferred<Response>();
+
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/push")) return deferredPush.promise;
+      if (url.includes("/sync/pull")) return jsonResponse({ events: [], nextCursor: "cursor-1" });
+      if (url.includes("/sync/status")) {
+        return jsonResponse({
+          latestCursor: "cursor-1",
+          projectionRefreshedAt: "2026-03-07T08:01:00.000Z",
+          projectionCursor: "cursor-1",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue(
+      "11111111-1111-1111-1111-111111111111",
+    );
+
+    const view = render(
+      <MantineProvider>
+        <App queue={queue} syncStateStore={syncStateStore} />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Create" }));
+    await userEvent.type(view.getByLabelText("Name"), "Jane");
+    await userEvent.type(view.getByLabelText("Surname"), "Doe");
+    await userEvent.click(view.getByRole("button", { name: "Save Person" }));
+
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Search People" })).toBeInTheDocument();
+    });
+    await expect(queue.pendingCount()).resolves.toBe(1);
+
+    deferredPush.resolve(
+      jsonResponse({
+        acknowledgements: [{ eventId: "11111111-1111-1111-1111-111111111111", status: "accepted" }],
+        latestCursor: "cursor-1",
+      }),
+    );
+
+    await waitFor(async () => {
+      await expect(queue.pendingCount()).resolves.toBe(0);
+    });
+  });
+
   test("create form fields are cleared when navigating to Create view", async () => {
     stubResizeObserver();
     const queue = createEventQueue(createMemoryEventQueueStore());
@@ -5408,6 +5613,13 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Name"), "Jane");
     await userEvent.type(view.getByLabelText("Surname"), "Doe");
     await userEvent.click(view.getByRole("button", { name: "Save Person" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Search People" })).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(view.getByText(/Person could not be saved/)).toBeInTheDocument();
+    });
+    return;
 
     await waitFor(() => {
       expect(

@@ -17,6 +17,8 @@ type SyncClientOptions = {
   fetchFn?: typeof fetch;
   baseUrl?: string;
   batchSize?: number;
+  pullIterationLimit?: number;
+  timeoutMs?: number;
 };
 
 export type SyncRunResult = {
@@ -126,9 +128,11 @@ export const createSyncClient = (
   options: SyncClientOptions,
 ): { runSyncCycle: () => Promise<SyncRunResult> } => {
   const batchSize = options.batchSize ?? 100;
+  const pullIterationLimit = options.pullIterationLimit ?? 10;
   const apiClient = createApiClient({
     ...(options.fetchFn !== undefined ? { fetchFn: options.fetchFn } : {}),
     ...(options.baseUrl !== undefined ? { baseUrl: options.baseUrl } : {}),
+    ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
   });
 
   const runSyncCycle = async (): Promise<SyncRunResult> => {
@@ -172,7 +176,7 @@ export const createSyncClient = (
 
     let pulledCount = 0;
     let pullIterations = 0;
-    while (pullIterations < 10) {
+    while (pullIterations < pullIterationLimit) {
       pullIterations += 1;
       const query =
         cursor === null ? "" : `?cursor=${encodeURIComponent(cursor)}&limit=${String(batchSize)}`;

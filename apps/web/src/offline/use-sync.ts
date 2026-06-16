@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   SyncConflictRecord,
   SyncConflictResolution,
@@ -37,6 +37,9 @@ type UseSyncOptions = {
 
 const STORAGE_UNAVAILABLE_MESSAGE =
   "Offline storage became unavailable. Reload after clearing site data.";
+const AUTO_SYNC_INTERVAL_MS = 15_000;
+const SYNC_REQUEST_TIMEOUT_MS = 8_000;
+const SYNC_PULL_ITERATION_LIMIT = 2;
 
 const toSyncErrorMessage = (error: unknown): string => {
   if (isRecoverableSqliteError(error)) {
@@ -57,6 +60,7 @@ export const useSync = (options: UseSyncOptions): SyncViewModel => {
   );
   const [conflictErrorMessage, setConflictErrorMessage] = useState<string | null>(null);
   const [resolvingConflictIds, setResolvingConflictIds] = useState<string[]>([]);
+  const inFlightSyncRef = useRef<Promise<SyncRunResult | null> | null>(null);
 
   const client = useMemo(() => {
     if (options.queue === null || options.syncStateStore === null) {
@@ -65,6 +69,8 @@ export const useSync = (options: UseSyncOptions): SyncViewModel => {
     return createSyncClient({
       queue: options.queue,
       syncStateStore: options.syncStateStore,
+      timeoutMs: SYNC_REQUEST_TIMEOUT_MS,
+      pullIterationLimit: SYNC_PULL_ITERATION_LIMIT,
     });
   }, [options.queue, options.syncStateStore]);
 
@@ -126,28 +132,61 @@ export const useSync = (options: UseSyncOptions): SyncViewModel => {
       return null;
     }
 
+    if (inFlightSyncRef.current !== null) {
+      return inFlightSyncRef.current;
+    }
+
     setStatus("running");
     setErrorMessage(null);
 
-    try {
-      const result = await client.runSyncCycle();
-      setLastRun(result);
-      setPendingCount(result.pendingCount);
-      setLastSyncAt(result.lastSyncAt);
-      setStatus("success");
-      await refreshConflicts();
-      return result;
-    } catch (error) {
-      setErrorMessage(toSyncErrorMessage(error));
-      setStatus("error");
+    const syncPromise = (async (): Promise<SyncRunResult | null> => {
       try {
-        setPendingCount(await queue.pendingCount());
-      } catch {
-        setPendingCount(0);
+        const result = await client.runSyncCycle();
+        setLastRun(result);
+        setPendingCount(result.pendingCount);
+        setLastSyncAt(result.lastSyncAt);
+        setStatus("success");
+        await refreshConflicts();
+        return result;
+      } catch (error) {
+        setErrorMessage(toSyncErrorMessage(error));
+        setStatus("error");
+        try {
+          setPendingCount(await queue.pendingCount());
+        } catch {
+          setPendingCount(0);
+        }
+        return null;
+      } finally {
+        inFlightSyncRef.current = null;
       }
-      return null;
-    }
+    })();
+
+    inFlightSyncRef.current = syncPromise;
+    return syncPromise;
   }, [client, options.queue, options.syncStateStore, refreshConflicts]);
+
+  useEffect(() => {
+    const queue = options.queue;
+    const syncStateStore = options.syncStateStore;
+    if (queue === null || syncStateStore === null) {
+      return;
+    }
+
+    const intervalId = globalThis.setInterval(() => {
+      if (inFlightSyncRef.current !== null) {
+        return;
+      }
+      if (pendingCount <= 0) {
+        return;
+      }
+      void syncNow();
+    }, AUTO_SYNC_INTERVAL_MS);
+
+    return () => {
+      globalThis.clearInterval(intervalId);
+    };
+  }, [options.queue, options.syncStateStore, pendingCount, syncNow]);
 
   const resolveConflict = useCallback(
     async (
