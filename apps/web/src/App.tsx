@@ -5063,44 +5063,46 @@ export const App = ({
                         No items found.
                       </Text>
                     ) : null}
-                    {items.map((item) => (
-                      <Card key={item.id} withBorder radius="md" padding="sm">
-                        <Group justify="space-between">
-                          <Stack gap={2}>
-                            <Text size="sm" fw={500}>
-                              {item.name}
-                            </Text>
-                            <Text size="xs" c="dimmed">
-                              {`${formatPointValue(item.pointsPrice)} pts`}
-                              {item.costPrice !== null && item.costPrice !== undefined
-                                ? ` | Cost: ${item.costPrice.toFixed(2)}`
-                                : ""}
-                              {item.sku !== null && item.sku !== undefined
-                                ? ` | SKU: ${item.sku}`
-                                : ""}
-                            </Text>
-                          </Stack>
-                          <Button
-                            size="xs"
-                            variant="default"
-                            onClick={() => {
-                              setItemEditingId(item.id);
-                              setItemEditName(item.name);
-                              setItemEditPointsPrice(String(item.pointsPrice));
-                              setItemEditCostPrice(
-                                item.costPrice !== null && item.costPrice !== undefined
-                                  ? String(item.costPrice)
-                                  : "",
-                              );
-                              setItemEditSku(item.sku ?? "");
-                              setItemEditError(null);
-                            }}
-                          >
-                            Edit
-                          </Button>
-                        </Group>
-                      </Card>
-                    ))}
+                    {itemEditingId === null
+                      ? items.map((item) => (
+                          <Card key={item.id} withBorder radius="md" padding="sm">
+                            <Group justify="space-between">
+                              <Stack gap={2}>
+                                <Text size="sm" fw={500}>
+                                  {item.name}
+                                </Text>
+                                <Text size="xs" c="dimmed">
+                                  {`${formatPointValue(item.pointsPrice)} pts`}
+                                  {item.costPrice !== null && item.costPrice !== undefined
+                                    ? ` | Cost: ${item.costPrice.toFixed(2)}`
+                                    : ""}
+                                  {item.sku !== null && item.sku !== undefined
+                                    ? ` | SKU: ${item.sku}`
+                                    : ""}
+                                </Text>
+                              </Stack>
+                              <Button
+                                size="xs"
+                                variant="default"
+                                onClick={() => {
+                                  setItemEditingId(item.id);
+                                  setItemEditName(item.name);
+                                  setItemEditPointsPrice(String(item.pointsPrice));
+                                  setItemEditCostPrice(
+                                    item.costPrice !== null && item.costPrice !== undefined
+                                      ? String(item.costPrice)
+                                      : "",
+                                  );
+                                  setItemEditSku(item.sku ?? "");
+                                  setItemEditError(null);
+                                }}
+                              >
+                                Edit
+                              </Button>
+                            </Group>
+                          </Card>
+                        ))
+                      : null}
                     {itemEditingId !== null ? (
                       <Card withBorder radius="md" padding="sm">
                         <Stack gap="xs">
