@@ -18,7 +18,7 @@ import {
   Title,
 } from "@mantine/core";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Event } from "../../../packages/shared/src/domain/events";
+import type { Event, ItemUpdates } from "../../../packages/shared/src/domain/events";
 import {
   floorPointsToTenths,
   formatPointValue,
@@ -163,7 +163,8 @@ type NavViewKey =
   | "reporting"
   | "users-list"
   | "users-create"
-  | "users-edit";
+  | "users-edit"
+  | "items-manage";
 
 const inventoryStatuses: InventoryStatus[] = [
   "storage",
@@ -471,6 +472,25 @@ const buildSaleRecordedEvent = (
   };
 };
 
+const buildUpdateItemEvent = (
+  actor: AuthUser,
+  payload: { itemId: string; updates: ItemUpdates },
+): Event => ({
+  eventId: crypto.randomUUID(),
+  eventType: "item.updated",
+  occurredAt: new Date().toISOString(),
+  actorUserId: actor.id,
+  deviceId: "web-registry",
+  schemaVersion: 1,
+  correlationId: null,
+  causationId: null,
+  locationText: null,
+  payload: {
+    itemId: payload.itemId,
+    updates: payload.updates,
+  },
+});
+
 const buildCreateItemEvent = (
   actor: AuthUser,
   payload: { itemId: string; name: string },
@@ -584,6 +604,13 @@ export const App = ({
   const [items, setItems] = useState<ItemRecord[]>([]);
   const [itemsLoading, setItemsLoading] = useState<boolean>(false);
   const [itemsError, setItemsError] = useState<string | null>(null);
+  const [itemEditingId, setItemEditingId] = useState<string | null>(null);
+  const [itemEditName, setItemEditName] = useState<string>("");
+  const [itemEditPointsPrice, setItemEditPointsPrice] = useState<string>("");
+  const [itemEditCostPrice, setItemEditCostPrice] = useState<string>("");
+  const [itemEditSku, setItemEditSku] = useState<string>("");
+  const [itemEditError, setItemEditError] = useState<string | null>(null);
+  const [itemEditPending, setItemEditPending] = useState<boolean>(false);
 
   const [createName, setCreateName] = useState<string>("");
   const [createSurname, setCreateSurname] = useState<string>("");
@@ -1863,6 +1890,52 @@ export const App = ({
     }
   };
 
+  const handleSaveItem = async (): Promise<void> => {
+    if (queue === null || sessionUser === null) {
+      setItemEditError("Queue is unavailable");
+      return;
+    }
+    if (itemEditingId === null) {
+      setItemEditError("No item selected");
+      return;
+    }
+    const name = itemEditName.trim();
+    if (name.length === 0) {
+      setItemEditError("Item name is required");
+      return;
+    }
+    const pointsPrice = Number.parseFloat(itemEditPointsPrice);
+    if (!Number.isFinite(pointsPrice) || pointsPrice < 0) {
+      setItemEditError("Points price must be 0 or greater");
+      return;
+    }
+    const updates: ItemUpdates = { name, pointsPrice };
+    if (itemEditCostPrice.trim().length > 0) {
+      const costPrice = Number.parseFloat(itemEditCostPrice);
+      if (!Number.isFinite(costPrice) || costPrice < 0) {
+        setItemEditError("Cost price must be 0 or greater");
+        return;
+      }
+      updates.costPrice = costPrice;
+    } else {
+      updates.costPrice = null;
+    }
+    updates.sku = itemEditSku.trim().length > 0 ? itemEditSku.trim() : null;
+    setItemEditPending(true);
+    setItemEditError(null);
+    try {
+      await queue.enqueue(buildUpdateItemEvent(sessionUser, { itemId: itemEditingId, updates }));
+      await sync.syncNow();
+      await loadItems();
+      setItemEditingId(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setItemEditError(message);
+    } finally {
+      setItemEditPending(false);
+    }
+  };
+
   const handleRecordProcurement = async (): Promise<void> => {
     if (!canRecordProcurement) {
       setProcurementError("You do not have permission to record procurement");
@@ -2639,6 +2712,17 @@ export const App = ({
                 }}
               >
                 Record Expense
+              </Button>
+            ) : null}
+            {canManageInventory ? (
+              <Button
+                className="navActionButton"
+                variant={activeView === "items-manage" ? "filled" : "light"}
+                onClick={() => {
+                  setActiveView("items-manage");
+                }}
+              >
+                Manage Items
               </Button>
             ) : null}
           </Stack>
@@ -4919,6 +5003,126 @@ export const App = ({
                     >
                       Adjust Inventory
                     </Button>
+                  </Stack>
+                </Card>
+              ) : null}
+
+              {activeView === "items-manage" && canManageInventory ? (
+                <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                  <Stack gap="sm">
+                    <Title order={4}>Manage Items</Title>
+                    {itemsLoading ? <Text size="sm">Loading...</Text> : null}
+                    {itemsError !== null ? (
+                      <Text size="sm" c="red">
+                        {itemsError}
+                      </Text>
+                    ) : null}
+                    {items.length === 0 && !itemsLoading ? (
+                      <Text size="sm" c="dimmed">
+                        No items found.
+                      </Text>
+                    ) : null}
+                    {items.map((item) => (
+                      <Card key={item.id} withBorder radius="md" padding="sm">
+                        <Group justify="space-between">
+                          <Stack gap={2}>
+                            <Text size="sm" fw={500}>
+                              {item.name}
+                            </Text>
+                            <Text size="xs" c="dimmed">
+                              {`${formatPointValue(item.pointsPrice)} pts`}
+                              {item.costPrice !== null && item.costPrice !== undefined
+                                ? ` | Cost: ${item.costPrice.toFixed(2)}`
+                                : ""}
+                              {item.sku !== null && item.sku !== undefined
+                                ? ` | SKU: ${item.sku}`
+                                : ""}
+                            </Text>
+                          </Stack>
+                          <Button
+                            size="xs"
+                            variant="default"
+                            onClick={() => {
+                              setItemEditingId(item.id);
+                              setItemEditName(item.name);
+                              setItemEditPointsPrice(String(item.pointsPrice));
+                              setItemEditCostPrice(
+                                item.costPrice !== null && item.costPrice !== undefined
+                                  ? String(item.costPrice)
+                                  : "",
+                              );
+                              setItemEditSku(item.sku ?? "");
+                              setItemEditError(null);
+                            }}
+                          >
+                            Edit
+                          </Button>
+                        </Group>
+                      </Card>
+                    ))}
+                    {itemEditingId !== null ? (
+                      <Card withBorder radius="md" padding="sm">
+                        <Stack gap="xs">
+                          <Title order={5}>
+                            {`Editing: ${items.find((i) => i.id === itemEditingId)?.name ?? itemEditingId}`}
+                          </Title>
+                          <TextInput
+                            label="Item Name"
+                            value={itemEditName}
+                            onChange={(event) => {
+                              setItemEditName(event.currentTarget.value);
+                            }}
+                          />
+                          <TextInput
+                            label="Points Price"
+                            value={itemEditPointsPrice}
+                            onChange={(event) => {
+                              setItemEditPointsPrice(event.currentTarget.value);
+                            }}
+                          />
+                          <TextInput
+                            label="Cost Price"
+                            value={itemEditCostPrice}
+                            placeholder="Optional"
+                            onChange={(event) => {
+                              setItemEditCostPrice(event.currentTarget.value);
+                            }}
+                          />
+                          <TextInput
+                            label="SKU"
+                            value={itemEditSku}
+                            placeholder="Optional"
+                            onChange={(event) => {
+                              setItemEditSku(event.currentTarget.value);
+                            }}
+                          />
+                          {itemEditError !== null ? (
+                            <Text size="sm" c="red">
+                              {itemEditError}
+                            </Text>
+                          ) : null}
+                          <Group>
+                            <Button
+                              loading={itemEditPending}
+                              onClick={() => {
+                                void handleSaveItem();
+                              }}
+                            >
+                              Save Item
+                            </Button>
+                            <Button
+                              variant="default"
+                              onClick={() => {
+                                setItemEditingId(null);
+                                setItemEditError(null);
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                          </Group>
+                        </Stack>
+                      </Card>
+                    ) : null}
                   </Stack>
                 </Card>
               ) : null}
