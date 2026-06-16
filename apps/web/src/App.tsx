@@ -123,7 +123,7 @@ type ProcurementEventLineInput = {
 
 type ProcurementCorrectionDraftLine = {
   lineId: string;
-  itemId: string | null;
+  itemName: string;
   inventoryBatchId: string | null;
   procurementPrice: string;
   quantity: string;
@@ -421,7 +421,7 @@ const createProcurementCorrectionDraftLine = (
   defaults?: Partial<ProcurementCorrectionDraftLine>,
 ): ProcurementCorrectionDraftLine => ({
   lineId: `${crypto.randomUUID()}-${Math.random().toString(36).slice(2)}`,
-  itemId: defaults?.itemId ?? null,
+  itemName: defaults?.itemName ?? "",
   inventoryBatchId: defaults?.inventoryBatchId ?? null,
   procurementPrice: defaults?.procurementPrice ?? "",
   quantity: defaults?.quantity ?? "",
@@ -618,6 +618,7 @@ export const App = ({
   const [saleLines, setSaleLines] = useState<SaleDraftLine[]>(() => [createSaleDraftLine()]);
   const [salePending, setSalePending] = useState<boolean>(false);
   const [saleError, setSaleError] = useState<string | null>(null);
+  const [saleSuccess, setSaleSuccess] = useState<string | null>(null);
   const [procurementLines, setProcurementLines] = useState<ProcurementDraftLine[]>(() => [
     createProcurementDraftLine(),
   ]);
@@ -1841,6 +1842,7 @@ export const App = ({
 
     setSalePending(true);
     setSaleError(null);
+    setSaleSuccess(null);
     try {
       await queue.enqueue(
         buildSaleRecordedEvent(sessionUser, {
@@ -1852,6 +1854,7 @@ export const App = ({
       await Promise.all([loadInventory(), loadLedger(salePersonId)]);
       setLedgerPersonId(salePersonId);
       setSaleLines([createSaleDraftLine(items[0]?.id ?? null)]);
+      setSaleSuccess("Sale recorded successfully");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setSaleError(message);
@@ -1979,7 +1982,7 @@ export const App = ({
     setEditingProcurementLines(
       procurement.lines.map((line) =>
         createProcurementCorrectionDraftLine({
-          itemId: line.itemId,
+          itemName: items.find((item) => item.id === line.itemId)?.name ?? line.itemId,
           inventoryBatchId: line.inventoryBatchId,
           procurementPrice: String(line.lineTotalCost),
           quantity: String(line.quantity),
@@ -2020,10 +2023,31 @@ export const App = ({
       unitCost: number;
       markupPercent: number;
     }> = [];
+    const newItemEvents: Event[] = [];
+    const newItemsByName = new Map<string, string>();
     for (const line of editingProcurementLines) {
-      if (line.itemId === null) {
-        setEditingProcurementError("Each line must include an item");
+      if (line.itemName.trim() === "") {
+        setEditingProcurementError("Each line must include an item name");
         return;
+      }
+      const normalizedName = line.itemName.trim().toLowerCase();
+      const existingItem =
+        items.find((entry) => entry.name.toLowerCase() === normalizedName) ?? null;
+      let itemId: string;
+      if (existingItem !== null) {
+        itemId = existingItem.id;
+      } else if (newItemsByName.has(normalizedName)) {
+        itemId = newItemsByName.get(normalizedName)!;
+      } else {
+        if (sessionUser === null) {
+          setEditingProcurementError("Cannot create new item: not authenticated");
+          return;
+        }
+        itemId = crypto.randomUUID();
+        newItemsByName.set(normalizedName, itemId);
+        newItemEvents.push(
+          buildCreateItemEvent(sessionUser, { itemId, name: line.itemName.trim() }),
+        );
       }
       const quantity = Number.parseInt(line.quantity, 10);
       if (!Number.isInteger(quantity) || quantity <= 0) {
@@ -2041,7 +2065,7 @@ export const App = ({
         return;
       }
       lines.push({
-        itemId: line.itemId,
+        itemId,
         inventoryBatchId: line.inventoryBatchId,
         quantity,
         unitCost: procurementPrice / quantity,
@@ -2049,9 +2073,16 @@ export const App = ({
       });
     }
 
+    if (newItemEvents.length > 0 && queue === null) {
+      setEditingProcurementError("Queue is unavailable");
+      return;
+    }
     setEditingProcurementPending(true);
     setEditingProcurementError(null);
     try {
+      for (const event of newItemEvents) {
+        await queue!.enqueue(event);
+      }
       await procurementClient.correctProcurement(editingProcurementEventId, {
         occurredAt: toDateInputOccurredAt(editingProcurementDate.trim()),
         supplierName: toNullableOrUndefined(editingProcurementSupplierName) ?? null,
@@ -3039,7 +3070,7 @@ export const App = ({
                   />
                   {saleLines.map((line, index) => {
                     const lineBatches = inventoryBatches.filter(
-                      (batch) => batch.itemId === line.itemId,
+                      (batch) => batch.itemId === line.itemId && batch.quantities.shop > 0,
                     );
                     return (
                       <Card key={line.lineId} withBorder radius="md" padding="sm">
@@ -3138,6 +3169,7 @@ export const App = ({
                   <Text size="sm" c="dimmed">
                     {`Sale total preview points: ${formatPointValue(saleTotalPreviewPoints)}`}
                   </Text>
+                  {saleSuccess !== null ? <Text c="green">{saleSuccess}</Text> : null}
                   {saleError !== null ? <Text c="red">{saleError}</Text> : null}
                   <Button
                     onClick={() => {
@@ -3425,24 +3457,19 @@ export const App = ({
                         return (
                           <Card key={line.lineId} withBorder radius="md" padding="sm">
                             <Stack gap="xs">
-                              <Select
+                              <TextInput
                                 label={`Item ${String(index + 1)}`}
-                                data={items.map((item) => ({
-                                  value: item.id,
-                                  label: item.name,
-                                }))}
-                                value={line.itemId}
-                                onChange={(value) => {
+                                value={line.itemName}
+                                onChange={(event) => {
+                                  const nextValue = event.currentTarget.value;
                                   setEditingProcurementLines((previous) =>
                                     previous.map((entry) =>
                                       entry.lineId === line.lineId
-                                        ? { ...entry, itemId: value }
+                                        ? { ...entry, itemName: nextValue }
                                         : entry,
                                     ),
                                   );
                                 }}
-                                searchable
-                                clearable
                               />
                               <TextInput
                                 label={`Procurement Price ${String(index + 1)}`}
