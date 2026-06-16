@@ -191,6 +191,153 @@ describe("projectEventToReadModels", () => {
     expect(itemUpdateCall.data.pointsPrice).toBe("12.4");
   });
 
+  test("procurement.recorded — updates costPrice and pointsPrice for each line item", async () => {
+    const harness = createHarness();
+
+    const event: Event = {
+      ...baseFields,
+      eventType: "procurement.recorded",
+      payload: {
+        supplierName: "Village Supplier",
+        tripDistanceKm: null,
+        cashTotal: 6,
+        lines: [
+          {
+            itemId: "item-1",
+            inventoryBatchId: "batch-1",
+            quantity: 2,
+            unitCost: 3,
+            lineTotalCost: 6,
+            unitSellingPrice: 3.5,
+            markupPercent: 16.67,
+          },
+        ],
+      },
+    };
+
+    await projectEventToReadModels(harness.executor, event);
+
+    expect(harness.itemUpdate).toHaveBeenCalledTimes(1);
+    expect(harness.itemUpdate).toHaveBeenCalledWith({
+      where: { id: "item-1" },
+      data: { costPrice: "3", pointsPrice: "3.5" },
+    });
+  });
+
+  test("procurement.recorded — skips pointsPrice update when unitSellingPrice is 0", async () => {
+    const harness = createHarness();
+
+    const event: Event = {
+      ...baseFields,
+      eventType: "procurement.recorded",
+      payload: {
+        supplierName: null,
+        tripDistanceKm: null,
+        cashTotal: 6,
+        lines: [
+          {
+            itemId: "item-2",
+            inventoryBatchId: "batch-2",
+            quantity: 2,
+            unitCost: 3,
+            lineTotalCost: 6,
+            unitSellingPrice: 0,
+            markupPercent: 0,
+          },
+        ],
+      },
+    };
+
+    await projectEventToReadModels(harness.executor, event);
+
+    expect(harness.itemUpdate).toHaveBeenCalledTimes(1);
+    expect(harness.itemUpdate).toHaveBeenCalledWith({
+      where: { id: "item-2" },
+      data: { costPrice: "3" },
+    });
+  });
+
+  test("procurement.recorded — updates multiple line items", async () => {
+    const harness = createHarness();
+
+    const event: Event = {
+      ...baseFields,
+      eventType: "procurement.recorded",
+      payload: {
+        supplierName: null,
+        tripDistanceKm: null,
+        cashTotal: 11,
+        lines: [
+          {
+            itemId: "item-1",
+            inventoryBatchId: "batch-1",
+            quantity: 2,
+            unitCost: 3,
+            lineTotalCost: 6,
+            unitSellingPrice: 3.5,
+            markupPercent: 16.67,
+          },
+          {
+            itemId: "item-2",
+            inventoryBatchId: "batch-2",
+            quantity: 1,
+            unitCost: 5,
+            lineTotalCost: 5,
+            unitSellingPrice: 5.8,
+            markupPercent: 16,
+          },
+        ],
+      },
+    };
+
+    await projectEventToReadModels(harness.executor, event);
+
+    expect(harness.itemUpdate).toHaveBeenCalledTimes(2);
+    expect(harness.itemUpdate).toHaveBeenNthCalledWith(1, {
+      where: { id: "item-1" },
+      data: { costPrice: "3", pointsPrice: "3.5" },
+    });
+    expect(harness.itemUpdate).toHaveBeenNthCalledWith(2, {
+      where: { id: "item-2" },
+      data: { costPrice: "5", pointsPrice: "5.8" },
+    });
+  });
+
+  test("procurement.corrected — updates costPrice and pointsPrice for each line item", async () => {
+    const harness = createHarness();
+
+    const event: Event = {
+      ...baseFields,
+      eventType: "procurement.corrected",
+      payload: {
+        procurementEventId: "event-1",
+        supplierName: null,
+        tripDistanceKm: null,
+        cashTotal: 8,
+        lines: [
+          {
+            itemId: "item-1",
+            inventoryBatchId: "batch-1",
+            quantity: 2,
+            unitCost: 4,
+            lineTotalCost: 8,
+            unitSellingPrice: 4.7,
+            markupPercent: 17.5,
+          },
+        ],
+        reason: "Corrected unit cost",
+      },
+    };
+
+    await projectEventToReadModels(harness.executor, event);
+
+    expect(harness.itemUpdate).toHaveBeenCalledTimes(1);
+    expect(harness.itemUpdate).toHaveBeenCalledWith({
+      where: { id: "item-1" },
+      data: { costPrice: "4", pointsPrice: "4.7" },
+    });
+  });
+
   test("ignores non-projected event types", async () => {
     const harness = createHarness();
     const saleEvent: Event = {

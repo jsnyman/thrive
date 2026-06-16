@@ -1275,6 +1275,11 @@ describe("App person registry", () => {
               : [{ status: "storage", totalQuantity: 10 }],
         });
       }
+      if (url.includes("/items")) {
+        return jsonResponse({
+          items: [{ id: "item-1", name: "Plastic Bottles", pointsPrice: 10 }],
+        });
+      }
       if (url.includes("/inventory/batches")) {
         return jsonResponse({
           batches: [
@@ -1332,8 +1337,10 @@ describe("App person registry", () => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
     await userEvent.click(view.getByRole("button", { name: "Adjust inventory" }));
-    await userEvent.click(view.getAllByLabelText("Batch")[0]!);
-    await userEvent.click(await view.findByRole("option", { name: "batch-1 (item-1)" }));
+    await userEvent.click(view.getAllByLabelText("Item")[0]!);
+    await userEvent.click(await view.findByRole("option", { name: "Plastic Bottles" }));
+    await userEvent.click(view.getByLabelText("Batch"));
+    await userEvent.click(await view.findByRole("option", { name: "Plastic Bottles — batch-1" }));
 
     await userEvent.type(view.getByLabelText("Quantity"), "4");
     await userEvent.type(view.getByLabelText("Reason"), "restock shelf");
@@ -1351,6 +1358,87 @@ describe("App person registry", () => {
     expect(body.toStatus).toBe("damaged");
     expect(body.quantity).toBe(4);
     expect(body.reason).toBe("restock shelf");
+  });
+
+  test("inventory adjustment apply filters batches by selected item", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) {
+        return jsonResponse({
+          items: [
+            { id: "item-1", name: "Plastic Bottles", pointsPrice: 10 },
+            { id: "item-2", name: "Cardboard", pointsPrice: 5 },
+          ],
+        });
+      }
+      if (url.includes("/inventory/status-summary")) {
+        return jsonResponse({ summary: [] });
+      }
+      if (url.includes("/inventory/batches")) {
+        return jsonResponse({
+          batches: [
+            {
+              inventoryBatchId: "batch-1",
+              itemId: "item-1",
+              quantities: { storage: 5, shop: 0, sold: 0, spoiled: 0, damaged: 0, missing: 0 },
+            },
+            {
+              inventoryBatchId: "batch-2",
+              itemId: "item-2",
+              quantities: { storage: 3, shop: 0, sold: 0, spoiled: 0, damaged: 0, missing: 0 },
+            },
+          ],
+        });
+      }
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      if (url.includes("/adjustments/requests"))
+        return jsonResponse({ requests: [], nextCursor: null });
+      if (url.includes("/sync/pull")) return jsonResponse({ events: [], nextCursor: "cursor-1" });
+      if (url.includes("/sync/status")) {
+        return jsonResponse({
+          latestCursor: "cursor-1",
+          projectionRefreshedAt: "2026-03-08T09:00:00.000Z",
+          projectionCursor: "cursor-1",
+        });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App queue={queue} syncStateStore={syncStateStore} />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Adjust inventory" }));
+
+    // Select item-2 (Cardboard) — only batch-2 should appear in the batch dropdown
+    await userEvent.click(view.getAllByLabelText("Item")[0]!);
+    await userEvent.click(await view.findByRole("option", { name: "Cardboard" }));
+    await userEvent.click(view.getByLabelText("Batch"));
+
+    expect(await view.findByRole("option", { name: "Cardboard — batch-2" })).toBeInTheDocument();
+    expect(view.queryByRole("option", { name: /Plastic Bottles/ })).not.toBeInTheDocument();
   });
 
   test("inventory adjustment request posts API request for user", async () => {

@@ -1785,6 +1785,39 @@ describe("core HTTP endpoints", () => {
     expect(storage?.totalQuantity).toBe(12);
   });
 
+  test("POST /procurements computes unitSellingPrice from unitCost and markupPercent", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    // unitCost=3, markupPercent=20 → 3 * 1.2 = 3.6 → roundUpToNearest10Cents → 3.6
+    const response = await supertest(server)
+      .post("/procurements")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({
+        occurredAt: "2026-06-10T00:00:00.000Z",
+        supplierName: "Supplier",
+        tripDistanceKm: null,
+        lines: [{ itemId: "item-1", quantity: 1, unitCost: 3, markupPercent: 20 }],
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.lines[0]?.unitSellingPrice).toBe(3.6);
+
+    // unitCost=3, markupPercent=25 → 3 * 1.25 = 3.75 → roundUpToNearest10Cents → 3.8
+    const response2 = await supertest(server)
+      .post("/procurements")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({
+        occurredAt: "2026-06-10T00:00:00.000Z",
+        supplierName: "Supplier",
+        tripDistanceKm: null,
+        lines: [{ itemId: "item-1", quantity: 1, unitCost: 3, markupPercent: 25 }],
+      });
+
+    expect(response2.status).toBe(201);
+    expect(response2.body.lines[0]?.unitSellingPrice).toBe(3.8);
+  });
+
   test("GET /procurements lists effective procurements with editability", async () => {
     const server = createApiServer(createDependencies());
     const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);

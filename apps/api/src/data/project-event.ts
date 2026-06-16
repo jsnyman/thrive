@@ -129,6 +129,30 @@ export const projectEventToReadModels = async (
       });
       return;
     }
+    case "procurement.recorded": {
+      for (const line of event.payload.lines) {
+        await executor.item.update({
+          where: { id: line.itemId },
+          data: {
+            costPrice: line.unitCost.toString(),
+            ...(line.unitSellingPrice > 0 && { pointsPrice: line.unitSellingPrice.toString() }),
+          },
+        });
+      }
+      return;
+    }
+    case "procurement.corrected": {
+      for (const line of event.payload.lines) {
+        await executor.item.update({
+          where: { id: line.itemId },
+          data: {
+            costPrice: line.unitCost.toString(),
+            ...(line.unitSellingPrice > 0 && { pointsPrice: line.unitSellingPrice.toString() }),
+          },
+        });
+      }
+      return;
+    }
     default: {
       return;
     }

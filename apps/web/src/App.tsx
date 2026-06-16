@@ -819,6 +819,7 @@ export const App = ({
   const [applyPointsNotes, setApplyPointsNotes] = useState<string>("");
   const [applyPointsPending, setApplyPointsPending] = useState<boolean>(false);
   const [applyPointsError, setApplyPointsError] = useState<string | null>(null);
+  const [applyInventoryItemId, setApplyInventoryItemId] = useState<string | null>(null);
   const [applyInventoryBatchId, setApplyInventoryBatchId] = useState<string | null>(null);
   const [applyInventoryFromStatus, setApplyInventoryFromStatus] =
     useState<AdjustmentInventoryStatus>("shop");
@@ -4941,11 +4942,35 @@ export const App = ({
                       searchable
                     />
                     <Select
-                      label="Batch"
-                      data={inventoryBatches.map((batch) => ({
-                        value: batch.inventoryBatchId,
-                        label: `${batch.inventoryBatchId}${batch.itemId !== null ? ` (${batch.itemId})` : ""}`,
+                      label="Item"
+                      data={items.map((item) => ({
+                        value: item.id,
+                        label: item.name,
                       }))}
+                      value={applyInventoryItemId}
+                      onChange={(value) => {
+                        setApplyInventoryItemId(value);
+                        setApplyInventoryBatchId(null);
+                      }}
+                      searchable
+                      clearable
+                    />
+                    <Select
+                      label="Batch"
+                      data={inventoryBatches
+                        .filter(
+                          (batch) =>
+                            applyInventoryItemId === null || batch.itemId === applyInventoryItemId,
+                        )
+                        .map((batch) => {
+                          const item = items.find((i) => i.id === batch.itemId);
+                          const itemLabel =
+                            item !== undefined ? item.name : (batch.itemId ?? "no item");
+                          return {
+                            value: batch.inventoryBatchId,
+                            label: `${itemLabel} — ${batch.inventoryBatchId.slice(0, 8)}`,
+                          };
+                        })}
                       value={applyInventoryBatchId}
                       onChange={setApplyInventoryBatchId}
                       searchable

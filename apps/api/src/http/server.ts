@@ -613,6 +613,13 @@ const parseLoginRequest = (body: unknown): { username: string; passcode: string 
   return { username, passcode };
 };
 
+const roundUpToNearest10Cents = (price: number): number => {
+  if (!Number.isFinite(price) || price <= 0) {
+    return 0;
+  }
+  return Math.ceil(Math.round(price * 1000) / 100) / 10;
+};
+
 const parseNullableString = (value: unknown): string | null | undefined => {
   if (value === undefined) {
     return undefined;
@@ -2915,7 +2922,7 @@ const handleProcurementCreate = async (
       quantity: line.quantity,
       unitCost: line.unitCost,
       lineTotalCost,
-      unitSellingPrice: 0,
+      unitSellingPrice: roundUpToNearest10Cents(line.unitCost * (1 + line.markupPercent / 100)),
       markupPercent: line.markupPercent,
     });
   }
@@ -3003,7 +3010,7 @@ const handleProcurementCorrectionCreate = async (
       quantity: line.quantity,
       unitCost: line.unitCost,
       lineTotalCost,
-      unitSellingPrice: 0,
+      unitSellingPrice: roundUpToNearest10Cents(line.unitCost * (1 + line.markupPercent / 100)),
       markupPercent: line.markupPercent,
     });
   }
