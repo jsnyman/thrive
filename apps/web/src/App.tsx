@@ -123,6 +123,7 @@ type ProcurementEventLineInput = {
 
 type ProcurementCorrectionDraftLine = {
   lineId: string;
+  existingItemId: string | null;
   itemName: string;
   inventoryBatchId: string | null;
   procurementPrice: string;
@@ -422,6 +423,7 @@ const createProcurementCorrectionDraftLine = (
   defaults?: Partial<ProcurementCorrectionDraftLine>,
 ): ProcurementCorrectionDraftLine => ({
   lineId: `${crypto.randomUUID()}-${Math.random().toString(36).slice(2)}`,
+  existingItemId: defaults?.existingItemId ?? null,
   itemName: defaults?.itemName ?? "",
   inventoryBatchId: defaults?.inventoryBatchId ?? null,
   procurementPrice: defaults?.procurementPrice ?? "",
@@ -2056,6 +2058,7 @@ export const App = ({
     setEditingProcurementLines(
       procurement.lines.map((line) =>
         createProcurementCorrectionDraftLine({
+          existingItemId: line.itemId,
           itemName: items.find((item) => item.id === line.itemId)?.name ?? line.itemId,
           inventoryBatchId: line.inventoryBatchId,
           procurementPrice: String(line.lineTotalCost),
@@ -2104,24 +2107,32 @@ export const App = ({
         setEditingProcurementError("Each line must include an item name");
         return;
       }
-      const normalizedName = line.itemName.trim().toLowerCase();
-      const existingItem =
-        items.find((entry) => entry.name.toLowerCase() === normalizedName) ?? null;
       let itemId: string;
-      if (existingItem !== null) {
-        itemId = existingItem.id;
-      } else if (newItemsByName.has(normalizedName)) {
-        itemId = newItemsByName.get(normalizedName)!;
-      } else {
-        if (sessionUser === null) {
-          setEditingProcurementError("Cannot create new item: not authenticated");
+      if (line.existingItemId !== null) {
+        if (!items.some((entry) => entry.id === line.existingItemId)) {
+          setEditingProcurementError(`Item not found: ${line.itemName}`);
           return;
         }
-        itemId = crypto.randomUUID();
-        newItemsByName.set(normalizedName, itemId);
-        newItemEvents.push(
-          buildCreateItemEvent(sessionUser, { itemId, name: line.itemName.trim() }),
-        );
+        itemId = line.existingItemId;
+      } else {
+        const normalizedName = line.itemName.trim().toLowerCase();
+        const existingItem =
+          items.find((entry) => entry.name.toLowerCase() === normalizedName) ?? null;
+        if (existingItem !== null) {
+          itemId = existingItem.id;
+        } else if (newItemsByName.has(normalizedName)) {
+          itemId = newItemsByName.get(normalizedName)!;
+        } else {
+          if (sessionUser === null) {
+            setEditingProcurementError("Cannot create new item: not authenticated");
+            return;
+          }
+          itemId = crypto.randomUUID();
+          newItemsByName.set(normalizedName, itemId);
+          newItemEvents.push(
+            buildCreateItemEvent(sessionUser, { itemId, name: line.itemName.trim() }),
+          );
+        }
       }
       const quantity = Number.parseInt(line.quantity, 10);
       if (!Number.isInteger(quantity) || quantity <= 0) {
@@ -2867,13 +2878,15 @@ export const App = ({
                   ? "Collection"
                   : activeView.startsWith("shop-")
                     ? "Shop"
-                    : activeView.startsWith("adjustments-")
-                      ? "Adjustments"
-                      : activeView === "reporting"
-                        ? "Reports"
-                        : activeView.startsWith("users-")
-                          ? "User Management"
-                          : "Person Registry"}
+                    : activeView === "items-manage"
+                      ? "Manage Items"
+                      : activeView.startsWith("adjustments-")
+                        ? "Adjustments"
+                        : activeView === "reporting"
+                          ? "Reports"
+                          : activeView.startsWith("users-")
+                            ? "User Management"
+                            : "Person Registry"}
               </Title>
               <Text c="dimmed" size="sm">{`Pending events: ${String(sync.pendingCount)}`}</Text>
               <Text c="dimmed" size="sm">{`Last sync: ${sync.lastSyncAt ?? "never"}`}</Text>

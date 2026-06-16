@@ -217,14 +217,16 @@ describe("projectEventToReadModels", () => {
 
     await projectEventToReadModels(harness.executor, event);
 
-    expect(harness.itemUpdate).toHaveBeenCalledTimes(1);
-    expect(harness.itemUpdate).toHaveBeenCalledWith({
+    expect(harness.itemUpdate).not.toHaveBeenCalled();
+    expect(harness.itemUpsert).toHaveBeenCalledTimes(1);
+    expect(harness.itemUpsert).toHaveBeenCalledWith({
       where: { id: "item-1" },
-      data: { costPrice: "3", pointsPrice: "3.5" },
+      update: { costPrice: "3", pointsPrice: "3.5" },
+      create: { id: "item-1", name: "item-1", costPrice: "3", pointsPrice: "3.5" },
     });
   });
 
-  test("procurement.recorded — skips pointsPrice update when unitSellingPrice is 0", async () => {
+  test("procurement.recorded — skips pointsPrice upsert when unitSellingPrice is 0", async () => {
     const harness = createHarness();
 
     const event: Event = {
@@ -250,10 +252,12 @@ describe("projectEventToReadModels", () => {
 
     await projectEventToReadModels(harness.executor, event);
 
-    expect(harness.itemUpdate).toHaveBeenCalledTimes(1);
-    expect(harness.itemUpdate).toHaveBeenCalledWith({
+    expect(harness.itemUpdate).not.toHaveBeenCalled();
+    expect(harness.itemUpsert).toHaveBeenCalledTimes(1);
+    expect(harness.itemUpsert).toHaveBeenCalledWith({
       where: { id: "item-2" },
-      data: { costPrice: "3" },
+      update: { costPrice: "3" },
+      create: { id: "item-2", name: "item-2", costPrice: "3", pointsPrice: "0" },
     });
   });
 
@@ -292,18 +296,21 @@ describe("projectEventToReadModels", () => {
 
     await projectEventToReadModels(harness.executor, event);
 
-    expect(harness.itemUpdate).toHaveBeenCalledTimes(2);
-    expect(harness.itemUpdate).toHaveBeenNthCalledWith(1, {
+    expect(harness.itemUpdate).not.toHaveBeenCalled();
+    expect(harness.itemUpsert).toHaveBeenCalledTimes(2);
+    expect(harness.itemUpsert).toHaveBeenNthCalledWith(1, {
       where: { id: "item-1" },
-      data: { costPrice: "3", pointsPrice: "3.5" },
+      update: { costPrice: "3", pointsPrice: "3.5" },
+      create: { id: "item-1", name: "item-1", costPrice: "3", pointsPrice: "3.5" },
     });
-    expect(harness.itemUpdate).toHaveBeenNthCalledWith(2, {
+    expect(harness.itemUpsert).toHaveBeenNthCalledWith(2, {
       where: { id: "item-2" },
-      data: { costPrice: "5", pointsPrice: "5.8" },
+      update: { costPrice: "5", pointsPrice: "5.8" },
+      create: { id: "item-2", name: "item-2", costPrice: "5", pointsPrice: "5.8" },
     });
   });
 
-  test("procurement.corrected — updates costPrice and pointsPrice for each line item", async () => {
+  test("procurement.corrected — upserts costPrice and pointsPrice for each line item", async () => {
     const harness = createHarness();
 
     const event: Event = {
@@ -331,10 +338,12 @@ describe("projectEventToReadModels", () => {
 
     await projectEventToReadModels(harness.executor, event);
 
-    expect(harness.itemUpdate).toHaveBeenCalledTimes(1);
-    expect(harness.itemUpdate).toHaveBeenCalledWith({
+    expect(harness.itemUpdate).not.toHaveBeenCalled();
+    expect(harness.itemUpsert).toHaveBeenCalledTimes(1);
+    expect(harness.itemUpsert).toHaveBeenCalledWith({
       where: { id: "item-1" },
-      data: { costPrice: "4", pointsPrice: "4.7" },
+      update: { costPrice: "4", pointsPrice: "4.7" },
+      create: { id: "item-1", name: "item-1", costPrice: "4", pointsPrice: "4.7" },
     });
   });
 

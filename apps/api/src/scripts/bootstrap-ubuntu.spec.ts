@@ -1,8 +1,10 @@
 import { execFileSync } from "node:child_process";
 import * as path from "node:path";
 
+const itOnLinux = process.platform === "linux" ? it : it.skip;
+
 describe("bootstrap-ubuntu.sh", () => {
-  it("falls back to getent hosts when ahostsv4 returns no IPv4 records", () => {
+  itOnLinux("falls back to getent hosts when ahostsv4 returns no IPv4 records", () => {
     const scriptPath = path.resolve(__dirname, "../../../../deploy/bootstrap-ubuntu.sh");
     const bashCommand = `
       set -euo pipefail

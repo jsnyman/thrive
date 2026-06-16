@@ -131,11 +131,17 @@ export const projectEventToReadModels = async (
     }
     case "procurement.recorded": {
       for (const line of event.payload.lines) {
-        await executor.item.update({
+        await executor.item.upsert({
           where: { id: line.itemId },
-          data: {
+          update: {
             costPrice: line.unitCost.toString(),
             ...(line.unitSellingPrice > 0 && { pointsPrice: line.unitSellingPrice.toString() }),
+          },
+          create: {
+            id: line.itemId,
+            name: line.itemId,
+            costPrice: line.unitCost.toString(),
+            pointsPrice: line.unitSellingPrice > 0 ? line.unitSellingPrice.toString() : "0",
           },
         });
       }
@@ -143,11 +149,17 @@ export const projectEventToReadModels = async (
     }
     case "procurement.corrected": {
       for (const line of event.payload.lines) {
-        await executor.item.update({
+        await executor.item.upsert({
           where: { id: line.itemId },
-          data: {
+          update: {
             costPrice: line.unitCost.toString(),
             ...(line.unitSellingPrice > 0 && { pointsPrice: line.unitSellingPrice.toString() }),
+          },
+          create: {
+            id: line.itemId,
+            name: line.itemId,
+            costPrice: line.unitCost.toString(),
+            pointsPrice: line.unitSellingPrice > 0 ? line.unitSellingPrice.toString() : "0",
           },
         });
       }

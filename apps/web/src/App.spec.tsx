@@ -2560,6 +2560,90 @@ describe("App person registry", () => {
     expect(view.queryByText(/Procurement correction failed/)).toBeNull();
   });
 
+  test("procurement correction resolves existing items by ID and sends correct itemId in correction request", async () => {
+    stubResizeObserver();
+    const correctionBodies: Array<{ lines: Array<{ itemId: string }> }> = [];
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) {
+        return jsonResponse({ items: [{ id: "item-1", name: "Soap", pointsPrice: 10 }] });
+      }
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      if (url.includes("/procurements") && url.includes("/corrections")) {
+        if (typeof init?.body === "string") {
+          correctionBodies.push(JSON.parse(init.body) as { lines: Array<{ itemId: string }> });
+        }
+        return jsonResponse({ eventId: "event-correction-1" }, 201);
+      }
+      if (url.includes("/procurements")) {
+        return jsonResponse({
+          procurements: [
+            {
+              procurementEventId: "event-procurement-1",
+              occurredAt: "2026-03-08T00:00:00.000Z",
+              supplierName: "Village Supplier",
+              tripDistanceKm: null,
+              cashTotal: 6,
+              isEditable: true,
+              lines: [
+                {
+                  itemId: "item-1",
+                  inventoryBatchId: "batch-1",
+                  quantity: 2,
+                  unitCost: 3,
+                  lineTotalCost: 6,
+                  unitSellingPrice: 3.6,
+                  markupPercent: 20,
+                },
+              ],
+            },
+          ],
+        });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+
+    await waitFor(() => {
+      expect(view.getByText(/Village Supplier/)).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Edit Procurement" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Edit Procurement" })).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Save Procurement Changes" }));
+
+    await waitFor(() => {
+      expect(correctionBodies).toHaveLength(1);
+    });
+
+    // Correction must use the original item-1 ID (resolved by existingItemId, not by name lookup)
+    expect(correctionBodies[0]?.lines[0]?.itemId).toBe("item-1");
+  });
+
   test("procurement history shows locked procurements as non-editable", async () => {
     stubResizeObserver();
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
@@ -5372,7 +5456,8 @@ describe("App person registry", () => {
     await userEvent.click(view.getByRole("button", { name: "Manage Items" }));
 
     await waitFor(() => {
-      expect(view.getByRole("heading", { name: "Manage Items" })).toBeInTheDocument();
+      expect(view.getByRole("heading", { name: "Manage Items", level: 2 })).toBeInTheDocument();
+      expect(view.getByRole("heading", { name: "Manage Items", level: 4 })).toBeInTheDocument();
     });
     expect(view.getByText("Soap")).toBeInTheDocument();
     expect(view.getByText("Bubblegum")).toBeInTheDocument();
@@ -5440,7 +5525,8 @@ describe("App person registry", () => {
     await userEvent.click(view.getByRole("button", { name: "Manage Items" }));
 
     await waitFor(() => {
-      expect(view.getByRole("heading", { name: "Manage Items" })).toBeInTheDocument();
+      expect(view.getByRole("heading", { name: "Manage Items", level: 2 })).toBeInTheDocument();
+      expect(view.getByRole("heading", { name: "Manage Items", level: 4 })).toBeInTheDocument();
     });
 
     await userEvent.click(view.getByRole("button", { name: "Edit" }));
