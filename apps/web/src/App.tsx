@@ -2104,7 +2104,7 @@ export const App = ({
       );
       triggerDeferredSync({
         onAccepted: async () => {
-          await Promise.all([loadInventory(), loadProcurements()]);
+          await Promise.all([loadInventory(), loadProcurements(), loadItems()]);
         },
       });
       setProcurementLines([createProcurementDraftLine()]);
@@ -2256,7 +2256,7 @@ export const App = ({
         reason: "user edit",
         lines,
       });
-      await Promise.all([loadProcurements(), loadInventory()]);
+      await Promise.all([loadProcurements(), loadInventory(), loadItems()]);
       setEditingProcurementEventId(null);
       setEditingProcurementLines([]);
     } catch (error) {
@@ -2805,9 +2805,10 @@ export const App = ({
                 variant={activeView === "shop-procurement" ? "filled" : "light"}
                 onClick={() => {
                   setActiveView("shop-procurement");
+                  void loadProcurements();
                 }}
               >
-                Record Procurement
+                Procurement
               </Button>
             ) : null}
             {canManageInventory ? (
