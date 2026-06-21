@@ -32,7 +32,7 @@ Use together with:
 - deployment date/time
 - target domain (`<domain>`)
 - web URL (`https://<domain>`)
-- API URL (`https://<domain>/api`)
+- API URL (`https://<domain>`)
 - database name/user
 - last known good release identifier
 - latest backup/snapshot identifier
@@ -89,7 +89,7 @@ After completion:
 sudo systemctl status recycling-api.service --no-pager
 sudo systemctl status nginx --no-pager
 curl -I https://<domain>
-curl -sS https://<domain>/api/sync/status
+curl -sS https://<domain>/sync/status
 ```
 
 ## 2) Standard Release Deploy (existing host)
@@ -152,15 +152,15 @@ Run these checks right after deploy:
 curl -I https://<domain>
 
 # API liveness / sync
-curl -sS https://<domain>/api/sync/status
+curl -sS https://<domain>/sync/status
 ```
 
 Optional authenticated checks (replace token):
 
 ```bash
 TOKEN="<bearer-token>"
-curl -sS -H "Authorization: Bearer $TOKEN" https://<domain>/api/people
-curl -sS -H "Authorization: Bearer $TOKEN" https://<domain>/api/inventory/status-summary
+curl -sS -H "Authorization: Bearer $TOKEN" https://<domain>/people
+curl -sS -H "Authorization: Bearer $TOKEN" https://<domain>/inventory/status-summary
 ```
 
 Service and logs:
@@ -173,8 +173,8 @@ sudo nginx -t
 Minimum acceptance criteria:
 
 - web loads over HTTPS
-- `GET /api/sync/status` succeeds
-- login works from client UI (`POST /api/auth/login`)
+- `GET /sync/status` succeeds
+- login works from client UI (`POST /auth/login`)
 - people and inventory endpoints return successful responses with valid auth
 - no startup/runtime error loop in `recycling-api.service`
 

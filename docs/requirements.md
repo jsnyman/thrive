@@ -144,7 +144,7 @@ The system is:
 
 ### 4.5 Inventory and Stock
 
-- `FR-14`: Users can create items with points price and cost price
+- `FR-14`: Administrators can create items with points price and cost price
 - `FR-15`: Stock must be tracked with status:
   - `storage`
   - `shop`
@@ -152,8 +152,8 @@ The system is:
   - `spoiled`
   - `damaged`
   - `missing`
-- `FR-16`: Users can move stock between storage and shop
-- `FR-16a`: Users can record status changes for partial quantities such as spoiled, damaged, or missing
+- `FR-16`: Administrators can move stock between storage and shop
+- `FR-16a`: Administrators can record status changes for partial quantities such as spoiled, damaged, or missing
 - `FR-16b`: Each status change must record date/time, staff user, quantity, and a free-text reason
 - `FR-16c`: Only administrators can perform inventory adjustments, including spoiled, damaged, or missing stock
 - `FR-16d`: Users can log an inventory adjustment request with a free-text reason
@@ -166,14 +166,14 @@ The system is:
 
 ### 4.7 Procurement
 
-- `FR-20`: Users can record procurement events with date, location, and optional supplier
+- `FR-20`: Administrators can record procurement events with date, location, and optional supplier
 - `FR-21`: Procurement lines must store item, quantity, and unit cost
 - `FR-22`: Procurement must increase stock and create cost basis
 - `FR-23`: Procurement can record trip distance for cost tracking
 
 ### 4.8 Expenses
 
-- `FR-24`: Users can record non-inventory expenses with category and amount
+- `FR-24`: Administrators can record non-inventory expenses with category and amount
 - `FR-25`: Expenses must be included in reporting
 
 ### 4.9 Reporting

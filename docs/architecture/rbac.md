@@ -43,4 +43,4 @@ The `Code` column maps each action to the dotted permission identifier enforced 
 - RBAC is enforced on the server for reads and writes.
 - The client mirrors these rules for usability but cannot be the source of truth.
 - Standard person API responses mask ID numbers and phone numbers by default for all roles.
-- ID numbers and phone numbers are hidden in standard flows for all roles; any explicit reveal requires a deliberate, role-gated action.
+- ID numbers and phone numbers are hidden in standard flows for all roles; the current implementation does not expose a reveal workflow.

@@ -7,7 +7,7 @@ There is no self-service passcode change in the application. All passcode change
 All API calls require a bearer token. Obtain one by logging in:
 
 ```bash
-curl -X POST https://<domain>/api/auth/login \
+curl -X POST https://<domain>/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username": "admin", "passcode": "1234"}'
 ```
@@ -28,7 +28,7 @@ Use the `token` value as the `Authorization: Bearer <token>` header in subsequen
 An administrator can update any user's passcode via the API:
 
 ```bash
-curl -X PATCH https://<domain>/api/users/<userId> \
+curl -X PATCH https://<domain>/users/<userId> \
   -H "Authorization: Bearer <admin-token>" \
   -H "Content-Type: application/json" \
   -d '{"passcode": "newpasscode"}'
@@ -39,7 +39,7 @@ The `userId` is the UUID of the staff user. A successful response returns the up
 To obtain the user ID, list all users first:
 
 ```bash
-curl https://<domain>/api/users \
+curl https://<domain>/users \
   -H "Authorization: Bearer <admin-token>"
 ```
 

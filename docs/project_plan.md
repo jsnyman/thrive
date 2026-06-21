@@ -49,7 +49,7 @@ Goal: establish the domain model, event log, projections, and role-based auth.
 
 1. Define core domain types and event schemas
 2. Implement the server-side append-only event log in PostgreSQL via Prisma
-3. Implement projections for people, points balances, inventory, and reports using materialized views and scheduled refresh
+3. Implement projections for people, points balances, inventory, and reports using materialized views refreshed after accepted event writes
    Note: partially implemented; freshness gating enforcement was still pending as of `2026-03-05`
 4. Implement authentication and RBAC for user and administrator
    Status: completed on `2026-03-04`
@@ -126,7 +126,7 @@ Goal: deliver required reports and export capabilities.
 4. Inventory status change log report
 5. Sales report by item, location, and date
 6. Cashflow report with points-as-rand vs expenses
-7. Export functionality for reports in CSV or Excel
+7. Export functionality for reports in CSV
 
 ### Deliverables
 
@@ -199,7 +199,7 @@ Goal: stabilize, secure, and prepare for pilot deployment.
 | Phase 0 foundation                                          | Done   | Repo, workspaces, lint, format, typecheck, architecture docs, and CI quality gates are in place.                                                                                                                                                                                                            |
 | Event model and RBAC                                        | Done   | Domain events, shared types, and auth permissions are implemented.                                                                                                                                                                                                                                          |
 | Event-first writes                                          | Done   | Append-only event-first writes are active across implemented workflows, including people, materials, items, intake, sales, inventory status changes, adjustment requests, procurement, and expenses.                                                                                                        |
-| Sync protocol endpoints                                     | Done   | `POST /sync/push`, `GET /sync/pull`, `GET /sync/status`, `GET /sync/conflicts`, `POST /sync/conflicts/:id/resolve`, `GET /sync/audit/report`, and `GET /sync/audit/event/:eventId` are implemented.                                                                                                         |
+| Sync protocol endpoints                                     | Done   | `POST /sync/push`, `GET /sync/pull`, `GET /sync/status`, `GET /sync/conflicts`, `POST /sync/conflicts/:id/resolve`, `GET /sync/audit/report`, `GET /sync/audit/event/:eventId`, `GET /sync/reconciliation/report`, and `POST /sync/reconciliation/issues/:issueId/repair` are implemented.                  |
 | Web client shell                                            | Done   | Auth-gated Mantine shell, login/logout, Sync Now orchestration, sync status indicators, and the administrator conflict inbox and resolution panel are implemented.                                                                                                                                          |
 | OPFS SQLite local store                                     | Done   | Queue state and sync cursor metadata persist in OPFS-backed SQLite via a web worker.                                                                                                                                                                                                                        |
 | Audit and immutability checks                               | Done   | Audit report diagnostics and append-only event immutability guards are covered by automated tests.                                                                                                                                                                                                          |

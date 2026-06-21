@@ -76,6 +76,7 @@ Endpoints:
 - `GET /people?search=<query>`
 - `POST /people`
 - `PATCH /people/:personId`
+- `POST /people/:personId/remove` for administrators only
 
 #### `GET /people?search=<query>`
 
@@ -130,6 +131,32 @@ Notes:
 - Does not mutate or delete existing events
 - Rejects empty updates or unknown fields with `400`
 - Returns `404` when the person does not exist
+
+#### `POST /people/:personId/remove`
+
+Request body:
+
+```json
+{
+  "reason": "Duplicate registration"
+}
+```
+
+Notes:
+
+- Requires `person.remove` permission
+- `reason` is required and must be non-empty
+- The person must currently exist
+- The person's live points balance must be exactly zero
+- Appends immutable `person.removed` on success
+- Success `200` returns `{ "personId": "uuid" }`
+
+Errors:
+
+- `400 BAD_REQUEST`: malformed body or missing `reason`
+- `404 PERSON_NOT_FOUND`
+- `409 PERSON_HAS_POINTS_BALANCE`: includes current `balancePoints`
+- `401/403`: authentication or permission failures
 
 ### Materials
 
@@ -363,8 +390,45 @@ Notes:
 
 Endpoints:
 
+- `GET /procurements` for administrators only
 - `POST /procurements` for administrators only
 - `POST /procurements/bulk` for administrators only
+- `POST /procurements/:procurementEventId/corrections` for administrators only
+
+#### `GET /procurements`
+
+Success `200`:
+
+```json
+{
+  "procurements": [
+    {
+      "procurementEventId": "uuid",
+      "occurredAt": "2026-03-08T10:00:00.000Z",
+      "supplierName": "Village Supplier",
+      "tripDistanceKm": 12,
+      "cashTotal": 6,
+      "isEditable": true,
+      "lines": [
+        {
+          "itemId": "uuid",
+          "inventoryBatchId": "batch-1",
+          "quantity": 2,
+          "unitCost": 3,
+          "lineTotalCost": 6,
+          "unitSellingPrice": 3.3,
+          "markupPercent": 10
+        }
+      ]
+    }
+  ]
+}
+```
+
+Notes:
+
+- Requires `procurement.record`
+- Returns the current procurement history, including whether each record is still editable for correction
 
 #### `POST /procurements`
 
@@ -427,6 +491,45 @@ Errors:
 
 - `400 BAD_REQUEST`: invalid payload
 - `400 ITEM_NOT_FOUND`: one or more `productName` values did not resolve; response includes row indexes and names
+- `401/403`: authentication or permission failures
+
+#### `POST /procurements/:procurementEventId/corrections`
+
+Request body:
+
+```json
+{
+  "occurredAt": "2026-03-08T10:15:00.000Z",
+  "supplierName": "Village Supplier",
+  "tripDistanceKm": 12,
+  "reason": "Supplier invoice correction",
+  "lines": [
+    {
+      "itemId": "uuid",
+      "inventoryBatchId": "batch-1",
+      "quantity": 2,
+      "unitCost": 3,
+      "markupPercent": 10
+    }
+  ],
+  "locationText": "Village A"
+}
+```
+
+Notes:
+
+- Requires `procurement.record`
+- `occurredAt`, `reason`, and at least one line are required
+- Each line requires `itemId`, `quantity`, `unitCost`, and `markupPercent`; `inventoryBatchId` is optional and defaults to a generated batch ID when omitted
+- Appends immutable `procurement.corrected` on success
+- Success `201` returns `eventId`, recomputed `cashTotal`, and normalized line details
+
+Errors:
+
+- `400 BAD_REQUEST`: invalid payload
+- `404 PROCUREMENT_NOT_FOUND`
+- `404 ITEM_NOT_FOUND`
+- `409 PROCUREMENT_NOT_EDITABLE`
 - `401/403`: authentication or permission failures
 
 ### Expenses

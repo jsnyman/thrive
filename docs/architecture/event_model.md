@@ -104,4 +104,4 @@ Corrections are handled via explicit adjustment events.
 
 ## PII Handling
 
-ID numbers and phone numbers are stored in `person.*` events but are not displayed in standard interactions. Any explicit reveal must be a deliberate, role-gated action.
+ID numbers and phone numbers are stored in `person.*` events but are not displayed in standard interactions. The current implementation does not expose a reveal workflow.
