@@ -35,6 +35,7 @@ type WorkerResponse =
 const persistedEntries: Array<{ eventId: string; eventJson: string; enqueuedAt: string }> = [];
 
 let failNextInit = false;
+let failNextSave = false;
 
 class FakeWorker {
   private readonly listeners = new Set<(event: MessageEvent<WorkerResponse>) => void>();
@@ -72,6 +73,11 @@ class FakeWorker {
     }
 
     if (message.type === "save") {
+      if (failNextSave) {
+        failNextSave = false;
+        this.emit({ id: message.id, ok: false, error: "save failed" });
+        return;
+      }
       persistedEntries.splice(0, persistedEntries.length, ...message.entries);
       this.emit({ id: message.id, ok: true, type: "save" });
       return;
@@ -117,6 +123,7 @@ const buildEvent = (eventId: string): Event => ({
 beforeEach(() => {
   persistedEntries.splice(0, persistedEntries.length);
   failNextInit = false;
+  failNextSave = false;
   vi.stubGlobal("Worker", FakeWorker);
 });
 
@@ -159,6 +166,17 @@ describe("createSqliteEventQueueStore", () => {
     failNextInit = true;
 
     await expect(createSqliteEventQueueStore()).rejects.toThrow("init failed");
+  });
+
+  test("a worker error on one message does not block subsequent messages", async () => {
+    failNextSave = true;
+    const queue = createEventQueue(await createSqliteEventQueueStore());
+
+    await expect(queue.enqueue(buildEvent("event-1"))).rejects.toThrow("save failed");
+
+    await queue.enqueue(buildEvent("event-2"));
+    const batch = await queue.dequeueBatch(10);
+    expect(batch.map((event) => event.eventId)).toEqual(["event-2"]);
   });
 
   test("concurrent enqueues do not lose events", async () => {

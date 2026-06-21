@@ -276,45 +276,50 @@ const handleStateSet = async (
   postResponse({ id: requestId, ok: true, type: "state.set" });
 };
 
+const handleMessage = async (request: WorkerRequest): Promise<void> => {
+  if (request.type === "init") {
+    await handleInit(request.id);
+    return;
+  }
+
+  if (request.type === "load") {
+    await handleLoad(request.id);
+    return;
+  }
+
+  if (request.type === "save") {
+    await handleSave(request.id, request.entries);
+    return;
+  }
+
+  if (request.type === "clear") {
+    await handleClear(request.id);
+    return;
+  }
+
+  if (request.type === "state.get") {
+    await handleStateGet(request.id, request.key);
+    return;
+  }
+
+  if (request.type === "state.set") {
+    await handleStateSet(request.id, request.key, request.value);
+    return;
+  }
+};
+
+let serialQueue: Promise<void> = Promise.resolve();
+
 self.addEventListener("message", (event: MessageEvent<WorkerRequest>) => {
   const request = event.data;
 
-  const run = async (): Promise<void> => {
-    if (request.type === "init") {
-      await handleInit(request.id);
-      return;
-    }
-
-    if (request.type === "load") {
-      await handleLoad(request.id);
-      return;
-    }
-
-    if (request.type === "save") {
-      await handleSave(request.id, request.entries);
-      return;
-    }
-
-    if (request.type === "clear") {
-      await handleClear(request.id);
-      return;
-    }
-
-    if (request.type === "state.get") {
-      await handleStateGet(request.id, request.key);
-      return;
-    }
-
-    if (request.type === "state.set") {
-      await handleStateSet(request.id, request.key, request.value);
-    }
-  };
-
-  void run().catch((error: unknown) => {
-    postResponse({
-      id: request.id,
-      ok: false,
-      error: toErrorMessage(error),
-    });
-  });
+  serialQueue = serialQueue.then(() =>
+    handleMessage(request).catch((error: unknown) => {
+      postResponse({
+        id: request.id,
+        ok: false,
+        error: toErrorMessage(error),
+      });
+    }),
+  );
 });

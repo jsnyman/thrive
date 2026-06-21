@@ -5,13 +5,6 @@ export * from "./auth";
 export { createApiServer } from "./http/server";
 export { readApiRuntimeConfig } from "./http/config";
 
-const isDirectExecution = (): boolean => {
-  if (typeof require === "undefined" || typeof module === "undefined") {
-    return false;
-  }
-  return require.main === module;
-};
-
 let removeProcessFatalHandlers: (() => void) | null = null;
 
 export const startApiServer = async (): Promise<ReturnType<typeof createApiServer>> => {
@@ -126,7 +119,3 @@ export const startApiServer = async (): Promise<ReturnType<typeof createApiServe
   server.listen(runtimeConfig.apiPort);
   return server;
 };
-
-if (isDirectExecution()) {
-  void startApiServer();
-}
