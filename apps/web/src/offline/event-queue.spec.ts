@@ -37,4 +37,39 @@ describe("event queue", () => {
     const batch = await queue.dequeueBatch(10);
     expect(batch.map((event) => event.eventId)).toEqual(["event-1", "event-3"]);
   });
+
+  test("concurrent enqueues do not lose events", async () => {
+    const queue = createEventQueue(createMemoryEventQueueStore());
+
+    await Promise.all([
+      queue.enqueue(buildEvent("event-1")),
+      queue.enqueue(buildEvent("event-2")),
+      queue.enqueue(buildEvent("event-3")),
+    ]);
+
+    const batch = await queue.dequeueBatch(10);
+    expect(batch.map((event) => event.eventId)).toEqual(["event-1", "event-2", "event-3"]);
+  });
+
+  test("a failing operation does not block subsequent operations", async () => {
+    let callCount = 0;
+    const faultyStore = createMemoryEventQueueStore();
+    const failingStore = {
+      ...faultyStore,
+      save: async (events: Parameters<typeof faultyStore.save>[0]): Promise<void> => {
+        callCount += 1;
+        if (callCount === 1) {
+          throw new Error("transient save failure");
+        }
+        return faultyStore.save(events);
+      },
+    };
+
+    const queue = createEventQueue(failingStore);
+    await expect(queue.enqueue(buildEvent("event-1"))).rejects.toThrow("transient save failure");
+    await queue.enqueue(buildEvent("event-2"));
+
+    const batch = await queue.dequeueBatch(10);
+    expect(batch.map((event) => event.eventId)).toEqual(["event-2"]);
+  });
 });

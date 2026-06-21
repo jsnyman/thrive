@@ -27,32 +27,47 @@ export const createMemoryEventQueueStore = (): EventQueueStore => {
 };
 
 export const createEventQueue = (store: EventQueueStore): EventQueue => {
-  const enqueue = async (event: Event): Promise<void> => {
-    const existing = await store.load();
-    await store.save([...existing, event]);
+  let serialTail: Promise<void> = Promise.resolve();
+
+  const serialize = <T>(fn: () => Promise<T>): Promise<T> => {
+    const result = serialTail.then(fn);
+    serialTail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   };
 
-  const dequeueBatch = async (maxEvents: number): Promise<Event[]> => {
-    const existing = await store.load();
-    if (maxEvents <= 0) {
-      return [];
-    }
-    return existing.slice(0, maxEvents);
-  };
+  const enqueue = (event: Event): Promise<void> =>
+    serialize(async () => {
+      const existing = await store.load();
+      await store.save([...existing, event]);
+    });
 
-  const ack = async (eventIds: string[]): Promise<void> => {
-    const existing = await store.load();
-    if (eventIds.length === 0) {
-      return;
-    }
-    const idSet = new Set(eventIds);
-    await store.save(existing.filter((event) => !idSet.has(event.eventId)));
-  };
+  const dequeueBatch = (maxEvents: number): Promise<Event[]> =>
+    serialize(async () => {
+      const existing = await store.load();
+      if (maxEvents <= 0) {
+        return [];
+      }
+      return existing.slice(0, maxEvents);
+    });
 
-  const pendingCount = async (): Promise<number> => {
-    const existing = await store.load();
-    return existing.length;
-  };
+  const ack = (eventIds: string[]): Promise<void> =>
+    serialize(async () => {
+      const existing = await store.load();
+      if (eventIds.length === 0) {
+        return;
+      }
+      const idSet = new Set(eventIds);
+      await store.save(existing.filter((event) => !idSet.has(event.eventId)));
+    });
+
+  const pendingCount = (): Promise<number> =>
+    serialize(async () => {
+      const existing = await store.load();
+      return existing.length;
+    });
 
   return {
     enqueue,

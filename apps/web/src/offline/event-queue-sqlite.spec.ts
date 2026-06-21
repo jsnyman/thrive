@@ -160,4 +160,17 @@ describe("createSqliteEventQueueStore", () => {
 
     await expect(createSqliteEventQueueStore()).rejects.toThrow("init failed");
   });
+
+  test("concurrent enqueues do not lose events", async () => {
+    const queue = createEventQueue(await createSqliteEventQueueStore());
+
+    await Promise.all([
+      queue.enqueue(buildEvent("event-1")),
+      queue.enqueue(buildEvent("event-2")),
+      queue.enqueue(buildEvent("event-3")),
+    ]);
+
+    const batch = await queue.dequeueBatch(10);
+    expect(batch.map((event) => event.eventId)).toEqual(["event-1", "event-2", "event-3"]);
+  });
 });
