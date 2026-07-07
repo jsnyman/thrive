@@ -701,7 +701,7 @@ export const createCoreRepository = (prisma: PrismaClient) => {
         select p.id, p.name, p.surname, p.id_number, p.phone, p.address, p.notes,
                coalesce(b.balance_points, 0)::numeric(12,1) as balance_points
         from person p
-        left join mv_points_balances b on b.person_id = p.id
+        left join mv_points_balances b on b.person_id = p.id::text
         ${whereClause}
         order by p.created_at desc
       `,
