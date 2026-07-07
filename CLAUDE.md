@@ -16,6 +16,7 @@ Recycling Swap-Shop — an offline-first PWA for managing recycling exchanges wi
 
 ## Hard Constraints
 
+- No changes should be made when prompted with a question, always ask before implementing
 - No class-based services
 - No global mutable state
 - No default exports
