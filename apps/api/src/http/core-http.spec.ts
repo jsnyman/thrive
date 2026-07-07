@@ -19,6 +19,7 @@ type PersonRecord = {
   phone?: string | null;
   address?: string | null;
   notes?: string | null;
+  balancePoints?: number;
 };
 
 type MaterialRecord = {
@@ -205,6 +206,7 @@ const createDependencies = (options?: {
       surname: "Zulu",
       idNumber: "8001015009087",
       phone: "0821234567",
+      balancePoints: 0,
     },
   ];
   const materials: MaterialRecord[] = [
@@ -1268,6 +1270,14 @@ describe("core HTTP endpoints", () => {
       .set("authorization", `Bearer ${token}`);
     expect(surnameResponse.status).toBe(200);
     expect(surnameResponse.body.people.length).toBeGreaterThan(0);
+  });
+
+  test("GET /people includes balancePoints for each person", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "administrator", administratorPasscode);
+    const response = await supertest(server).get("/people").set("authorization", `Bearer ${token}`);
+    expect(response.status).toBe(200);
+    expect(typeof (response.body.people as PersonRecord[])[0]?.balancePoints).toBe("number");
   });
 
   test("POST /people allows user", async () => {

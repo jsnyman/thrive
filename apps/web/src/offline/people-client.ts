@@ -8,6 +8,7 @@ export type PersonRecord = {
   phone?: string | null;
   address?: string | null;
   notes?: string | null;
+  balancePoints?: number;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -42,6 +43,9 @@ const parsePerson = (value: unknown): PersonRecord => {
     phone: parseNullableString(value["phone"], "person.phone"),
     address: parseNullableString(value["address"], "person.address"),
     notes: parseNullableString(value["notes"], "person.notes"),
+    ...(typeof value["balancePoints"] === "number"
+      ? { balancePoints: value["balancePoints"] }
+      : {}),
   };
 };
 

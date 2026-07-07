@@ -45,6 +45,7 @@ type PersonRecord = {
   phone?: string | null;
   address?: string | null;
   notes?: string | null;
+  balancePoints?: number;
 };
 
 type PersonCreateInput = {
@@ -670,6 +671,7 @@ const toPersonResponse = (person: PersonRecord): PersonRecord => ({
   phone: maskSensitiveValue(person.phone),
   address: person.address ?? null,
   notes: person.notes ?? null,
+  ...(person.balancePoints !== undefined ? { balancePoints: person.balancePoints } : {}),
 });
 
 const parsePersonCreateRequest = (body: unknown): PersonCreateInput | null => {

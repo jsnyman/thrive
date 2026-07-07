@@ -3032,7 +3032,14 @@ export const App = ({
                           py={6}
                           style={{ borderBottom: "1px solid var(--mantine-color-gray-2)" }}
                         >
-                          <Text>{`${person.name} ${person.surname}`}</Text>
+                          <Group gap="xs" align="center">
+                            <Text>{`${person.name} ${person.surname}`}</Text>
+                            {person.balancePoints !== undefined ? (
+                              <Text size="xs" c="dimmed">
+                                {`${formatPointValue(person.balancePoints)} pts`}
+                              </Text>
+                            ) : null}
+                          </Group>
                           <Button
                             size="xs"
                             variant="subtle"

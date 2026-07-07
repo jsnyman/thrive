@@ -36,6 +36,7 @@ type PersonRecord = {
   phone?: string | null;
   address?: string | null;
   notes?: string | null;
+  balancePoints?: number;
 };
 
 type MaterialRecord = {
@@ -676,37 +677,46 @@ export const createCoreRepository = (prisma: PrismaClient) => {
   const eventStore = createEventStore(prisma);
 
   const listPeople = async (search?: string): Promise<PersonRecord[]> => {
-    const hasSearch = search !== undefined && search.trim().length > 0;
-    const rows = hasSearch
-      ? await prisma.person.findMany({
-          where: {
-            removedAt: null,
-            OR: [
-              {
-                name: {
-                  contains: search,
-                  mode: "insensitive",
-                },
-              },
-              {
-                surname: {
-                  contains: search,
-                  mode: "insensitive",
-                },
-              },
-            ],
-          },
-          orderBy: {
-            createdAt: "desc",
-          },
-        })
-      : await prisma.person.findMany({
-          where: { removedAt: null },
-          orderBy: {
-            createdAt: "desc",
-          },
-        });
-    return rows.map(toPersonRecord);
+    const conditions = ["p.removed_at is null"];
+    const params: unknown[] = [];
+    if (search !== undefined && search.trim().length > 0) {
+      params.push(`%${search.toLowerCase()}%`);
+      conditions.push(
+        `(lower(p.name) like $${String(params.length)} or lower(p.surname) like $${String(params.length)})`,
+      );
+    }
+    const whereClause = `where ${conditions.join(" and ")}`;
+    type PersonWithBalanceRow = {
+      id: string;
+      name: string;
+      surname: string;
+      id_number: string | null;
+      phone: string | null;
+      address: string | null;
+      notes: string | null;
+      balance_points: unknown;
+    };
+    const rows = await prisma.$queryRawUnsafe<PersonWithBalanceRow[]>(
+      `
+        select p.id, p.name, p.surname, p.id_number, p.phone, p.address, p.notes,
+               coalesce(b.balance_points, 0)::numeric(12,1) as balance_points
+        from person p
+        left join mv_points_balances b on b.person_id = p.id
+        ${whereClause}
+        order by p.created_at desc
+      `,
+      ...params,
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      surname: row.surname,
+      idNumber: row.id_number,
+      phone: row.phone,
+      address: row.address,
+      notes: row.notes,
+      balancePoints: toPointNumber(row.balance_points),
+    }));
   };
 
   const listMaterials = async (): Promise<MaterialRecord[]> => {
