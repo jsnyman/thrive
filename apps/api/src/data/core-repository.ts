@@ -1555,7 +1555,7 @@ export const createCoreRepository = (prisma: PrismaClient) => {
           coalesce(sum(b.balance_points) over (), 0)::numeric(12, 1) as total_outstanding_points,
           count(*) over ()::integer as person_count
         from mv_points_balances b
-        join mv_people p on p.id = b.person_id
+        join mv_people p on p.id::text = b.person_id
         ${whereClause}
         order by b.balance_points desc, p.surname asc, p.name asc, b.person_id asc
       `,
