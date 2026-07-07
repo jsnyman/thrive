@@ -3000,6 +3000,128 @@ describe("core HTTP endpoints", () => {
     ]);
   });
 
+  test("sync push accepts an old free-text locationText on the event envelope and pull preserves it verbatim", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const push = await supertest(server)
+      .post("/sync/push")
+      .set("authorization", `Bearer ${token}`)
+      .send({
+        events: [
+          {
+            eventId: "evt-old-location",
+            eventType: "intake.recorded",
+            occurredAt: "2026-03-05T12:00:00.000Z",
+            actorUserId: users[0]?.id,
+            deviceId: "device-a",
+            schemaVersion: 1,
+            locationText: "Village A",
+            payload: {
+              personId: "person-a",
+              lines: [{ materialTypeId: "mat-1", weightKg: 2, pointsPerKg: 1, pointsAwarded: 2 }],
+              totalPoints: 2,
+            },
+          },
+        ],
+      });
+
+    expect(push.status).toBe(200);
+    expect(push.body.acknowledgements[0].status).toBe("accepted");
+
+    const pull = await supertest(server)
+      .get("/sync/pull?cursor=0&limit=10")
+      .set("authorization", `Bearer ${token}`);
+    const pulled = (pull.body.events as Array<{ eventId: string; locationText?: unknown }>).find(
+      (event) => event.eventId === "evt-old-location",
+    );
+    expect(pulled?.locationText).toBe("Village A");
+  });
+
+  test("sync push accepts locationText: null on the event envelope, matching the current web client shape, and preserves it through pull", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const push = await supertest(server)
+      .post("/sync/push")
+      .set("authorization", `Bearer ${token}`)
+      .send({
+        events: [
+          {
+            eventId: "evt-null-location",
+            eventType: "sale.recorded",
+            occurredAt: "2026-03-05T12:05:00.000Z",
+            actorUserId: users[0]?.id,
+            deviceId: "device-a",
+            schemaVersion: 1,
+            locationText: null,
+            payload: {
+              personId: "person-a",
+              lines: [
+                {
+                  itemId: "item-1",
+                  inventoryBatchId: null,
+                  quantity: 1,
+                  pointsPrice: 5,
+                  lineTotalPoints: 5,
+                },
+              ],
+              totalPoints: 5,
+            },
+          },
+        ],
+      });
+
+    expect(push.status).toBe(200);
+    expect(push.body.acknowledgements[0].status).toBe("accepted");
+
+    const pull = await supertest(server)
+      .get("/sync/pull?cursor=0&limit=10")
+      .set("authorization", `Bearer ${token}`);
+    const pulled = (pull.body.events as Array<{ eventId: string; locationText?: unknown }>).find(
+      (event) => event.eventId === "evt-null-location",
+    );
+    expect(pulled?.locationText).toBeNull();
+  });
+
+  test("sync push accepts an event with no locationText field at all, and pull does not inject a default", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const push = await supertest(server)
+      .post("/sync/push")
+      .set("authorization", `Bearer ${token}`)
+      .send({
+        events: [
+          {
+            eventId: "evt-no-location-field",
+            eventType: "person.created",
+            occurredAt: "2026-03-05T12:10:00.000Z",
+            actorUserId: users[0]?.id,
+            deviceId: "device-a",
+            schemaVersion: 1,
+            payload: {
+              personId: "person-no-location",
+              name: "No",
+              surname: "Location",
+            },
+          },
+        ],
+      });
+
+    expect(push.status).toBe(200);
+    expect(push.body.acknowledgements[0].status).toBe("accepted");
+
+    const pull = await supertest(server)
+      .get("/sync/pull?cursor=0&limit=10")
+      .set("authorization", `Bearer ${token}`);
+    const pulled = (pull.body.events as Array<Record<string, unknown>>).find(
+      (event) => event.eventId === "evt-no-location-field",
+    );
+    expect(pulled).toBeDefined();
+    expect(Object.prototype.hasOwnProperty.call(pulled!, "locationText")).toBe(false);
+  });
+
   test("GET /sync/conflicts requires manager role", async () => {
     const server = createApiServer(createDependencies());
     const collectorToken = await loginAndGetToken(server, "user", userPasscode);
