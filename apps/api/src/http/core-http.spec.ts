@@ -1828,6 +1828,67 @@ describe("core HTTP endpoints", () => {
     expect(balance.body.balance.balancePoints).toBe(39.5);
   });
 
+  test("POST /intakes accepts the old shape with no collectionPointId and persists it as null", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "user", userPasscode);
+
+    const intake = await supertest(server)
+      .post("/intakes")
+      .set("authorization", `Bearer ${token}`)
+      .send({
+        personId: "person-a",
+        lines: [{ materialTypeId: "mat-1", weightKg: 1 }],
+      });
+    expect(intake.status).toBe(201);
+
+    const pull = await supertest(server)
+      .get("/sync/pull?cursor=0&limit=50")
+      .set("authorization", `Bearer ${token}`);
+    const pulled = (
+      pull.body.events as Array<{ eventType: string; payload: { collectionPointId?: unknown } }>
+    ).find((event) => event.eventType === "intake.recorded");
+    expect(pulled?.payload.collectionPointId).toBeNull();
+  });
+
+  test("POST /intakes accepts a collectionPointId and persists it on the intake.recorded event", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "user", userPasscode);
+
+    const intake = await supertest(server)
+      .post("/intakes")
+      .set("authorization", `Bearer ${token}`)
+      .send({
+        personId: "person-a",
+        lines: [{ materialTypeId: "mat-1", weightKg: 1 }],
+        collectionPointId: "cp-1",
+      });
+    expect(intake.status).toBe(201);
+
+    const pull = await supertest(server)
+      .get("/sync/pull?cursor=0&limit=50")
+      .set("authorization", `Bearer ${token}`);
+    const pulled = (
+      pull.body.events as Array<{ eventType: string; payload: { collectionPointId?: unknown } }>
+    ).find((event) => event.eventType === "intake.recorded");
+    expect(pulled?.payload.collectionPointId).toBe("cp-1");
+  });
+
+  test("POST /intakes returns 404 when collectionPointId does not exist", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "user", userPasscode);
+
+    const intake = await supertest(server)
+      .post("/intakes")
+      .set("authorization", `Bearer ${token}`)
+      .send({
+        personId: "person-a",
+        lines: [{ materialTypeId: "mat-1", weightKg: 1 }],
+        collectionPointId: "does-not-exist",
+      });
+    expect(intake.status).toBe(404);
+    expect(intake.body.error).toBe("COLLECTION_POINT_NOT_FOUND");
+  });
+
   test("POST /sales blocks insufficient points", async () => {
     const server = createApiServer(createDependencies());
     const token = await loginAndGetToken(server, "user", userPasscode);
@@ -1928,6 +1989,91 @@ describe("core HTTP endpoints", () => {
     const sold = rows.find((entry) => entry.status === "sold");
     expect(shop?.totalQuantity).toBe(2);
     expect(sold?.totalQuantity).toBe(7);
+  });
+
+  test("POST /sales accepts the old shape with no collectionPointId and persists it as null", async () => {
+    const dependencies = createDependencies({
+      inventoryBatches: [
+        {
+          inventoryBatchId: "batch-1",
+          itemId: "item-1",
+          quantities: { storage: 0, shop: 5, sold: 0, spoiled: 0, damaged: 0, missing: 0 },
+        },
+      ],
+    });
+    const server = createApiServer(dependencies);
+    const token = await loginAndGetToken(server, "user", userPasscode);
+
+    const sale = await supertest(server)
+      .post("/sales")
+      .set("authorization", `Bearer ${token}`)
+      .send({ personId: "person-a", lines: [{ itemId: "item-1", quantity: 1 }] });
+    expect(sale.status).toBe(201);
+
+    const pull = await supertest(server)
+      .get("/sync/pull?cursor=0&limit=50")
+      .set("authorization", `Bearer ${token}`);
+    const pulled = (
+      pull.body.events as Array<{ eventType: string; payload: { collectionPointId?: unknown } }>
+    ).find((event) => event.eventType === "sale.recorded");
+    expect(pulled?.payload.collectionPointId).toBeNull();
+  });
+
+  test("POST /sales accepts a collectionPointId and persists it on the sale.recorded event", async () => {
+    const dependencies = createDependencies({
+      inventoryBatches: [
+        {
+          inventoryBatchId: "batch-1",
+          itemId: "item-1",
+          quantities: { storage: 0, shop: 5, sold: 0, spoiled: 0, damaged: 0, missing: 0 },
+        },
+      ],
+    });
+    const server = createApiServer(dependencies);
+    const token = await loginAndGetToken(server, "user", userPasscode);
+
+    const sale = await supertest(server)
+      .post("/sales")
+      .set("authorization", `Bearer ${token}`)
+      .send({
+        personId: "person-a",
+        lines: [{ itemId: "item-1", quantity: 1 }],
+        collectionPointId: "cp-1",
+      });
+    expect(sale.status).toBe(201);
+
+    const pull = await supertest(server)
+      .get("/sync/pull?cursor=0&limit=50")
+      .set("authorization", `Bearer ${token}`);
+    const pulled = (
+      pull.body.events as Array<{ eventType: string; payload: { collectionPointId?: unknown } }>
+    ).find((event) => event.eventType === "sale.recorded");
+    expect(pulled?.payload.collectionPointId).toBe("cp-1");
+  });
+
+  test("POST /sales returns 404 when collectionPointId does not exist", async () => {
+    const dependencies = createDependencies({
+      inventoryBatches: [
+        {
+          inventoryBatchId: "batch-1",
+          itemId: "item-1",
+          quantities: { storage: 0, shop: 5, sold: 0, spoiled: 0, damaged: 0, missing: 0 },
+        },
+      ],
+    });
+    const server = createApiServer(dependencies);
+    const token = await loginAndGetToken(server, "user", userPasscode);
+
+    const sale = await supertest(server)
+      .post("/sales")
+      .set("authorization", `Bearer ${token}`)
+      .send({
+        personId: "person-a",
+        lines: [{ itemId: "item-1", quantity: 1 }],
+        collectionPointId: "does-not-exist",
+      });
+    expect(sale.status).toBe(404);
+    expect(sale.body.error).toBe("COLLECTION_POINT_NOT_FOUND");
   });
 
   test("POST /sales rejects when explicit batch does not belong to line item", async () => {
@@ -3396,6 +3542,93 @@ describe("core HTTP endpoints", () => {
     );
     expect(pulled).toBeDefined();
     expect(Object.prototype.hasOwnProperty.call(pulled!, "locationText")).toBe(false);
+  });
+
+  test("sync push accepts an old-shape intake.recorded payload with no collectionPointId and pull preserves its absence", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const push = await supertest(server)
+      .post("/sync/push")
+      .set("authorization", `Bearer ${token}`)
+      .send({
+        events: [
+          {
+            eventId: "evt-old-intake-shape",
+            eventType: "intake.recorded",
+            occurredAt: "2026-03-05T12:15:00.000Z",
+            actorUserId: users[0]?.id,
+            deviceId: "device-a",
+            schemaVersion: 1,
+            locationText: "Village A",
+            payload: {
+              personId: "person-a",
+              lines: [{ materialTypeId: "mat-1", weightKg: 1, pointsPerKg: 1, pointsAwarded: 1 }],
+              totalPoints: 1,
+            },
+          },
+        ],
+      });
+
+    expect(push.status).toBe(200);
+    expect(push.body.acknowledgements[0].status).toBe("accepted");
+
+    const pull = await supertest(server)
+      .get("/sync/pull?cursor=0&limit=10")
+      .set("authorization", `Bearer ${token}`);
+    const pulled = (pull.body.events as Array<Record<string, unknown>>).find(
+      (event) => event.eventId === "evt-old-intake-shape",
+    );
+    expect(pulled).toBeDefined();
+    const payload = pulled?.payload as Record<string, unknown>;
+    expect(Object.prototype.hasOwnProperty.call(payload, "collectionPointId")).toBe(false);
+  });
+
+  test("sync push accepts a new-shape sale.recorded payload with a collectionPointId and pull preserves it verbatim", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const push = await supertest(server)
+      .post("/sync/push")
+      .set("authorization", `Bearer ${token}`)
+      .send({
+        events: [
+          {
+            eventId: "evt-new-sale-shape",
+            eventType: "sale.recorded",
+            occurredAt: "2026-03-05T12:20:00.000Z",
+            actorUserId: users[0]?.id,
+            deviceId: "device-a",
+            schemaVersion: 1,
+            payload: {
+              personId: "person-a",
+              lines: [
+                {
+                  itemId: "item-1",
+                  inventoryBatchId: null,
+                  quantity: 1,
+                  pointsPrice: 1,
+                  lineTotalPoints: 1,
+                },
+              ],
+              totalPoints: 1,
+              collectionPointId: "cp-1",
+            },
+          },
+        ],
+      });
+
+    expect(push.status).toBe(200);
+    expect(push.body.acknowledgements[0].status).toBe("accepted");
+
+    const pull = await supertest(server)
+      .get("/sync/pull?cursor=0&limit=10")
+      .set("authorization", `Bearer ${token}`);
+    const pulled = (pull.body.events as Array<Record<string, unknown>>).find(
+      (event) => event.eventId === "evt-new-sale-shape",
+    );
+    const payload = pulled?.payload as Record<string, unknown>;
+    expect(payload.collectionPointId).toBe("cp-1");
   });
 
   test("GET /sync/conflicts requires manager role", async () => {

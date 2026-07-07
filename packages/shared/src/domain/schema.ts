@@ -246,6 +246,7 @@ const intakeRecordedSchema = objectSchema(
     personId: stringSchema(),
     lines: arraySchema(intakeLineSchema, { minItems: 1 }),
     totalPoints: numberSchema({ minimum: 0 }),
+    collectionPointId: nullable(stringSchema()),
   },
   ["personId", "lines", "totalPoints"],
 );
@@ -266,6 +267,7 @@ const saleRecordedSchema = objectSchema(
     personId: stringSchema(),
     lines: arraySchema(saleLineSchema, { minItems: 1 }),
     totalPoints: numberSchema({ minimum: 0 }),
+    collectionPointId: nullable(stringSchema()),
   },
   ["personId", "lines", "totalPoints"],
 );

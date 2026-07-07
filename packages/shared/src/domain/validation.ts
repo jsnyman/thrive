@@ -532,6 +532,7 @@ const validateIntakeRecordedPayload = (
     }
   }
   expectTenthsPointNumber(payload.totalPoints, `${path}.totalPoints`, issues, { min: 0 });
+  expectNullableString(payload.collectionPointId, `${path}.collectionPointId`, issues);
   return true;
 };
 
@@ -594,6 +595,7 @@ const validateSaleRecordedPayload = (
     }
   }
   expectTenthsPointNumber(payload.totalPoints, `${path}.totalPoints`, issues, { min: 0 });
+  expectNullableString(payload.collectionPointId, `${path}.collectionPointId`, issues);
   return true;
 };
 

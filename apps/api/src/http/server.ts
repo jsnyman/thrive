@@ -241,6 +241,7 @@ type IntakeCreateInput = {
     weightKg: number;
   }>;
   locationText?: string | null;
+  collectionPointId?: string | null;
 };
 
 type SaleCreateInput = {
@@ -251,6 +252,7 @@ type SaleCreateInput = {
     quantity: number;
   }>;
   locationText?: string | null;
+  collectionPointId?: string | null;
 };
 
 type ProcurementCreateInput = {
@@ -975,6 +977,7 @@ const parseIntakeCreateRequest = (body: unknown): IntakeCreateInput | null => {
   const personId = record["personId"];
   const lines = record["lines"];
   const locationText = parseNullableString(record["locationText"]);
+  const collectionPointId = parseNullableString(record["collectionPointId"]);
   if (typeof personId !== "string" || personId.trim().length === 0) {
     return null;
   }
@@ -1003,10 +1006,14 @@ const parseIntakeCreateRequest = (body: unknown): IntakeCreateInput | null => {
   if (locationText === undefined && record["locationText"] !== undefined) {
     return null;
   }
+  if (collectionPointId === undefined && record["collectionPointId"] !== undefined) {
+    return null;
+  }
   return {
     personId,
     lines: parsedLines,
     locationText: locationText ?? null,
+    collectionPointId: collectionPointId ?? null,
   };
 };
 
@@ -1018,6 +1025,7 @@ const parseSaleCreateRequest = (body: unknown): SaleCreateInput | null => {
   const personId = record["personId"];
   const lines = record["lines"];
   const locationText = parseNullableString(record["locationText"]);
+  const collectionPointId = parseNullableString(record["collectionPointId"]);
   if (typeof personId !== "string" || personId.trim().length === 0) {
     return null;
   }
@@ -1055,10 +1063,14 @@ const parseSaleCreateRequest = (body: unknown): SaleCreateInput | null => {
   if (locationText === undefined && record["locationText"] !== undefined) {
     return null;
   }
+  if (collectionPointId === undefined && record["collectionPointId"] !== undefined) {
+    return null;
+  }
   return {
     personId,
     lines: parsedLines,
     locationText: locationText ?? null,
+    collectionPointId: collectionPointId ?? null,
   };
 };
 
@@ -2909,6 +2921,13 @@ const handleIntakeCreate = async (
     sendJson(res, 404, { error: "PERSON_NOT_FOUND" });
     return;
   }
+  if (request.collectionPointId !== null && request.collectionPointId !== undefined) {
+    const collectionPoint = await dependencies.getCollectionPointById(request.collectionPointId);
+    if (collectionPoint === null) {
+      sendJson(res, 404, { error: "COLLECTION_POINT_NOT_FOUND" });
+      return;
+    }
+  }
 
   const lines: Array<{
     materialTypeId: string;
@@ -2941,6 +2960,7 @@ const handleIntakeCreate = async (
       lines,
       totalPoints,
       locationText: request.locationText ?? null,
+      collectionPointId: request.collectionPointId ?? null,
     },
   };
 
@@ -3087,6 +3107,13 @@ const handleSaleCreate = async (
     sendJson(res, 404, { error: "PERSON_NOT_FOUND" });
     return;
   }
+  if (request.collectionPointId !== null && request.collectionPointId !== undefined) {
+    const collectionPoint = await dependencies.getCollectionPointById(request.collectionPointId);
+    if (collectionPoint === null) {
+      sendJson(res, 404, { error: "COLLECTION_POINT_NOT_FOUND" });
+      return;
+    }
+  }
 
   const allocation = await buildSaleAllocatedLines(dependencies, request);
   if (!allocation.ok) {
@@ -3114,6 +3141,7 @@ const handleSaleCreate = async (
       lines,
       totalPoints,
       locationText: request.locationText ?? null,
+      collectionPointId: request.collectionPointId ?? null,
     },
   };
 

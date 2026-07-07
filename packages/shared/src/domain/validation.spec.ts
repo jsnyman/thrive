@@ -192,6 +192,63 @@ describe("validateEventPayload", () => {
     expect(result.issues.some((issue) => issue.path.includes("updates"))).toBe(true);
   });
 
+  test("accepts old-shape intake payload with no collectionPointId (locationText-era compatibility)", () => {
+    const result = validateEventPayload("intake.recorded", {
+      personId: "person-1",
+      lines: [
+        {
+          materialTypeId: "mat-1",
+          weightKg: 2.5,
+          pointsPerKg: 3,
+          pointsAwarded: 7.5,
+        },
+      ],
+      totalPoints: 7.5,
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  test("accepts new-shape intake payload with a collectionPointId", () => {
+    const result = validateEventPayload("intake.recorded", {
+      personId: "person-1",
+      lines: [
+        {
+          materialTypeId: "mat-1",
+          weightKg: 2.5,
+          pointsPerKg: 3,
+          pointsAwarded: 7.5,
+        },
+      ],
+      totalPoints: 7.5,
+      collectionPointId: "cp-1",
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  test("rejects intake payload when collectionPointId is not a string", () => {
+    const result = validateEventPayload("intake.recorded", {
+      personId: "person-1",
+      lines: [
+        {
+          materialTypeId: "mat-1",
+          weightKg: 2.5,
+          pointsPerKg: 3,
+          pointsAwarded: 7.5,
+        },
+      ],
+      totalPoints: 7.5,
+      collectionPointId: 123,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("Expected validation to fail");
+    }
+    expect(result.issues.some((issue) => issue.path.includes("collectionPointId"))).toBe(true);
+  });
+
   test("rejects point values with more than one decimal place", () => {
     const result = validateEventPayload("item.created", {
       itemId: "item-1",
@@ -222,6 +279,48 @@ describe("validateEventPayload", () => {
     });
 
     expect(result.ok).toBe(true);
+  });
+
+  test("accepts new-shape sale payload with a collectionPointId", () => {
+    const result = validateEventPayload("sale.recorded", {
+      personId: "person-1",
+      lines: [
+        {
+          itemId: "item-1",
+          inventoryBatchId: "batch-1",
+          quantity: 2,
+          pointsPrice: 10.5,
+          lineTotalPoints: 21.0,
+        },
+      ],
+      totalPoints: 21.0,
+      collectionPointId: "cp-1",
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  test("rejects sale payload when collectionPointId is not a string", () => {
+    const result = validateEventPayload("sale.recorded", {
+      personId: "person-1",
+      lines: [
+        {
+          itemId: "item-1",
+          inventoryBatchId: "batch-1",
+          quantity: 2,
+          pointsPrice: 10.5,
+          lineTotalPoints: 21.0,
+        },
+      ],
+      totalPoints: 21.0,
+      collectionPointId: 123,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("Expected validation to fail");
+    }
+    expect(result.issues.some((issue) => issue.path.includes("collectionPointId"))).toBe(true);
   });
 
   test("rejects sale payload when line and total points do not match computed values", () => {

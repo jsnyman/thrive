@@ -148,6 +148,7 @@ export type IntakeRecordedPayload = {
   lines: IntakeLine[];
   totalPoints: number;
   locationText?: string | null;
+  collectionPointId?: CollectionPointId | null;
 };
 
 export type SaleLine = {
@@ -163,6 +164,7 @@ export type SaleRecordedPayload = {
   lines: SaleLine[];
   totalPoints: number;
   locationText?: string | null;
+  collectionPointId?: CollectionPointId | null;
 };
 
 export type ProcurementLine = {
