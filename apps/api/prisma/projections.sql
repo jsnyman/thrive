@@ -112,7 +112,7 @@ create materialized view if not exists mv_materials_collected_daily as
 with intake_lines as (
   select
     e.occurred_at::date as day,
-    coalesce(nullif(trim(e.location_text), ''), 'Unspecified') as location_text,
+    e.payload ->> 'collectionPointId' as collection_point_id,
     line ->> 'materialTypeId' as material_type_id,
     (line ->> 'weightKg')::numeric(12, 3) as weight_kg,
     (line ->> 'pointsAwarded')::numeric(12, 1) as points_awarded
@@ -124,13 +124,18 @@ select
   intake.day,
   intake.material_type_id,
   coalesce(mt.name, intake.material_type_id) as material_name,
-  intake.location_text,
+  -- Historical override: intake events predating the collection-point model carry
+  -- no collectionPointId and resolve to Heuwelkroon parkie; events that do carry
+  -- one resolve to that collection point's real name. Old event payloads are
+  -- never mutated - this is purely a read-time resolution.
+  coalesce(cp.name, 'Heuwelkroon parkie') as location_text,
   coalesce(sum(intake.weight_kg), 0)::numeric(12, 3) as total_weight_kg,
   coalesce(sum(intake.points_awarded), 0)::numeric(12, 1) as total_points
 from intake_lines intake
 left join material_type mt on mt.id::text = intake.material_type_id
+left join collection_point cp on cp.id::text = intake.collection_point_id
 where intake.material_type_id is not null
-group by intake.day, intake.material_type_id, coalesce(mt.name, intake.material_type_id), intake.location_text;
+group by intake.day, intake.material_type_id, coalesce(mt.name, intake.material_type_id), coalesce(cp.name, 'Heuwelkroon parkie');
 
 create index if not exists mv_materials_collected_daily_day_idx
   on mv_materials_collected_daily (day desc);

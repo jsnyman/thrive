@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { Event } from "../../../../packages/shared/src/domain/events";
+import { HEUWELKROON_PARKIE_NAME } from "../data/historical-location";
 
-export const HEUWELKROON_PARKIE_NAME = "Heuwelkroon parkie";
+export { HEUWELKROON_PARKIE_NAME };
 
 const DEVICE_ID = "bulk-script:backfill-heuwelkroon-parkie";
 

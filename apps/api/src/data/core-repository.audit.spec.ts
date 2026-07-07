@@ -188,7 +188,86 @@ describe("core repository audit report", () => {
     const found = await repository.getSyncAuditEvent(event.eventId);
 
     expect(found?.event.eventId).toBe(event.eventId);
+    expect(found?.resolvedLocationName).toBeNull();
     expect(found?.linkedConflictIds).toEqual(["conflict-1"]);
     expect(found?.linkedResolutionEventIds).toEqual(["event-resolve-1"]);
+  });
+
+  test("resolves historical location for an intake/sale audit event lookup", async () => {
+    const createEventStoreMock = createEventStore as jest.MockedFunction<typeof createEventStore>;
+    createEventStoreMock.mockReturnValue({
+      appendEvent: async () => ({ status: "accepted" as const }),
+      getLatestCursor: async () => null,
+      pullEvents: async () => ({ events: [], nextCursor: null }),
+      getProjectionFreshness: async () => ({ refreshedAt: null, cursor: null }),
+      listEventsForMergeReplay: async () => [],
+    });
+    const saleEvent: Event = {
+      eventId: "00000000-0000-0000-0000-000000000020",
+      eventType: "sale.recorded",
+      occurredAt: "2026-03-07T09:00:00.000Z",
+      actorUserId: "2772c203-5df5-4967-9341-09e391f4cb90",
+      deviceId: "device-a",
+      schemaVersion: 1,
+      payload: {
+        personId: "person-1",
+        lines: [
+          {
+            itemId: "item-1",
+            inventoryBatchId: null,
+            quantity: 1,
+            pointsPrice: 5,
+            lineTotalPoints: 5,
+          },
+        ],
+        totalPoints: 5,
+        collectionPointId: "cp-1",
+      },
+    };
+
+    const prisma = {
+      person: { findMany: async () => [], findUnique: async () => null },
+      materialType: { findMany: async () => [], findUnique: async () => null },
+      item: { findMany: async () => [], findUnique: async () => null },
+      collectionPoint: {
+        findMany: async () => [
+          {
+            id: "cp-1",
+            name: "Village B",
+            isActive: true,
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+          },
+        ],
+        findUnique: async () => null,
+      },
+      $queryRawUnsafe: async (sql: string): Promise<QueryResult> => {
+        if (sql.includes("where event_id = $1::uuid")) {
+          return [
+            {
+              event_id: saleEvent.eventId,
+              event_type: saleEvent.eventType,
+              occurred_at: new Date(saleEvent.occurredAt),
+              recorded_at: new Date("2026-03-07T09:00:01.000Z"),
+              actor_user_id: saleEvent.actorUserId,
+              device_id: saleEvent.deviceId,
+              location_text: null,
+              schema_version: saleEvent.schemaVersion,
+              correlation_id: null,
+              causation_id: null,
+              payload: saleEvent.payload,
+            },
+          ];
+        }
+        return [];
+      },
+      $queryRaw: async () => [],
+      $executeRawUnsafe: async () => 0,
+      $transaction: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn(prisma),
+    };
+
+    const repository = createCoreRepository(prisma as never);
+    const found = await repository.getSyncAuditEvent(saleEvent.eventId);
+
+    expect(found?.resolvedLocationName).toBe("Village B");
   });
 });

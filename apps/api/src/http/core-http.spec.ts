@@ -983,8 +983,16 @@ const createDependencies = (options?: {
       if (found === undefined) {
         return null;
       }
+      let resolvedLocationName: string | null = null;
+      if (found.eventType === "intake.recorded" || found.eventType === "sale.recorded") {
+        const collectionPoint = collectionPoints.find(
+          (candidate) => candidate.id === found.payload.collectionPointId,
+        );
+        resolvedLocationName = collectionPoint?.name ?? "Heuwelkroon parkie";
+      }
       return {
         event: found,
+        resolvedLocationName,
         linkedConflictIds: ["conflict-open"],
         linkedResolutionEventIds: [],
       };
@@ -3802,6 +3810,86 @@ describe("core HTTP endpoints", () => {
 
     expect(response.status).toBe(200);
     expect(response.body.event.eventId).toBe(eventId);
+    expect(response.body.resolvedLocationName).toBeNull();
     expect(Array.isArray(response.body.linkedConflictIds)).toBe(true);
+  });
+
+  test("GET /sync/audit/event/:eventId resolves an old-shape intake.recorded event to Heuwelkroon parkie", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+    const eventId = "b6f1a6b0-1e10-4a1a-9f0a-7a2b6a1d0001";
+
+    await supertest(server)
+      .post("/sync/push")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({
+        events: [
+          {
+            eventId,
+            eventType: "intake.recorded",
+            occurredAt: "2026-03-05T12:00:00.000Z",
+            actorUserId: users[0]?.id,
+            deviceId: "device-b",
+            schemaVersion: 1,
+            locationText: "Village A",
+            payload: {
+              personId: "person-a",
+              lines: [{ materialTypeId: "mat-1", weightKg: 1, pointsPerKg: 1, pointsAwarded: 1 }],
+              totalPoints: 1,
+            },
+          },
+        ],
+      });
+
+    const response = await supertest(server)
+      .get(`/sync/audit/event/${eventId}`)
+      .set("authorization", `Bearer ${managerToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.event.locationText).toBe("Village A");
+    expect(response.body.resolvedLocationName).toBe("Heuwelkroon parkie");
+  });
+
+  test("GET /sync/audit/event/:eventId resolves a new-shape sale.recorded event to its real collection point", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+    const eventId = "b6f1a6b0-1e10-4a1a-9f0a-7a2b6a1d0002";
+
+    await supertest(server)
+      .post("/sync/push")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({
+        events: [
+          {
+            eventId,
+            eventType: "sale.recorded",
+            occurredAt: "2026-03-05T12:05:00.000Z",
+            actorUserId: users[0]?.id,
+            deviceId: "device-b",
+            schemaVersion: 1,
+            payload: {
+              personId: "person-a",
+              lines: [
+                {
+                  itemId: "item-1",
+                  inventoryBatchId: null,
+                  quantity: 1,
+                  pointsPrice: 1,
+                  lineTotalPoints: 1,
+                },
+              ],
+              totalPoints: 1,
+              collectionPointId: "cp-2",
+            },
+          },
+        ],
+      });
+
+    const response = await supertest(server)
+      .get(`/sync/audit/event/${eventId}`)
+      .set("authorization", `Bearer ${managerToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.resolvedLocationName).toBe("Old Village Point");
   });
 });

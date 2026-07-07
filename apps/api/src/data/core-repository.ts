@@ -17,6 +17,7 @@ import type {
 import type { PrismaClient } from "@prisma/client";
 import { refreshProjections } from "../projections/refresh";
 import { createEventStore, type AppendEventResult } from "./event-store";
+import { resolveHistoricalLocationName } from "./historical-location";
 import { projectEventToReadModels } from "./project-event";
 import {
   applyAcceptedIncomingEvent,
@@ -1340,7 +1341,7 @@ export const createCoreRepository = (prisma: PrismaClient) => {
   };
 
   const listSalesReport = async (filters: SalesReportFilter): Promise<SalesReportResult> => {
-    const [rows, items] = await Promise.all([
+    const [rows, items, collectionPoints] = await Promise.all([
       prisma.$queryRaw<SalesReportEventRow[]>`
         select event_id, occurred_at, location_text, payload
         from event
@@ -1348,8 +1349,14 @@ export const createCoreRepository = (prisma: PrismaClient) => {
         order by occurred_at desc, event_id desc
       `,
       listItems(),
+      listCollectionPoints(),
     ]);
     const itemNameById = new Map(items.map((item) => [item.id, item.name] as const));
+    const collectionPointNameById = new Map(
+      collectionPoints.map(
+        (collectionPoint) => [collectionPoint.id, collectionPoint.name] as const,
+      ),
+    );
     const grouped = new Map<
       string,
       {
@@ -1360,7 +1367,12 @@ export const createCoreRepository = (prisma: PrismaClient) => {
 
     for (const eventRow of rows) {
       const day = eventRow.occurred_at.toISOString().slice(0, 10);
-      const eventLocationText = eventRow.location_text ?? "Unknown";
+      const payload = eventRow.payload as Record<string, unknown>;
+      const collectionPointId = payload["collectionPointId"];
+      const eventLocationText = resolveHistoricalLocationName(
+        typeof collectionPointId === "string" ? collectionPointId : null,
+        collectionPointNameById,
+      );
       if (filters.fromDate !== null && day < filters.fromDate) {
         continue;
       }
@@ -1373,7 +1385,6 @@ export const createCoreRepository = (prisma: PrismaClient) => {
       ) {
         continue;
       }
-      const payload = eventRow.payload as Record<string, unknown>;
       const linesRaw = payload["lines"];
       if (!Array.isArray(linesRaw)) {
         continue;
@@ -1447,12 +1458,20 @@ export const createCoreRepository = (prisma: PrismaClient) => {
   const listCashflowReport = async (
     filters: CashflowReportFilter,
   ): Promise<CashflowReportResult> => {
-    const rows = await prisma.$queryRaw<CashflowReportEventRow[]>`
-      select event_id, event_type::text as event_type, occurred_at, location_text, payload
-      from event
-      where event_type in ('sale.recorded', 'expense.recorded')
-      order by occurred_at desc, event_id desc
-    `;
+    const [rows, collectionPoints] = await Promise.all([
+      prisma.$queryRaw<CashflowReportEventRow[]>`
+        select event_id, event_type::text as event_type, occurred_at, location_text, payload
+        from event
+        where event_type in ('sale.recorded', 'expense.recorded')
+        order by occurred_at desc, event_id desc
+      `,
+      listCollectionPoints(),
+    ]);
+    const collectionPointNameById = new Map(
+      collectionPoints.map(
+        (collectionPoint) => [collectionPoint.id, collectionPoint.name] as const,
+      ),
+    );
     const dayTotals = new Map<
       string,
       {
@@ -1478,11 +1497,24 @@ export const createCoreRepository = (prisma: PrismaClient) => {
       if (filters.toDate !== null && day > filters.toDate) {
         continue;
       }
+      const payload = eventRow.payload as Record<string, unknown>;
+      // Expenses are global (not collection-point-specific), so their location stays
+      // the raw envelope value (always null) — this is what makes a location filter
+      // hide global expenses. Sales resolve through the historical override so old
+      // sale.recorded events (no collectionPointId) report as Heuwelkroon parkie.
+      const effectiveLocationText =
+        eventRow.event_type === "sale.recorded"
+          ? resolveHistoricalLocationName(
+              typeof payload["collectionPointId"] === "string"
+                ? (payload["collectionPointId"] as string)
+                : null,
+              collectionPointNameById,
+            )
+          : eventRow.location_text;
       if (filters.locationText !== null) {
-        const eventLocation = eventRow.location_text;
         if (
-          eventLocation === null ||
-          !eventLocation.toLowerCase().includes(filters.locationText.toLowerCase())
+          effectiveLocationText === null ||
+          !effectiveLocationText.toLowerCase().includes(filters.locationText.toLowerCase())
         ) {
           continue;
         }
@@ -1493,7 +1525,6 @@ export const createCoreRepository = (prisma: PrismaClient) => {
         saleCount: 0,
         expenseCount: 0,
       };
-      const payload = eventRow.payload as Record<string, unknown>;
       if (eventRow.event_type === "sale.recorded") {
         const totalPoints = payload["totalPoints"];
         if (typeof totalPoints !== "number" || !Number.isFinite(totalPoints)) {
@@ -2894,6 +2925,20 @@ export const createCoreRepository = (prisma: PrismaClient) => {
       payload: row.payload as Event["payload"],
     } as Event;
 
+    let resolvedLocationName: string | null = null;
+    if (event.eventType === "intake.recorded" || event.eventType === "sale.recorded") {
+      const collectionPoints = await listCollectionPoints();
+      const collectionPointNameById = new Map(
+        collectionPoints.map(
+          (collectionPoint) => [collectionPoint.id, collectionPoint.name] as const,
+        ),
+      );
+      resolvedLocationName = resolveHistoricalLocationName(
+        event.payload.collectionPointId ?? null,
+        collectionPointNameById,
+      );
+    }
+
     const linkedConflictRows = await prisma.$queryRawUnsafe<{ conflict_id: string }[]>(
       `
         select distinct e.payload ->> 'conflictId' as conflict_id
@@ -2938,6 +2983,7 @@ export const createCoreRepository = (prisma: PrismaClient) => {
 
     return {
       event,
+      resolvedLocationName,
       linkedConflictIds: linkedConflictRows
         .map((rowItem) => rowItem.conflict_id)
         .filter((value): value is string => typeof value === "string"),
