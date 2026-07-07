@@ -230,6 +230,11 @@ const validatePersonCreatedPayload = (
   expectNullableString(payload.phone, `${path}.phone`, issues);
   expectNullableString(payload.address, `${path}.address`, issues);
   expectNullableString(payload.notes, `${path}.notes`, issues, { allowEmpty: true });
+  expectNullableString(
+    payload.assignedCollectionPointId,
+    `${path}.assignedCollectionPointId`,
+    issues,
+  );
   return true;
 };
 
@@ -280,6 +285,13 @@ const validatePersonProfileUpdatedPayload = (
   }
   if ("notes" in updates) {
     expectNullableString(updates.notes, `${path}.updates.notes`, issues, { allowEmpty: true });
+  }
+  if ("assignedCollectionPointId" in updates) {
+    expectNullableString(
+      updates.assignedCollectionPointId,
+      `${path}.updates.assignedCollectionPointId`,
+      issues,
+    );
   }
   return true;
 };

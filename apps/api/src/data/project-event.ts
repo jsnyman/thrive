@@ -18,6 +18,7 @@ export const projectEventToReadModels = async (
           phone: event.payload.phone ?? null,
           address: event.payload.address ?? null,
           notes: event.payload.notes ?? null,
+          assignedCollectionPointId: event.payload.assignedCollectionPointId ?? null,
         },
         create: {
           id: event.payload.personId,
@@ -27,6 +28,7 @@ export const projectEventToReadModels = async (
           phone: event.payload.phone ?? null,
           address: event.payload.address ?? null,
           notes: event.payload.notes ?? null,
+          assignedCollectionPointId: event.payload.assignedCollectionPointId ?? null,
         },
       });
       return;
@@ -47,6 +49,9 @@ export const projectEventToReadModels = async (
             address: event.payload.updates.address,
           }),
           ...(event.payload.updates.notes !== undefined && { notes: event.payload.updates.notes }),
+          ...(event.payload.updates.assignedCollectionPointId !== undefined && {
+            assignedCollectionPointId: event.payload.updates.assignedCollectionPointId,
+          }),
         },
       });
       return;

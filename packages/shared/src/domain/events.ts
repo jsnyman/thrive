@@ -50,6 +50,7 @@ export type PersonCreatedPayload = {
   address?: string | null;
   notes?: string | null;
   locationText?: string | null;
+  assignedCollectionPointId?: CollectionPointId | null;
 };
 
 export type PersonProfileUpdates = {
@@ -59,6 +60,7 @@ export type PersonProfileUpdates = {
   phone?: string | null;
   address?: string | null;
   notes?: string | null;
+  assignedCollectionPointId?: CollectionPointId | null;
 };
 
 export type PersonProfileUpdatedPayload = {

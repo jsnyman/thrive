@@ -20,6 +20,7 @@ type PersonRecord = {
   address?: string | null;
   notes?: string | null;
   balancePoints?: number;
+  assignedCollectionPointId?: string | null;
 };
 
 type MaterialRecord = {
@@ -227,6 +228,11 @@ const createDependencies = (options?: {
       id: "cp-1",
       name: "Heuwelkroon parkie",
       isActive: true,
+    },
+    {
+      id: "cp-2",
+      name: "Old Village Point",
+      isActive: false,
     },
   ];
   const items: ItemRecord[] = [
@@ -552,6 +558,7 @@ const createDependencies = (options?: {
         phone: event.payload.phone ?? null,
         address: event.payload.address ?? null,
         notes: event.payload.notes ?? null,
+        assignedCollectionPointId: event.payload.assignedCollectionPointId ?? null,
       });
     }
     if (event.eventType === "person.profile_updated") {
@@ -574,6 +581,10 @@ const createDependencies = (options?: {
         }
         if (event.payload.updates.notes !== undefined) {
           existingPerson.notes = event.payload.updates.notes;
+        }
+        if (event.payload.updates.assignedCollectionPointId !== undefined) {
+          existingPerson.assignedCollectionPointId =
+            event.payload.updates.assignedCollectionPointId;
         }
       }
     }
@@ -1335,6 +1346,54 @@ describe("core HTTP endpoints", () => {
     expect(response.body.person.phone).toBe("****67");
   });
 
+  test("POST /people accepts an assigned collection point and returns it", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "user", userPasscode);
+    const response = await supertest(server)
+      .post("/people")
+      .set("authorization", `Bearer ${token}`)
+      .send({ name: "Jane", surname: "Doe", assignedCollectionPointId: "cp-1" });
+
+    expect(response.status).toBe(201);
+    expect(response.body.person.assignedCollectionPointId).toBe("cp-1");
+  });
+
+  test("POST /people allows assigning an inactive collection point", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "user", userPasscode);
+    const response = await supertest(server)
+      .post("/people")
+      .set("authorization", `Bearer ${token}`)
+      .send({ name: "Jane", surname: "Doe", assignedCollectionPointId: "cp-2" });
+
+    expect(response.status).toBe(201);
+    expect(response.body.person.assignedCollectionPointId).toBe("cp-2");
+  });
+
+  test("POST /people returns 404 when assignedCollectionPointId does not exist", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "user", userPasscode);
+    const response = await supertest(server)
+      .post("/people")
+      .set("authorization", `Bearer ${token}`)
+      .send({ name: "Jane", surname: "Doe", assignedCollectionPointId: "does-not-exist" });
+
+    expect(response.status).toBe(404);
+    expect(response.body.error).toBe("COLLECTION_POINT_NOT_FOUND");
+  });
+
+  test("POST /people defaults assignedCollectionPointId to null when omitted", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "user", userPasscode);
+    const response = await supertest(server)
+      .post("/people")
+      .set("authorization", `Bearer ${token}`)
+      .send({ name: "Jane", surname: "Doe" });
+
+    expect(response.status).toBe(201);
+    expect(response.body.person.assignedCollectionPointId).toBeNull();
+  });
+
   test("POST /people keeps null sensitive fields as null in responses", async () => {
     const server = createApiServer(createDependencies());
     const token = await loginAndGetToken(server, "user", userPasscode);
@@ -1388,6 +1447,88 @@ describe("core HTTP endpoints", () => {
     expect(allowed.status).toBe(200);
     expect(allowed.body.person.id).toBe("person-a");
     expect(allowed.body.person.phone).toBe("****89");
+  });
+
+  test("PATCH /people/:personId reassigns the collection point", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const response = await supertest(server)
+      .patch("/people/person-a")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({ updates: { assignedCollectionPointId: "cp-1" } });
+
+    expect(response.status).toBe(200);
+    expect(response.body.person.assignedCollectionPointId).toBe("cp-1");
+  });
+
+  test("PATCH /people/:personId allows reassigning to an inactive collection point", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const response = await supertest(server)
+      .patch("/people/person-a")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({ updates: { assignedCollectionPointId: "cp-2" } });
+
+    expect(response.status).toBe(200);
+    expect(response.body.person.assignedCollectionPointId).toBe("cp-2");
+  });
+
+  test("PATCH /people/:personId returns 404 when assignedCollectionPointId does not exist", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const response = await supertest(server)
+      .patch("/people/person-a")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({ updates: { assignedCollectionPointId: "does-not-exist" } });
+
+    expect(response.status).toBe(404);
+    expect(response.body.error).toBe("COLLECTION_POINT_NOT_FOUND");
+  });
+
+  test("PATCH /people/:personId can clear the assigned collection point", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const assign = await supertest(server)
+      .patch("/people/person-a")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({ updates: { assignedCollectionPointId: "cp-1" } });
+    expect(assign.body.person.assignedCollectionPointId).toBe("cp-1");
+
+    const clear = await supertest(server)
+      .patch("/people/person-a")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({ updates: { assignedCollectionPointId: null } });
+    expect(clear.status).toBe(200);
+    expect(clear.body.person.assignedCollectionPointId).toBeNull();
+  });
+
+  test("deactivating a collection point does not clear existing person assignments", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const assign = await supertest(server)
+      .patch("/people/person-a")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({ updates: { assignedCollectionPointId: "cp-1" } });
+    expect(assign.body.person.assignedCollectionPointId).toBe("cp-1");
+
+    const deactivate = await supertest(server)
+      .patch("/collection-points/cp-1")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({ updates: { isActive: false } });
+    expect(deactivate.body.collectionPoint.isActive).toBe(false);
+
+    const peopleResponse = await supertest(server)
+      .get("/people")
+      .set("authorization", `Bearer ${managerToken}`);
+    const personA = (peopleResponse.body.people as PersonRecord[]).find(
+      (person) => person.id === "person-a",
+    );
+    expect(personA?.assignedCollectionPointId).toBe("cp-1");
   });
 
   test("PATCH /people/:personId returns 404 for unknown person", async () => {
@@ -1558,6 +1699,7 @@ describe("core HTTP endpoints", () => {
     expect(asCollector.status).toBe(200);
     expect(asCollector.body.collectionPoints).toEqual([
       { id: "cp-1", name: "Heuwelkroon parkie", isActive: true },
+      { id: "cp-2", name: "Old Village Point", isActive: false },
     ]);
 
     const asManager = await supertest(server)

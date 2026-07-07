@@ -82,6 +82,57 @@ describe("validateEventPayload", () => {
     expect(result.issues.some((issue) => issue.path.includes("pointsAwarded"))).toBe(true);
   });
 
+  test("accepts valid person.created payload with an assigned collection point", () => {
+    const result = validateEventPayload("person.created", {
+      personId: "person-1",
+      name: "Jane",
+      surname: "Doe",
+      assignedCollectionPointId: "cp-1",
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test("accepts valid person.created payload with no assigned collection point", () => {
+    const result = validateEventPayload("person.created", {
+      personId: "person-1",
+      name: "Jane",
+      surname: "Doe",
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test("rejects person.created payload when assignedCollectionPointId is not a string", () => {
+    const result = validateEventPayload("person.created", {
+      personId: "person-1",
+      name: "Jane",
+      surname: "Doe",
+      assignedCollectionPointId: 123,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("Expected validation to fail");
+    }
+    expect(result.issues.some((issue) => issue.path.includes("assignedCollectionPointId"))).toBe(
+      true,
+    );
+  });
+
+  test("accepts valid person.profile_updated payload reassigning the collection point", () => {
+    const result = validateEventPayload("person.profile_updated", {
+      personId: "person-1",
+      updates: { assignedCollectionPointId: "cp-2" },
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test("accepts valid person.profile_updated payload clearing the collection point", () => {
+    const result = validateEventPayload("person.profile_updated", {
+      personId: "person-1",
+      updates: { assignedCollectionPointId: null },
+    });
+    expect(result.ok).toBe(true);
+  });
+
   test("accepts valid collection_point.created payload", () => {
     const result = validateEventPayload("collection_point.created", {
       collectionPointId: "cp-1",

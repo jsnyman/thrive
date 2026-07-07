@@ -102,6 +102,67 @@ describe("projectEventToReadModels", () => {
     expect(harness.personUpdate).toHaveBeenCalledTimes(1);
   });
 
+  test("projects person create with an assigned collection point and reassignment on update", async () => {
+    const harness = createHarness();
+
+    const created: Event = {
+      ...baseFields,
+      eventType: "person.created",
+      payload: {
+        personId: "person-1",
+        name: "Jane",
+        surname: "Doe",
+        assignedCollectionPointId: "cp-1",
+      },
+    };
+    const updated: Event = {
+      ...baseFields,
+      eventType: "person.profile_updated",
+      payload: {
+        personId: "person-1",
+        updates: {
+          assignedCollectionPointId: "cp-2",
+        },
+      },
+    };
+
+    await projectEventToReadModels(harness.executor, created);
+    await projectEventToReadModels(harness.executor, updated);
+
+    const upsertCall = harness.personUpsert.mock.calls[0]?.[0] as {
+      create: { assignedCollectionPointId: string | null };
+      update: { assignedCollectionPointId: string | null };
+    };
+    expect(upsertCall.create.assignedCollectionPointId).toBe("cp-1");
+    expect(upsertCall.update.assignedCollectionPointId).toBe("cp-1");
+    expect(harness.personUpdate).toHaveBeenCalledWith({
+      where: { id: "person-1" },
+      data: { assignedCollectionPointId: "cp-2" },
+    });
+  });
+
+  test("projects person profile update clearing the assigned collection point", async () => {
+    const harness = createHarness();
+
+    const updated: Event = {
+      ...baseFields,
+      eventType: "person.profile_updated",
+      payload: {
+        personId: "person-1",
+        updates: {
+          assignedCollectionPointId: null,
+        },
+      },
+    };
+
+    await projectEventToReadModels(harness.executor, updated);
+
+    expect(harness.personUpdate).toHaveBeenCalledWith({
+      where: { id: "person-1" },
+      data: { assignedCollectionPointId: null },
+    });
+  });
+
   test("projects person removed — sets removedAt on the person record", async () => {
     const harness = createHarness();
 

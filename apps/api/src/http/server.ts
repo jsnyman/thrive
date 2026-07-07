@@ -46,6 +46,7 @@ type PersonRecord = {
   address?: string | null;
   notes?: string | null;
   balancePoints?: number;
+  assignedCollectionPointId?: string | null;
 };
 
 type PersonCreateInput = {
@@ -56,6 +57,7 @@ type PersonCreateInput = {
   address?: string | null;
   notes?: string | null;
   locationText?: string | null;
+  assignedCollectionPointId?: string | null;
 };
 
 type PersonUpdateInput = {
@@ -66,6 +68,7 @@ type PersonUpdateInput = {
     phone?: string | null;
     address?: string | null;
     notes?: string | null;
+    assignedCollectionPointId?: string | null;
   };
   locationText?: string | null;
 };
@@ -692,6 +695,7 @@ const toPersonResponse = (person: PersonRecord): PersonRecord => ({
   phone: maskSensitiveValue(person.phone),
   address: person.address ?? null,
   notes: person.notes ?? null,
+  assignedCollectionPointId: person.assignedCollectionPointId ?? null,
   ...(person.balancePoints !== undefined ? { balancePoints: person.balancePoints } : {}),
 });
 
@@ -707,6 +711,7 @@ const parsePersonCreateRequest = (body: unknown): PersonCreateInput | null => {
   const address = parseNullableString(record["address"]);
   const notes = parseNullableString(record["notes"]);
   const locationText = parseNullableString(record["locationText"]);
+  const assignedCollectionPointId = parseNullableString(record["assignedCollectionPointId"]);
   if (idNumber === undefined && record["idNumber"] !== undefined) {
     return null;
   }
@@ -722,6 +727,12 @@ const parsePersonCreateRequest = (body: unknown): PersonCreateInput | null => {
   if (locationText === undefined && record["locationText"] !== undefined) {
     return null;
   }
+  if (
+    assignedCollectionPointId === undefined &&
+    record["assignedCollectionPointId"] !== undefined
+  ) {
+    return null;
+  }
   return {
     name,
     surname,
@@ -730,6 +741,7 @@ const parsePersonCreateRequest = (body: unknown): PersonCreateInput | null => {
     address: address ?? null,
     notes: notes ?? null,
     locationText: locationText ?? null,
+    assignedCollectionPointId: assignedCollectionPointId ?? null,
   };
 };
 
@@ -751,7 +763,15 @@ const parsePersonUpdateRequest = (body: unknown): PersonUpdateInput | null => {
   if (updateKeys.length === 0) {
     return null;
   }
-  const allowedKeys = ["name", "surname", "idNumber", "phone", "address", "notes"];
+  const allowedKeys = [
+    "name",
+    "surname",
+    "idNumber",
+    "phone",
+    "address",
+    "notes",
+    "assignedCollectionPointId",
+  ];
   const hasInvalidKey = updateKeys.some((key) => !allowedKeys.includes(key));
   if (hasInvalidKey) {
     return null;
@@ -800,6 +820,18 @@ const parsePersonUpdateRequest = (body: unknown): PersonUpdateInput | null => {
       return null;
     }
     updates.notes = notes ?? null;
+  }
+  if ("assignedCollectionPointId" in updatesRecord) {
+    const assignedCollectionPointId = parseNullableString(
+      updatesRecord["assignedCollectionPointId"],
+    );
+    if (
+      assignedCollectionPointId === undefined &&
+      updatesRecord["assignedCollectionPointId"] !== undefined
+    ) {
+      return null;
+    }
+    updates.assignedCollectionPointId = assignedCollectionPointId ?? null;
   }
 
   return {
@@ -2083,6 +2115,18 @@ const handlePeopleCreate = async (
     sendJson(res, 400, { error: "BAD_REQUEST" });
     return;
   }
+  if (
+    request.assignedCollectionPointId !== null &&
+    request.assignedCollectionPointId !== undefined
+  ) {
+    const collectionPoint = await dependencies.getCollectionPointById(
+      request.assignedCollectionPointId,
+    );
+    if (collectionPoint === null) {
+      sendJson(res, 404, { error: "COLLECTION_POINT_NOT_FOUND" });
+      return;
+    }
+  }
 
   const personId = randomUUID();
   const event: Event = {
@@ -2097,6 +2141,7 @@ const handlePeopleCreate = async (
       address: request.address ?? null,
       notes: request.notes ?? null,
       locationText: request.locationText ?? null,
+      assignedCollectionPointId: request.assignedCollectionPointId ?? null,
     },
   };
 
@@ -2139,6 +2184,18 @@ const handlePeopleUpdate = async (
   if (request === null) {
     sendJson(res, 400, { error: "BAD_REQUEST" });
     return;
+  }
+  if (
+    request.updates.assignedCollectionPointId !== null &&
+    request.updates.assignedCollectionPointId !== undefined
+  ) {
+    const collectionPoint = await dependencies.getCollectionPointById(
+      request.updates.assignedCollectionPointId,
+    );
+    if (collectionPoint === null) {
+      sendJson(res, 404, { error: "COLLECTION_POINT_NOT_FOUND" });
+      return;
+    }
   }
 
   const event: Event = {

@@ -38,6 +38,7 @@ export type Person = {
   phone?: string | null;
   address?: string | null;
   notes?: string | null;
+  assignedCollectionPointId?: CollectionPointId | null;
 };
 
 export type MaterialType = {

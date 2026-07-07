@@ -44,15 +44,16 @@ model StaffUser {
 }
 
 model Person {
-  id        String    @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  name      String
-  surname   String
-  idNumber  String?   @map("id_number")
-  phone     String?
-  address   String?
-  notes     String?
-  createdAt DateTime  @default(now()) @db.Timestamptz(6) @map("created_at")
-  removedAt DateTime? @db.Timestamptz(6) @map("removed_at")
+  id                        String    @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  name                      String
+  surname                   String
+  idNumber                  String?   @map("id_number")
+  phone                     String?
+  address                   String?
+  notes                     String?
+  assignedCollectionPointId String?   @db.Uuid @map("assigned_collection_point_id")
+  createdAt                 DateTime  @default(now()) @db.Timestamptz(6) @map("created_at")
+  removedAt                 DateTime? @db.Timestamptz(6) @map("removed_at")
 
   @@map("person")
 }

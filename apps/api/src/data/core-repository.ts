@@ -37,6 +37,7 @@ type PersonRecord = {
   address?: string | null;
   notes?: string | null;
   balancePoints?: number;
+  assignedCollectionPointId?: string | null;
 };
 
 type MaterialRecord = {
@@ -573,10 +574,12 @@ const toPersonRecord = (person: {
   phone: string | null;
   address: string | null;
   notes: string | null;
+  assignedCollectionPointId: string | null;
 }): PersonRecord => ({
   id: person.id,
   name: person.name,
   surname: person.surname,
+  assignedCollectionPointId: person.assignedCollectionPointId,
   idNumber: person.idNumber,
   phone: person.phone,
   address: person.address,
@@ -710,11 +713,13 @@ export const createCoreRepository = (prisma: PrismaClient) => {
       phone: string | null;
       address: string | null;
       notes: string | null;
+      assigned_collection_point_id: string | null;
       balance_points: unknown;
     };
     const rows = await prisma.$queryRawUnsafe<PersonWithBalanceRow[]>(
       `
         select p.id, p.name, p.surname, p.id_number, p.phone, p.address, p.notes,
+               p.assigned_collection_point_id,
                coalesce(b.balance_points, 0)::numeric(12,1) as balance_points
         from person p
         left join mv_points_balances b on b.person_id = p.id::text
@@ -731,6 +736,7 @@ export const createCoreRepository = (prisma: PrismaClient) => {
       phone: row.phone,
       address: row.address,
       notes: row.notes,
+      assignedCollectionPointId: row.assigned_collection_point_id,
       balancePoints: toPointNumber(row.balance_points),
     }));
   };

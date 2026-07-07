@@ -109,6 +109,7 @@ const personCreatedSchema = objectSchema(
     phone: nullable(stringSchema()),
     address: nullable(stringSchema()),
     notes: nullable(stringSchema()),
+    assignedCollectionPointId: nullable(stringSchema()),
   },
   ["personId", "name", "surname"],
 );
@@ -124,6 +125,7 @@ const personProfileUpdatedSchema = objectSchema(
         phone: nullable(stringSchema()),
         address: nullable(stringSchema()),
         notes: nullable(stringSchema()),
+        assignedCollectionPointId: nullable(stringSchema()),
       },
       [],
     ),
