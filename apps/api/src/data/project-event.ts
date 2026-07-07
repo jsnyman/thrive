@@ -1,7 +1,7 @@
 import type { Event } from "../../../../packages/shared/src/domain/events";
 import type { PrismaClient } from "@prisma/client";
 
-type ProjectorExecutor = Pick<PrismaClient, "person" | "materialType" | "item">;
+type ProjectorExecutor = Pick<PrismaClient, "person" | "materialType" | "item" | "collectionPoint">;
 
 export const projectEventToReadModels = async (
   executor: ProjectorExecutor,
@@ -125,6 +125,31 @@ export const projectEventToReadModels = async (
                 : event.payload.updates.costPrice.toString(),
           }),
           ...(event.payload.updates.sku !== undefined && { sku: event.payload.updates.sku }),
+        },
+      });
+      return;
+    }
+    case "collection_point.created": {
+      await executor.collectionPoint.upsert({
+        where: { id: event.payload.collectionPointId },
+        update: {
+          name: event.payload.name,
+        },
+        create: {
+          id: event.payload.collectionPointId,
+          name: event.payload.name,
+        },
+      });
+      return;
+    }
+    case "collection_point.updated": {
+      await executor.collectionPoint.update({
+        where: { id: event.payload.collectionPointId },
+        data: {
+          ...(event.payload.updates.name !== undefined && { name: event.payload.updates.name }),
+          ...(event.payload.updates.isActive !== undefined && {
+            isActive: event.payload.updates.isActive,
+          }),
         },
       });
       return;

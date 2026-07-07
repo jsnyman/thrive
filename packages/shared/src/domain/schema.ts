@@ -47,6 +47,11 @@ const numberSchema = (options?: Partial<JsonSchema>): JsonSchema => ({
   ...options,
 });
 
+const booleanSchema = (options?: Partial<JsonSchema>): JsonSchema => ({
+  type: "boolean",
+  ...options,
+});
+
 const arraySchema = (items: JsonSchema, options?: Partial<JsonSchema>): JsonSchema => ({
   type: "array",
   items,
@@ -68,6 +73,8 @@ export const EVENT_TYPES: EventType[] = [
   "material_type.updated",
   "item.created",
   "item.updated",
+  "collection_point.created",
+  "collection_point.updated",
   "staff_user.created",
   "staff_user.role_changed",
   "intake.recorded",
@@ -180,6 +187,28 @@ const itemUpdatedSchema = objectSchema(
     ),
   },
   ["itemId", "updates"],
+);
+
+const collectionPointCreatedSchema = objectSchema(
+  {
+    collectionPointId: stringSchema(),
+    name: stringSchema(),
+  },
+  ["collectionPointId", "name"],
+);
+
+const collectionPointUpdatedSchema = objectSchema(
+  {
+    collectionPointId: stringSchema(),
+    updates: objectSchema(
+      {
+        name: stringSchema(),
+        isActive: booleanSchema(),
+      },
+      [],
+    ),
+  },
+  ["collectionPointId", "updates"],
 );
 
 const staffUserCreatedSchema = objectSchema(
@@ -390,6 +419,8 @@ export const eventPayloadSchemas: Record<EventType, JsonSchema> = {
   "material_type.updated": materialTypeUpdatedSchema,
   "item.created": itemCreatedSchema,
   "item.updated": itemUpdatedSchema,
+  "collection_point.created": collectionPointCreatedSchema,
+  "collection_point.updated": collectionPointUpdatedSchema,
   "staff_user.created": staffUserCreatedSchema,
   "staff_user.role_changed": staffUserRoleChangedSchema,
   "intake.recorded": intakeRecordedSchema,

@@ -4,6 +4,7 @@ export type UserId = string;
 export type PersonId = string;
 export type MaterialTypeId = string;
 export type ItemId = string;
+export type CollectionPointId = string;
 export type InventoryBatchId = string;
 export type EventId = string;
 export type DeviceId = string;
@@ -51,6 +52,12 @@ export type Item = {
   pointsPrice: number;
   costPrice?: number | null;
   sku?: string | null;
+};
+
+export type CollectionPoint = {
+  id: CollectionPointId;
+  name: string;
+  isActive: boolean;
 };
 
 export type InventoryBatch = {

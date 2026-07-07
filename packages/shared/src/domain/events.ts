@@ -1,4 +1,5 @@
 import type {
+  CollectionPointId,
   ConflictId,
   DeviceId,
   EventId,
@@ -23,6 +24,8 @@ export type EventType =
   | "material_type.updated"
   | "item.created"
   | "item.updated"
+  | "collection_point.created"
+  | "collection_point.updated"
   | "staff_user.created"
   | "staff_user.role_changed"
   | "intake.recorded"
@@ -102,6 +105,21 @@ export type ItemUpdates = {
 export type ItemUpdatedPayload = {
   itemId: ItemId;
   updates: ItemUpdates;
+};
+
+export type CollectionPointCreatedPayload = {
+  collectionPointId: CollectionPointId;
+  name: string;
+};
+
+export type CollectionPointUpdates = {
+  name?: string;
+  isActive?: boolean;
+};
+
+export type CollectionPointUpdatedPayload = {
+  collectionPointId: CollectionPointId;
+  updates: CollectionPointUpdates;
 };
 
 export type StaffUserCreatedPayload = {
@@ -252,6 +270,8 @@ export type EventPayloadMap = {
   "material_type.updated": MaterialTypeUpdatedPayload;
   "item.created": ItemCreatedPayload;
   "item.updated": ItemUpdatedPayload;
+  "collection_point.created": CollectionPointCreatedPayload;
+  "collection_point.updated": CollectionPointUpdatedPayload;
   "staff_user.created": StaffUserCreatedPayload;
   "staff_user.role_changed": StaffUserRoleChangedPayload;
   "intake.recorded": IntakeRecordedPayload;

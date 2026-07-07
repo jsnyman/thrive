@@ -82,6 +82,65 @@ describe("validateEventPayload", () => {
     expect(result.issues.some((issue) => issue.path.includes("pointsAwarded"))).toBe(true);
   });
 
+  test("accepts valid collection_point.created payload", () => {
+    const result = validateEventPayload("collection_point.created", {
+      collectionPointId: "cp-1",
+      name: "Heuwelkroon parkie",
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test("rejects collection_point.created payload when name is missing", () => {
+    const result = validateEventPayload("collection_point.created", {
+      collectionPointId: "cp-1",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("Expected validation to fail");
+    }
+    expect(result.issues.some((issue) => issue.path.includes("name"))).toBe(true);
+  });
+
+  test("accepts valid collection_point.updated payload toggling isActive", () => {
+    const result = validateEventPayload("collection_point.updated", {
+      collectionPointId: "cp-1",
+      updates: { isActive: false },
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test("accepts valid collection_point.updated payload renaming", () => {
+    const result = validateEventPayload("collection_point.updated", {
+      collectionPointId: "cp-1",
+      updates: { name: "Renamed point" },
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test("rejects collection_point.updated payload when isActive is not a boolean", () => {
+    const result = validateEventPayload("collection_point.updated", {
+      collectionPointId: "cp-1",
+      updates: { isActive: "false" },
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("Expected validation to fail");
+    }
+    expect(result.issues.some((issue) => issue.path.includes("isActive"))).toBe(true);
+  });
+
+  test("rejects collection_point.updated payload with no update fields", () => {
+    const result = validateEventPayload("collection_point.updated", {
+      collectionPointId: "cp-1",
+      updates: {},
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("Expected validation to fail");
+    }
+    expect(result.issues.some((issue) => issue.path.includes("updates"))).toBe(true);
+  });
+
   test("rejects point values with more than one decimal place", () => {
     const result = validateEventPayload("item.created", {
       itemId: "item-1",

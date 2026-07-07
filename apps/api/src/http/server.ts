@@ -90,6 +90,25 @@ type ItemRecord = {
   sku?: string | null;
 };
 
+type CollectionPointRecord = {
+  id: string;
+  name: string;
+  isActive: boolean;
+};
+
+type CollectionPointCreateInput = {
+  name: string;
+  locationText?: string | null;
+};
+
+type CollectionPointUpdateInput = {
+  updates: {
+    name?: string;
+    isActive?: boolean;
+  };
+  locationText?: string | null;
+};
+
 type InventoryStatus = "storage" | "shop" | "sold" | "spoiled" | "damaged" | "missing";
 type InventoryAdjustmentStatus = "spoiled" | "damaged" | "missing";
 
@@ -457,12 +476,14 @@ type ApiServerDependencies = {
   getStaffUserByUsername: (username: string) => Promise<StaffUserRecord | null>;
   listPeople: (search?: string) => Promise<PersonRecord[]>;
   listMaterials: () => Promise<MaterialRecord[]>;
+  listCollectionPoints: () => Promise<CollectionPointRecord[]>;
   listItems: () => Promise<ItemRecord[]>;
   listInventoryBatches: () => Promise<InventoryBatchStateRecord[]>;
   listShopBatchesForItem: (itemId: string) => Promise<InventoryBatchStateRecord[]>;
   listInventoryStatusSummary: () => Promise<InventoryStatusSummaryRecord[]>;
   getPersonById: (personId: string) => Promise<PersonRecord | null>;
   getMaterialById: (materialId: string) => Promise<MaterialRecord | null>;
+  getCollectionPointById: (collectionPointId: string) => Promise<CollectionPointRecord | null>;
   getItemById: (itemId: string) => Promise<ItemRecord | null>;
   getItemByName: (name: string) => Promise<ItemRecord | null>;
   getInventoryBatchState: (inventoryBatchId: string) => Promise<InventoryBatchStateRecord | null>;
@@ -779,6 +800,72 @@ const parsePersonUpdateRequest = (body: unknown): PersonUpdateInput | null => {
       return null;
     }
     updates.notes = notes ?? null;
+  }
+
+  return {
+    updates,
+    locationText: locationText ?? null,
+  };
+};
+
+const parseCollectionPointCreateRequest = (body: unknown): CollectionPointCreateInput | null => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+  const record = body as Record<string, unknown>;
+  const name = record["name"];
+  const locationText = parseNullableString(record["locationText"]);
+  if (typeof name !== "string" || name.trim().length === 0) {
+    return null;
+  }
+  if (locationText === undefined && record["locationText"] !== undefined) {
+    return null;
+  }
+  return {
+    name,
+    locationText: locationText ?? null,
+  };
+};
+
+const parseCollectionPointUpdateRequest = (body: unknown): CollectionPointUpdateInput | null => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+  const record = body as Record<string, unknown>;
+  const updatesRaw = record["updates"];
+  const locationText = parseNullableString(record["locationText"]);
+  if (locationText === undefined && record["locationText"] !== undefined) {
+    return null;
+  }
+  if (typeof updatesRaw !== "object" || updatesRaw === null || Array.isArray(updatesRaw)) {
+    return null;
+  }
+  const updatesRecord = updatesRaw as Record<string, unknown>;
+  const updateKeys = Object.keys(updatesRecord);
+  if (updateKeys.length === 0) {
+    return null;
+  }
+  const allowedKeys = ["name", "isActive"];
+  const hasInvalidKey = updateKeys.some((key) => !allowedKeys.includes(key));
+  if (hasInvalidKey) {
+    return null;
+  }
+
+  const updates: CollectionPointUpdateInput["updates"] = {};
+
+  if ("name" in updatesRecord) {
+    const name = updatesRecord["name"];
+    if (typeof name !== "string" || name.trim().length === 0) {
+      return null;
+    }
+    updates.name = name;
+  }
+  if ("isActive" in updatesRecord) {
+    const isActive = updatesRecord["isActive"];
+    if (typeof isActive !== "boolean") {
+      return null;
+    }
+    updates.isActive = isActive;
   }
 
   return {
@@ -2181,6 +2268,110 @@ const handleMaterialsCreate = async (
     return;
   }
   sendJson(res, 201, { material });
+};
+
+const handleCollectionPointsList = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "collection_point.read");
+  if (actor === null) {
+    return;
+  }
+  const collectionPoints = await dependencies.listCollectionPoints();
+  sendJson(res, 200, { collectionPoints });
+};
+
+const handleCollectionPointsCreate = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "collection_point.manage");
+  if (actor === null) {
+    return;
+  }
+  const bodyResult = await readJsonBody(req);
+  if (!bodyResult.ok) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const request = parseCollectionPointCreateRequest(bodyResult.value);
+  if (request === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+
+  const collectionPointId = randomUUID();
+  const event: Event = {
+    ...toBaseEventFields(dependencies, actor, req, request.locationText),
+    eventType: "collection_point.created",
+    payload: {
+      collectionPointId,
+      name: request.name,
+    },
+  };
+
+  const appendResult = await dependencies.appendEventAndProject(event);
+  if (appendResult.status !== "accepted") {
+    sendJson(res, 400, { error: "BAD_REQUEST", reason: appendResult.reason ?? null });
+    return;
+  }
+  const collectionPoint = await dependencies.getCollectionPointById(collectionPointId);
+  if (collectionPoint === null) {
+    sendJson(res, 500, { error: "INTERNAL_SERVER_ERROR" });
+    return;
+  }
+  sendJson(res, 201, { collectionPoint });
+};
+
+const handleCollectionPointsUpdate = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+  collectionPointId: string,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "collection_point.manage");
+  if (actor === null) {
+    return;
+  }
+  const collectionPoint = await dependencies.getCollectionPointById(collectionPointId);
+  if (collectionPoint === null) {
+    sendJson(res, 404, { error: "COLLECTION_POINT_NOT_FOUND" });
+    return;
+  }
+  const bodyResult = await readJsonBody(req);
+  if (!bodyResult.ok) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const request = parseCollectionPointUpdateRequest(bodyResult.value);
+  if (request === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+
+  const event: Event = {
+    ...toBaseEventFields(dependencies, actor, req, request.locationText),
+    eventType: "collection_point.updated",
+    payload: {
+      collectionPointId,
+      updates: request.updates,
+    },
+  };
+  const appendResult = await dependencies.appendEventAndProject(event);
+  if (appendResult.status !== "accepted") {
+    sendJson(res, 400, { error: "BAD_REQUEST", reason: appendResult.reason ?? null });
+    return;
+  }
+
+  const updated = await dependencies.getCollectionPointById(collectionPointId);
+  if (updated === null) {
+    sendJson(res, 500, { error: "INTERNAL_SERVER_ERROR" });
+    return;
+  }
+  sendJson(res, 200, { collectionPoint: updated });
 };
 
 const handleItemsList = async (
@@ -3619,6 +3810,25 @@ const routeRequest = async (
   if (method === "POST" && pathname === "/materials") {
     await handleMaterialsCreate(req, res, dependencies);
     return;
+  }
+
+  if (method === "GET" && pathname === "/collection-points") {
+    await handleCollectionPointsList(req, res, dependencies);
+    return;
+  }
+
+  if (method === "POST" && pathname === "/collection-points") {
+    await handleCollectionPointsCreate(req, res, dependencies);
+    return;
+  }
+
+  const collectionPointUpdateMatch = pathname.match(/^\/collection-points\/([^/]+)$/);
+  if (method === "PATCH" && collectionPointUpdateMatch !== null) {
+    const collectionPointId = collectionPointUpdateMatch[1];
+    if (collectionPointId !== undefined) {
+      await handleCollectionPointsUpdate(req, res, dependencies, collectionPointId);
+      return;
+    }
   }
 
   if (method === "GET" && pathname === "/items") {

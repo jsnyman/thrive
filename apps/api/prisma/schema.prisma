@@ -78,6 +78,15 @@ model Item {
   @@map("item")
 }
 
+model CollectionPoint {
+  id        String   @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  name      String   @unique
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+
+  @@map("collection_point")
+}
+
 enum StaffRole {
   user
   administrator
@@ -91,6 +100,8 @@ enum EventType {
   material_type_updated          @map("material_type.updated")
   item_created                   @map("item.created")
   item_updated                   @map("item.updated")
+  collection_point_created       @map("collection_point.created")
+  collection_point_updated       @map("collection_point.updated")
   staff_user_created             @map("staff_user.created")
   staff_user_role_changed        @map("staff_user.role_changed")
   intake_recorded                @map("intake.recorded")

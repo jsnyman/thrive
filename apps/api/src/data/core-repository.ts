@@ -53,6 +53,12 @@ type ItemRecord = {
   sku?: string | null;
 };
 
+type CollectionPointRecord = {
+  id: string;
+  name: string;
+  isActive: boolean;
+};
+
 type InventoryStatus = "storage" | "shop" | "sold" | "spoiled" | "damaged" | "missing";
 
 type InventoryBatchStateRecord = {
@@ -354,7 +360,7 @@ type PointsLiabilityReportQueryRow = {
 
 type CoreTransactionExecutor = Pick<
   PrismaClient,
-  "$executeRawUnsafe" | "$queryRawUnsafe" | "person" | "materialType" | "item"
+  "$executeRawUnsafe" | "$queryRawUnsafe" | "person" | "materialType" | "item" | "collectionPoint"
 >;
 
 type ConflictCursorParts = {
@@ -587,6 +593,16 @@ const toMaterialRecord = (material: {
   pointsPerKg: toPointNumber(material.pointsPerKg),
 });
 
+const toCollectionPointRecord = (collectionPoint: {
+  id: string;
+  name: string;
+  isActive: boolean;
+}): CollectionPointRecord => ({
+  id: collectionPoint.id,
+  name: collectionPoint.name,
+  isActive: collectionPoint.isActive,
+});
+
 const toItemRecord = (item: {
   id: string;
   name: string;
@@ -726,6 +742,15 @@ export const createCoreRepository = (prisma: PrismaClient) => {
       },
     });
     return rows.map(toMaterialRecord);
+  };
+
+  const listCollectionPoints = async (): Promise<CollectionPointRecord[]> => {
+    const rows = await prisma.collectionPoint.findMany({
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+    return rows.map(toCollectionPointRecord);
   };
 
   const listItems = async (): Promise<ItemRecord[]> => {
@@ -1027,6 +1052,20 @@ export const createCoreRepository = (prisma: PrismaClient) => {
       return null;
     }
     return toMaterialRecord(row);
+  };
+
+  const getCollectionPointById = async (
+    collectionPointId: string,
+  ): Promise<CollectionPointRecord | null> => {
+    const row = await prisma.collectionPoint.findUnique({
+      where: {
+        id: collectionPointId,
+      },
+    });
+    if (row === null) {
+      return null;
+    }
+    return toCollectionPointRecord(row);
   };
 
   const getItemById = async (itemId: string): Promise<ItemRecord | null> => {
@@ -2903,12 +2942,14 @@ export const createCoreRepository = (prisma: PrismaClient) => {
   return {
     listPeople,
     listMaterials,
+    listCollectionPoints,
     listItems,
     listInventoryBatches,
     listShopBatchesForItem,
     listInventoryStatusSummary,
     getPersonById,
     getMaterialById,
+    getCollectionPointById,
     getItemById,
     getItemByName,
     getInventoryBatchState,

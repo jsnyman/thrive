@@ -41,6 +41,8 @@ export const startApiServer = async (): Promise<ReturnType<typeof createApiServe
     getStaffUserByUsername: async (username) => getStaffUserByUsername(getPrismaClient(), username),
     listPeople: async (search) => createCoreRepository(getPrismaClient()).listPeople(search),
     listMaterials: async () => createCoreRepository(getPrismaClient()).listMaterials(),
+    listCollectionPoints: async () =>
+      createCoreRepository(getPrismaClient()).listCollectionPoints(),
     listItems: async () => createCoreRepository(getPrismaClient()).listItems(),
     listInventoryBatches: async () =>
       createCoreRepository(getPrismaClient()).listInventoryBatches(),
@@ -52,6 +54,8 @@ export const startApiServer = async (): Promise<ReturnType<typeof createApiServe
       createCoreRepository(getPrismaClient()).getPersonById(personId),
     getMaterialById: async (materialId) =>
       createCoreRepository(getPrismaClient()).getMaterialById(materialId),
+    getCollectionPointById: async (collectionPointId) =>
+      createCoreRepository(getPrismaClient()).getCollectionPointById(collectionPointId),
     getItemById: async (itemId) => createCoreRepository(getPrismaClient()).getItemById(itemId),
     getItemByName: async (name) => createCoreRepository(getPrismaClient()).getItemByName(name),
     getInventoryBatchState: async (inventoryBatchId) =>

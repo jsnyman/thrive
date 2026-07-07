@@ -52,6 +52,8 @@ export type PermissionAction =
   | "inventory.read"
   | "inventory.move"
   | "item.manage"
+  | "collection_point.read"
+  | "collection_point.manage"
   | "procurement.record"
   | "expense.record"
   | "reports.view"

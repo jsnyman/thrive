@@ -100,6 +100,23 @@ describe("rbac authorization", () => {
 
     expect(allowed).toBe(true);
   });
+
+  test("allows both roles to read collection points", () => {
+    expect(authorizeStaffAction("user", "collection_point.read")).toBe(true);
+    expect(authorizeStaffAction("administrator", "collection_point.read")).toBe(true);
+  });
+
+  test("denies user from managing collection points", () => {
+    const allowed = authorizeStaffAction("user", "collection_point.manage");
+
+    expect(allowed).toBe(false);
+  });
+
+  test("allows administrator to manage collection points", () => {
+    const allowed = authorizeStaffAction("administrator", "collection_point.manage");
+
+    expect(allowed).toBe(true);
+  });
 });
 
 describe("authorization header parsing", () => {

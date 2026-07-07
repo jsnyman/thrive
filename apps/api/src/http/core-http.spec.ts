@@ -28,6 +28,12 @@ type MaterialRecord = {
   pointsPerKg: number;
 };
 
+type CollectionPointRecord = {
+  id: string;
+  name: string;
+  isActive: boolean;
+};
+
 type ItemRecord = {
   id: string;
   name: string;
@@ -214,6 +220,13 @@ const createDependencies = (options?: {
       id: "mat-1",
       name: "PET",
       pointsPerKg: 3.2,
+    },
+  ];
+  const collectionPoints: CollectionPointRecord[] = [
+    {
+      id: "cp-1",
+      name: "Heuwelkroon parkie",
+      isActive: true,
     },
   ];
   const items: ItemRecord[] = [
@@ -586,6 +599,26 @@ const createDependencies = (options?: {
         sku: event.payload.sku ?? null,
       });
     }
+    if (event.eventType === "collection_point.created") {
+      collectionPoints.push({
+        id: event.payload.collectionPointId,
+        name: event.payload.name,
+        isActive: true,
+      });
+    }
+    if (event.eventType === "collection_point.updated") {
+      const existingCollectionPoint = collectionPoints.find(
+        (collectionPoint) => collectionPoint.id === event.payload.collectionPointId,
+      );
+      if (existingCollectionPoint !== undefined) {
+        if (event.payload.updates.name !== undefined) {
+          existingCollectionPoint.name = event.payload.updates.name;
+        }
+        if (event.payload.updates.isActive !== undefined) {
+          existingCollectionPoint.isActive = event.payload.updates.isActive;
+        }
+      }
+    }
     if (event.eventType === "intake.recorded") {
       ledger.push({
         id: event.eventId,
@@ -819,12 +852,15 @@ const createDependencies = (options?: {
         );
       }),
     listMaterials: async () => materials,
+    listCollectionPoints: async () => collectionPoints,
     listItems: async () => items,
     listShopBatchesForItem: async (itemId) =>
       inventoryBatches.filter((batch) => batch.itemId === itemId && batch.quantities.shop > 0),
     getPersonById: async (personId) => people.find((person) => person.id === personId) ?? null,
     getMaterialById: async (materialId) =>
       materials.find((material) => material.id === materialId) ?? null,
+    getCollectionPointById: async (collectionPointId) =>
+      collectionPoints.find((collectionPoint) => collectionPoint.id === collectionPointId) ?? null,
     getItemById: async (itemId) => items.find((item) => item.id === itemId) ?? null,
     getItemByName: async (name) => items.find((item) => item.name === name) ?? null,
     listInventoryBatches: async () => inventoryBatches,
@@ -1509,6 +1545,104 @@ describe("core HTTP endpoints", () => {
       .send({ name: "PET", pointsPerKg: 2.3 });
     expect(allowed.status).toBe(201);
     expect(allowed.body.material.name).toBe("PET");
+  });
+
+  test("GET /collection-points is available to both collector and manager roles", async () => {
+    const server = createApiServer(createDependencies());
+    const collectorToken = await loginAndGetToken(server, "user", userPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const asCollector = await supertest(server)
+      .get("/collection-points")
+      .set("authorization", `Bearer ${collectorToken}`);
+    expect(asCollector.status).toBe(200);
+    expect(asCollector.body.collectionPoints).toEqual([
+      { id: "cp-1", name: "Heuwelkroon parkie", isActive: true },
+    ]);
+
+    const asManager = await supertest(server)
+      .get("/collection-points")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(asManager.status).toBe(200);
+  });
+
+  test("GET /collection-points returns 401 without authorization", async () => {
+    const server = createApiServer(createDependencies());
+    const response = await supertest(server).get("/collection-points");
+    expect(response.status).toBe(401);
+  });
+
+  test("POST /collection-points rejects collector and allows manager", async () => {
+    const server = createApiServer(createDependencies());
+    const collectorToken = await loginAndGetToken(server, "user", userPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const denied = await supertest(server)
+      .post("/collection-points")
+      .set("authorization", `Bearer ${collectorToken}`)
+      .send({ name: "Village B" });
+    expect(denied.status).toBe(403);
+
+    const allowed = await supertest(server)
+      .post("/collection-points")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({ name: "Village B" });
+    expect(allowed.status).toBe(201);
+    expect(allowed.body.collectionPoint.name).toBe("Village B");
+    expect(allowed.body.collectionPoint.isActive).toBe(true);
+  });
+
+  test("POST /collection-points rejects a request with a blank name", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const response = await supertest(server)
+      .post("/collection-points")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({ name: "   " });
+    expect(response.status).toBe(400);
+  });
+
+  test("PATCH /collection-points/:id rejects collector and allows manager to deactivate", async () => {
+    const server = createApiServer(createDependencies());
+    const collectorToken = await loginAndGetToken(server, "user", userPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const denied = await supertest(server)
+      .patch("/collection-points/cp-1")
+      .set("authorization", `Bearer ${collectorToken}`)
+      .send({ updates: { isActive: false } });
+    expect(denied.status).toBe(403);
+
+    const allowed = await supertest(server)
+      .patch("/collection-points/cp-1")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({ updates: { isActive: false } });
+    expect(allowed.status).toBe(200);
+    expect(allowed.body.collectionPoint.isActive).toBe(false);
+    expect(allowed.body.collectionPoint.name).toBe("Heuwelkroon parkie");
+  });
+
+  test("PATCH /collection-points/:id returns 404 for an unknown collection point", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const response = await supertest(server)
+      .patch("/collection-points/does-not-exist")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({ updates: { isActive: false } });
+    expect(response.status).toBe(404);
+  });
+
+  test("PATCH /collection-points/:id rejects a request with no update fields", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const response = await supertest(server)
+      .patch("/collection-points/cp-1")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({ updates: {} });
+    expect(response.status).toBe(400);
   });
 
   test("POST /items rejects shop operator and allows manager", async () => {

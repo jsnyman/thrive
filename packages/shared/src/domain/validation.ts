@@ -376,6 +376,57 @@ const validateItemUpdatedPayload = (
   return true;
 };
 
+const expectBoolean = (
+  value: unknown,
+  path: string,
+  issues: ValidationIssue[],
+): value is boolean => {
+  if (typeof value !== "boolean") {
+    addIssue(issues, path, "Expected boolean");
+    return false;
+  }
+  return true;
+};
+
+const validateCollectionPointCreatedPayload = (
+  payload: unknown,
+  issues: ValidationIssue[],
+  path: string,
+): payload is EventPayloadMap["collection_point.created"] => {
+  if (!expectRecord(payload, path, issues)) {
+    return false;
+  }
+  expectString(payload.collectionPointId, `${path}.collectionPointId`, issues);
+  expectString(payload.name, `${path}.name`, issues);
+  return true;
+};
+
+const validateCollectionPointUpdatedPayload = (
+  payload: unknown,
+  issues: ValidationIssue[],
+  path: string,
+): payload is EventPayloadMap["collection_point.updated"] => {
+  if (!expectRecord(payload, path, issues)) {
+    return false;
+  }
+  expectString(payload.collectionPointId, `${path}.collectionPointId`, issues);
+  if (!expectRecord(payload.updates, `${path}.updates`, issues)) {
+    return false;
+  }
+  const updates = payload.updates;
+  const updateKeys = Object.keys(updates);
+  if (updateKeys.length === 0) {
+    addIssue(issues, `${path}.updates`, "Expected at least one field to update");
+  }
+  if ("name" in updates) {
+    expectString(updates.name, `${path}.updates.name`, issues);
+  }
+  if ("isActive" in updates) {
+    expectBoolean(updates.isActive, `${path}.updates.isActive`, issues);
+  }
+  return true;
+};
+
 const validateStaffUserCreatedPayload = (
   payload: unknown,
   issues: ValidationIssue[],
@@ -831,6 +882,12 @@ export const validateEventPayload = <T extends EventType>(
       break;
     case "item.updated":
       validateItemUpdatedPayload(payload, issues, "payload");
+      break;
+    case "collection_point.created":
+      validateCollectionPointCreatedPayload(payload, issues, "payload");
+      break;
+    case "collection_point.updated":
+      validateCollectionPointUpdatedPayload(payload, issues, "payload");
       break;
     case "staff_user.created":
       validateStaffUserCreatedPayload(payload, issues, "payload");
