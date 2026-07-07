@@ -31,15 +31,15 @@ Offline-first software for a mobile recycling swap-shop that moves between villa
 - All financial and points-related changes are immutable events.
 - Adjustments require a logged request and administrator approval.
 
-**Recommended Tech Stack**
+**Tech Stack (as implemented)**
 
-- Frontend: React + TypeScript + Vite
+- Frontend: React + TypeScript + Vite, single-page app shell in `apps/web/src/App.tsx` (no client-side router; navigation is view-state driven)
 - UI: Mantine with strictly responsive layouts
-- Offline storage: SQLite in the browser via OPFS (e.g., wa-sqlite)
-- Sync model: Event-sourced sync using an append-only log and server-side merge
-- Backend API: Node.js + TypeScript HTTP server (NestJS migration still planned, not started in code)
-- Database: PostgreSQL for server-side event log and projections
-- Auth: Username + passcode with role-based access control
+- Offline storage: SQLite in the browser via OPFS, with a local event queue and sync engine under `apps/web/src/offline/`
+- Sync model: Event-sourced sync using an append-only log and server-side merge (`apps/api/src/data/sync-merge-policy.ts`)
+- Backend API: Node.js + TypeScript, a hand-rolled HTTP server with manual route dispatch (`apps/api/src/http/server.ts`) over a single repository module (`apps/api/src/data/core-repository.ts`); **NestJS is listed as a dependency but not used** — there are no Nest modules/controllers/services in the codebase
+- Database: PostgreSQL for the append-only event log, accessed via Prisma (`apps/api/prisma/schema.prisma`); read models are Postgres materialized views (`apps/api/prisma/projections.sql`), not Prisma-managed tables
+- Auth: Username + passcode with role-based access control enforced server-side (`apps/api/src/auth/permissions.ts`)
 - Hosting: Linux VM or managed platform
 
 **Architecture Notes**
@@ -56,12 +56,36 @@ Offline-first software for a mobile recycling swap-shop that moves between villa
 4. Reporting and exports
 5. Sync conflict handling polish and audit reporting
 
+**API Endpoints (summary)**
+
+All endpoints below require `Authorization: Bearer <token>` unless noted; full request/response shapes, error codes, and query params are in `docs/api.md`.
+
+| Area                | Endpoints                                                                                                                                                                                                                                                                                                                     |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Auth                | `POST /auth/login`, `GET /auth/me`                                                                                                                                                                                                                                                                                            |
+| People              | `GET /people`, `POST /people`, `PATCH /people/:personId`, `POST /people/:personId/remove` (admin)                                                                                                                                                                                                                             |
+| Materials           | `GET /materials`, `POST /materials` (admin)                                                                                                                                                                                                                                                                                   |
+| Items               | `GET /items`, `POST /items` (admin)                                                                                                                                                                                                                                                                                           |
+| Inventory           | `GET /inventory/status-summary`, `GET /inventory/batches`, `POST /inventory/status-changes` (admin), `POST /inventory/adjustments/requests`                                                                                                                                                                                   |
+| Ledger              | `GET /ledger/:personId/balance`, `GET /ledger/:personId/entries`                                                                                                                                                                                                                                                              |
+| Intake (collection) | `POST /intakes`                                                                                                                                                                                                                                                                                                               |
+| Sales               | `POST /sales`                                                                                                                                                                                                                                                                                                                 |
+| Procurement         | `GET /procurements` (admin), `POST /procurements` (admin), `POST /procurements/bulk` (admin), `POST /procurements/:procurementEventId/corrections` (admin)                                                                                                                                                                    |
+| Expenses            | `POST /expenses` (admin)                                                                                                                                                                                                                                                                                                      |
+| Reports             | `GET /reports/materials-collected`, `GET /reports/points-liability`, `GET /reports/sales`, `GET /reports/cashflow`, `GET /reports/inventory-status`, `GET /reports/inventory-status-log` (all admin)                                                                                                                          |
+| Adjustments         | `GET /adjustments/requests`, `POST /points/adjustments/apply` (admin), `POST /inventory/adjustments/apply` (admin)                                                                                                                                                                                                            |
+| Users               | `GET /users` (admin), `POST /users` (admin), `PATCH /users/:userId` (admin)                                                                                                                                                                                                                                                   |
+| Sync                | `POST /sync/push`, `GET /sync/pull`, `GET /sync/status`, `GET /sync/conflicts` (admin), `POST /sync/conflicts/:conflictId/resolve` (admin), `GET /sync/audit/report` (admin), `GET /sync/audit/event/:eventId` (admin), `GET /sync/reconciliation/report` (admin), `POST /sync/reconciliation/issues/:issueId/repair` (admin) |
+
+Note: there is currently no Collection Point / Location endpoint group — this is planned work, see `docs/tmp/20260707-ui-changes-project-plan1.md`.
+
 **Documentation**
 
 - Requirements: `docs/requirements.md`
 - User stories: `docs/user_stories.md`
 - Project plan: `docs/project_plan.md`
-- API endpoints: `docs/api.md`
+- API endpoints (full detail): `docs/api.md`
+- Architecture docs index: `docs/architecture/README.md`
 - Stack rationale: `AI_CONTEXT.md`
 - Prisma usage: `docs/prisma.md`
 
