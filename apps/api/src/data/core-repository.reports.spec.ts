@@ -135,7 +135,7 @@ describe("core repository materials report", () => {
       },
     });
     expect(capturedSql).toContain("from mv_points_balances b");
-    expect(capturedSql).toContain("join mv_people p on p.id = b.person_id");
+    expect(capturedSql).toContain("join mv_people p on p.id::text = b.person_id");
     expect(capturedSql).toContain(
       "where b.balance_points > 0 and (lower(p.name) like $1 or lower(p.surname) like $1)",
     );

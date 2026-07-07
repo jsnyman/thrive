@@ -2058,7 +2058,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
-    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
@@ -2190,7 +2190,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
-    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
     });
@@ -2273,7 +2273,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
-    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
     });
@@ -2311,7 +2311,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
-    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
     });
@@ -2356,7 +2356,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
-    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
     });
@@ -2397,7 +2397,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
-    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
     });
@@ -2439,7 +2439,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
-    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
     });
@@ -2566,7 +2566,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
-    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
     await waitFor(() => {
       expect(view.getByText(/Village Supplier/)).toBeInTheDocument();
     });
@@ -2675,7 +2675,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
-    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
     await waitFor(() => {
       expect(view.getByText(/Village Supplier/)).toBeInTheDocument();
     });
@@ -2763,7 +2763,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
-    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
 
     await waitFor(() => {
       expect(view.getByText(/Village Supplier/)).toBeInTheDocument();
@@ -2840,7 +2840,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
-    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
 
     await waitFor(() => {
       expect(
@@ -2872,7 +2872,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
-    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
     });
@@ -2962,7 +2962,7 @@ describe("App person registry", () => {
     });
 
     expect(view.getByRole("button", { name: "Record Sale" })).toBeInTheDocument();
-    expect(view.getByRole("button", { name: "Record Procurement" })).toBeInTheDocument();
+    expect(view.getByRole("button", { name: "Procurement" })).toBeInTheDocument();
     expect(view.getByRole("button", { name: "Record Expense" })).toBeInTheDocument();
   });
 
@@ -2984,7 +2984,7 @@ describe("App person registry", () => {
     });
 
     expect(view.getByRole("button", { name: "Record Sale" })).toBeInTheDocument();
-    expect(view.queryByRole("button", { name: "Record Procurement" })).not.toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "Procurement" })).not.toBeInTheDocument();
     expect(view.queryByRole("button", { name: "Record Expense" })).not.toBeInTheDocument();
   });
 
@@ -3031,7 +3031,7 @@ describe("App person registry", () => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
 
-    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
