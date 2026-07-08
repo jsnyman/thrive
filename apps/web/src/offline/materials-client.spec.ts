@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { createMaterialsClient } from "./materials-client";
 
 const jsonResponse = (body: unknown, status = 200): Response =>
@@ -8,6 +8,14 @@ const jsonResponse = (body: unknown, status = 200): Response =>
       "content-type": "application/json",
     },
   });
+
+const originalOnLine = Object.getOwnPropertyDescriptor(globalThis.navigator, "onLine");
+
+afterEach(() => {
+  if (originalOnLine !== undefined) {
+    Object.defineProperty(globalThis.navigator, "onLine", originalOnLine);
+  }
+});
 
 describe("createMaterialsClient", () => {
   test("lists materials", async () => {

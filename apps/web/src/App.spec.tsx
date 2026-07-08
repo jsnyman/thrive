@@ -3640,6 +3640,174 @@ describe("App person registry", () => {
     expect(view.getByText("No material image available")).toBeInTheDocument();
   });
 
+  test("collection flow renders the material image once it loads successfully", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({
+          people: [
+            {
+              id: "person-1",
+              name: "Jane",
+              surname: "Doe",
+              assignedCollectionPointId: "cp-1",
+            },
+          ],
+        });
+      }
+      if (url.includes("/materials/mat-1/image")) {
+        return new Response("fake-image-bytes", {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        });
+      }
+      if (url.includes("/materials")) {
+        return jsonResponse({
+          materials: [
+            {
+              id: "mat-1",
+              name: "PET",
+              pointsPerKg: 3.2,
+              imageUpdatedAt: "2026-07-08T10:00:00.000Z",
+            },
+          ],
+        });
+      }
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Record Intake" })).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("textbox", { name: "Material" }));
+    await userEvent.click(view.getByRole("option", { name: /PET/ }));
+
+    await waitFor(() => {
+      expect(view.getByAltText("PET material image")).toBeInTheDocument();
+    });
+    expect(view.queryByText("No material image available")).not.toBeInTheDocument();
+  });
+
+  test("collection flow falls back to a placeholder when the material image fails to load", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({
+          people: [
+            {
+              id: "person-1",
+              name: "Jane",
+              surname: "Doe",
+              assignedCollectionPointId: "cp-1",
+            },
+          ],
+        });
+      }
+      if (url.includes("/materials/mat-1/image")) {
+        return jsonResponse({ error: "MATERIAL_IMAGE_NOT_FOUND" }, 404);
+      }
+      if (url.includes("/materials")) {
+        return jsonResponse({
+          materials: [
+            {
+              id: "mat-1",
+              name: "PET",
+              pointsPerKg: 3.2,
+              // Metadata claims an image exists, but the binary is unavailable
+              // (e.g. deleted out from under a stale materials list) - the
+              // fetch below will 404 and the UI must fall back to a placeholder.
+              imageUpdatedAt: "2026-07-08T10:00:00.000Z",
+            },
+          ],
+        });
+      }
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Record Intake" })).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("textbox", { name: "Material" }));
+    await userEvent.click(view.getByRole("option", { name: /PET/ }));
+
+    await waitFor(() => {
+      expect(view.getByText("No material image available")).toBeInTheDocument();
+    });
+    expect(view.queryByAltText("PET material image")).not.toBeInTheDocument();
+  });
+
   test("procurement panel is hidden for non-administrator", async () => {
     stubResizeObserver();
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {

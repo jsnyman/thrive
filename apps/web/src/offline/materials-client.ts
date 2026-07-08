@@ -131,18 +131,9 @@ export const createMaterialsClient = (options?: { fetchFn?: typeof fetch; baseUr
     };
   };
 
-  const getMaterialImageUrl = (material: MaterialRecord): string | null => {
-    if (material.imageUpdatedAt === null || material.imageUpdatedAt === undefined) {
-      return null;
-    }
-    const stamp = encodeURIComponent(material.imageUpdatedAt);
-    return `${baseUrl}/materials/${material.id}/image?updatedAt=${stamp}`;
-  };
-
   return {
     listMaterials,
     uploadMaterialImage,
     readMaterialImage,
-    getMaterialImageUrl,
   };
 };

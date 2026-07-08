@@ -1786,6 +1786,35 @@ describe("core HTTP endpoints", () => {
     expect(Buffer.compare(image.body as Buffer, Buffer.from([1, 2, 3, 4]))).toBe(0);
   });
 
+  test("GET /materials/:materialId/image returns 404 when no image has been uploaded", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const response = await supertest(server)
+      .get("/materials/mat-1/image")
+      .set("authorization", `Bearer ${managerToken}`);
+
+    expect(response.status).toBe(404);
+    expect(response.body.error).toBe("MATERIAL_IMAGE_NOT_FOUND");
+  });
+
+  test("PUT /materials/:materialId/image returns 404 for an unknown material", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const response = await supertest(server)
+      .put("/materials/no-such-material/image")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({
+        contentType: "image/png",
+        fileName: "pet.png",
+        dataBase64: "AQIDBA==",
+      });
+
+    expect(response.status).toBe(404);
+    expect(response.body.error).toBe("MATERIAL_NOT_FOUND");
+  });
+
   test("GET /collection-points is available to both collector and manager roles", async () => {
     const server = createApiServer(createDependencies());
     const collectorToken = await loginAndGetToken(server, "user", userPasscode);
