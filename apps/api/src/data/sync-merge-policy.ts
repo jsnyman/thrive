@@ -190,6 +190,7 @@ const conflictTarget = (
       return { entityType: "person", entityId: event.payload.personId };
     case "material_type.created":
     case "material_type.updated":
+    case "material_type.image_set":
       return { entityType: "inventory_batch", entityId: event.payload.materialTypeId };
     case "item.created":
     case "item.updated":
@@ -328,6 +329,7 @@ const applyStateMutation = (state: MergeState, event: Event, marker: MutationMar
       setEntityMutation(state, "material_type", event.payload.materialTypeId, marker);
       return;
     case "material_type.updated":
+    case "material_type.image_set":
       setEntityMutation(state, "material_type", event.payload.materialTypeId, marker);
       return;
     case "item.created":
@@ -464,6 +466,7 @@ export const createMergeState = (replayEvents: MergeReplayEvent[]): MergeState =
 const isUpdatableEventType = (eventType: EventType): boolean =>
   eventType === "person.profile_updated" ||
   eventType === "material_type.updated" ||
+  eventType === "material_type.image_set" ||
   eventType === "item.updated" ||
   eventType === "staff_user.role_changed";
 
@@ -508,7 +511,8 @@ export const evaluateMergeDecision = (
       }
       return { status: "accepted" };
     }
-    case "material_type.updated": {
+    case "material_type.updated":
+    case "material_type.image_set": {
       if (!state.materialTypeIds.has(event.payload.materialTypeId)) {
         return entityNotFound(event);
       }

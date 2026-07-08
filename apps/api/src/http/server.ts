@@ -77,12 +77,28 @@ type MaterialRecord = {
   id: string;
   name: string;
   pointsPerKg: number;
+  imageUpdatedAt?: string | null;
 };
 
 type MaterialCreateInput = {
   name: string;
   pointsPerKg: number;
   locationText?: string | null;
+};
+
+type MaterialImageRecord = {
+  materialTypeId: string;
+  contentType: string;
+  fileName: string | null;
+  fileSizeBytes: number;
+  content: Uint8Array;
+  updatedAt: string;
+};
+
+type MaterialImageUploadInput = {
+  contentType: string;
+  fileName?: string | null;
+  dataBase64: string;
 };
 
 type ItemRecord = {
@@ -487,6 +503,11 @@ type ApiServerDependencies = {
   getStaffUserByUsername: (username: string) => Promise<StaffUserRecord | null>;
   listPeople: (search?: string) => Promise<PersonRecord[]>;
   listMaterials: () => Promise<MaterialRecord[]>;
+  getMaterialImage: (materialId: string) => Promise<MaterialImageRecord | null>;
+  upsertMaterialImage: (
+    materialId: string,
+    input: { contentType: string; fileName: string | null; content: Uint8Array },
+  ) => Promise<MaterialImageRecord>;
   listCollectionPoints: () => Promise<CollectionPointRecord[]>;
   listItems: () => Promise<ItemRecord[]>;
   listInventoryBatches: () => Promise<InventoryBatchStateRecord[]>;
@@ -585,12 +606,24 @@ type JsonBodyResult =
   | { ok: true; value: unknown }
   | { ok: false; error: "INVALID_JSON" | "BODY_TOO_LARGE" };
 
-const MAX_BODY_BYTES = 64 * 1024;
+const MAX_BODY_BYTES = 2 * 1024 * 1024;
 
 const sendJson = (res: ServerResponse, statusCode: number, payload: unknown): void => {
   res.statusCode = statusCode;
   res.setHeader("content-type", "application/json; charset=utf-8");
   res.end(JSON.stringify(payload));
+};
+
+const sendBinary = (
+  res: ServerResponse,
+  statusCode: number,
+  payload: Uint8Array,
+  contentType: string,
+): void => {
+  res.statusCode = statusCode;
+  res.setHeader("content-type", contentType);
+  res.setHeader("content-length", Buffer.byteLength(payload));
+  res.end(Buffer.from(payload));
 };
 
 const getHeader = (req: IncomingMessage, name: string): string | undefined => {
@@ -627,6 +660,18 @@ const readJsonBody = async (req: IncomingMessage): Promise<JsonBodyResult> => {
     return { ok: true, value: parsed };
   } catch {
     return { ok: false, error: "INVALID_JSON" };
+  }
+};
+
+const decodeBase64Bytes = (value: string): Uint8Array | null => {
+  try {
+    const buffer = Buffer.from(value, "base64");
+    if (buffer.byteLength === 0) {
+      return null;
+    }
+    return new Uint8Array(buffer);
+  } catch {
+    return null;
   }
 };
 
@@ -936,6 +981,30 @@ const parseMaterialCreateRequest = (body: unknown): MaterialCreateInput | null =
     name,
     pointsPerKg: normalizedPointsPerKg,
     locationText: locationText ?? null,
+  };
+};
+
+const parseMaterialImageUploadRequest = (body: unknown): MaterialImageUploadInput | null => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+  const record = body as Record<string, unknown>;
+  const contentType = record["contentType"];
+  const dataBase64 = record["dataBase64"];
+  const fileName = parseNullableString(record["fileName"]);
+  if (typeof contentType !== "string" || contentType.trim().length === 0) {
+    return null;
+  }
+  if (typeof dataBase64 !== "string" || dataBase64.trim().length === 0) {
+    return null;
+  }
+  if (fileName === undefined && record["fileName"] !== undefined) {
+    return null;
+  }
+  return {
+    contentType,
+    fileName: fileName ?? null,
+    dataBase64,
   };
 };
 
@@ -2363,6 +2432,85 @@ const handleMaterialsCreate = async (
     return;
   }
   sendJson(res, 201, { material });
+};
+
+const handleMaterialImageUpsert = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+  materialTypeId: string,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "item.manage");
+  if (actor === null) {
+    return;
+  }
+  const material = await dependencies.getMaterialById(materialTypeId);
+  if (material === null) {
+    sendJson(res, 404, { error: "MATERIAL_NOT_FOUND" });
+    return;
+  }
+  const bodyResult = await readJsonBody(req);
+  if (!bodyResult.ok) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const request = parseMaterialImageUploadRequest(bodyResult.value);
+  if (request === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const content = decodeBase64Bytes(request.dataBase64);
+  if (content === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+
+  const stored = await dependencies.upsertMaterialImage(materialTypeId, {
+    contentType: request.contentType,
+    fileName: request.fileName ?? null,
+    content,
+  });
+  const event: Event = {
+    ...toBaseEventFields(dependencies, actor, req, null),
+    eventType: "material_type.image_set",
+    payload: {
+      materialTypeId,
+      contentType: stored.contentType,
+      fileName: stored.fileName,
+      fileSizeBytes: stored.fileSizeBytes,
+    },
+  };
+  const appendResult = await dependencies.appendEventAndProject(event);
+  if (appendResult.status !== "accepted") {
+    sendJson(res, 400, { error: "BAD_REQUEST", reason: appendResult.reason ?? null });
+    return;
+  }
+
+  sendJson(res, 201, {
+    materialTypeId: stored.materialTypeId,
+    contentType: stored.contentType,
+    fileName: stored.fileName,
+    fileSizeBytes: stored.fileSizeBytes,
+    updatedAt: stored.updatedAt,
+  });
+};
+
+const handleMaterialImageGet = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+  materialTypeId: string,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "person.update");
+  if (actor === null) {
+    return;
+  }
+  const image = await dependencies.getMaterialImage(materialTypeId);
+  if (image === null) {
+    sendJson(res, 404, { error: "MATERIAL_IMAGE_NOT_FOUND" });
+    return;
+  }
+  sendBinary(res, 200, image.content, image.contentType);
 };
 
 const handleCollectionPointsList = async (
@@ -3973,6 +4121,21 @@ const routeRequest = async (
   if (method === "POST" && pathname === "/materials") {
     await handleMaterialsCreate(req, res, dependencies);
     return;
+  }
+
+  const materialImageMatch = pathname.match(/^\/materials\/([^/]+)\/image$/);
+  if (materialImageMatch !== null) {
+    const materialTypeId = materialImageMatch[1];
+    if (materialTypeId !== undefined) {
+      if (method === "PUT") {
+        await handleMaterialImageUpsert(req, res, dependencies, materialTypeId);
+        return;
+      }
+      if (method === "GET") {
+        await handleMaterialImageGet(req, res, dependencies, materialTypeId);
+        return;
+      }
+    }
   }
 
   if (method === "GET" && pathname === "/collection-points") {

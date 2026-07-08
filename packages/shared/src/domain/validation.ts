@@ -185,6 +185,7 @@ const EVENT_TYPES: EventType[] = [
   "person.removed",
   "material_type.created",
   "material_type.updated",
+  "material_type.image_set",
   "item.created",
   "item.updated",
   "staff_user.created",
@@ -334,6 +335,21 @@ const validateMaterialTypeUpdatedPayload = (
   if ("pointsPerKg" in updates) {
     expectTenthsPointNumber(updates.pointsPerKg, `${path}.updates.pointsPerKg`, issues, { min: 0 });
   }
+  return true;
+};
+
+const validateMaterialTypeImageSetPayload = (
+  payload: unknown,
+  issues: ValidationIssue[],
+  path: string,
+): payload is EventPayloadMap["material_type.image_set"] => {
+  if (!expectRecord(payload, path, issues)) {
+    return false;
+  }
+  expectString(payload.materialTypeId, `${path}.materialTypeId`, issues);
+  expectString(payload.contentType, `${path}.contentType`, issues);
+  expectNullableString(payload.fileName, `${path}.fileName`, issues);
+  expectNumber(payload.fileSizeBytes, `${path}.fileSizeBytes`, issues, { integer: true, min: 1 });
   return true;
 };
 
@@ -905,6 +921,9 @@ export const validateEventPayload = <T extends EventType>(
       break;
     case "material_type.updated":
       validateMaterialTypeUpdatedPayload(payload, issues, "payload");
+      break;
+    case "material_type.image_set":
+      validateMaterialTypeImageSetPayload(payload, issues, "payload");
       break;
     case "item.created":
       validateItemCreatedPayload(payload, issues, "payload");

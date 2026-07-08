@@ -10,7 +10,7 @@ const DEFAULT_API_BASE_URL = "/api";
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 type RequestOptions = {
-  method: "GET" | "POST" | "PATCH";
+  method: "GET" | "POST" | "PATCH" | "PUT";
   path: string;
   body?: unknown;
   withAuth?: boolean;

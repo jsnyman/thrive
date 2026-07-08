@@ -67,6 +67,17 @@ model MaterialType {
   @@map("material_type")
 }
 
+model MaterialImage {
+  materialTypeId String   @id @db.Uuid @map("material_type_id")
+  contentType    String   @map("content_type")
+  fileName       String?  @map("file_name")
+  byteSize       Int      @map("byte_size")
+  content        Bytes
+  updatedAt      DateTime @default(now()) @db.Timestamptz(6) @map("updated_at")
+
+  @@map("material_image")
+}
+
 model Item {
   id          String   @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
   name        String
@@ -99,6 +110,7 @@ enum EventType {
   person_removed                 @map("person.removed")
   material_type_created          @map("material_type.created")
   material_type_updated          @map("material_type.updated")
+  material_type_image_set        @map("material_type.image_set")
   item_created                   @map("item.created")
   item_updated                   @map("item.updated")
   collection_point_created       @map("collection_point.created")

@@ -71,6 +71,7 @@ export const EVENT_TYPES: EventType[] = [
   "person.removed",
   "material_type.created",
   "material_type.updated",
+  "material_type.image_set",
   "item.created",
   "item.updated",
   "collection_point.created",
@@ -163,6 +164,16 @@ const materialTypeUpdatedSchema = objectSchema(
     ),
   },
   ["materialTypeId", "updates"],
+);
+
+const materialTypeImageSetSchema = objectSchema(
+  {
+    materialTypeId: stringSchema(),
+    contentType: stringSchema(),
+    fileName: nullable(stringSchema()),
+    fileSizeBytes: integerSchema({ minimum: 1 }),
+  },
+  ["materialTypeId", "contentType", "fileSizeBytes"],
 );
 
 const itemCreatedSchema = objectSchema(
@@ -431,6 +442,7 @@ export const eventPayloadSchemas: Record<EventType, JsonSchema> = {
   "person.removed": personRemovedSchema,
   "material_type.created": materialTypeCreatedSchema,
   "material_type.updated": materialTypeUpdatedSchema,
+  "material_type.image_set": materialTypeImageSetSchema,
   "item.created": itemCreatedSchema,
   "item.updated": itemUpdatedSchema,
   "collection_point.created": collectionPointCreatedSchema,

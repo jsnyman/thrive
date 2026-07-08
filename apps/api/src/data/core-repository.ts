@@ -45,6 +45,16 @@ type MaterialRecord = {
   id: string;
   name: string;
   pointsPerKg: number;
+  imageUpdatedAt?: string | null;
+};
+
+type MaterialImageRecord = {
+  materialTypeId: string;
+  contentType: string;
+  fileName: string | null;
+  fileSizeBytes: number;
+  content: Uint8Array;
+  updatedAt: string;
 };
 
 type ItemRecord = {
@@ -591,10 +601,15 @@ const toMaterialRecord = (material: {
   id: string;
   name: string;
   pointsPerKg: unknown;
+  imageUpdatedAt?: Date | string | null;
 }): MaterialRecord => ({
   id: material.id,
   name: material.name,
   pointsPerKg: toPointNumber(material.pointsPerKg),
+  imageUpdatedAt:
+    material.imageUpdatedAt === undefined || material.imageUpdatedAt === null
+      ? null
+      : new Date(material.imageUpdatedAt).toISOString(),
 });
 
 const toCollectionPointRecord = (collectionPoint: {
@@ -743,12 +758,28 @@ export const createCoreRepository = (prisma: PrismaClient) => {
   };
 
   const listMaterials = async (): Promise<MaterialRecord[]> => {
-    const rows = await prisma.materialType.findMany({
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
-    return rows.map(toMaterialRecord);
+    const [rows, images] = await Promise.all([
+      prisma.materialType.findMany({
+        orderBy: {
+          createdAt: "desc",
+        },
+      }),
+      prisma.materialImage.findMany({
+        select: {
+          materialTypeId: true,
+          updatedAt: true,
+        },
+      }),
+    ]);
+    const imageUpdatedAtById = new Map(
+      images.map((image) => [image.materialTypeId, image.updatedAt] as const),
+    );
+    return rows.map((row) =>
+      toMaterialRecord({
+        ...row,
+        imageUpdatedAt: imageUpdatedAtById.get(row.id) ?? null,
+      }),
+    );
   };
 
   const listCollectionPoints = async (): Promise<CollectionPointRecord[]> => {
@@ -1058,7 +1089,70 @@ export const createCoreRepository = (prisma: PrismaClient) => {
     if (row === null) {
       return null;
     }
-    return toMaterialRecord(row);
+    const image = await prisma.materialImage.findUnique({
+      where: {
+        materialTypeId,
+      },
+      select: {
+        updatedAt: true,
+      },
+    });
+    return toMaterialRecord({
+      ...row,
+      imageUpdatedAt: image?.updatedAt ?? null,
+    });
+  };
+
+  const getMaterialImage = async (materialTypeId: string): Promise<MaterialImageRecord | null> => {
+    const row = await prisma.materialImage.findUnique({
+      where: {
+        materialTypeId,
+      },
+    });
+    if (row === null) {
+      return null;
+    }
+    return {
+      materialTypeId: row.materialTypeId,
+      contentType: row.contentType,
+      fileName: row.fileName,
+      fileSizeBytes: row.byteSize,
+      content: row.content,
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  };
+
+  const upsertMaterialImage = async (
+    materialTypeId: string,
+    input: { contentType: string; fileName: string | null; content: Uint8Array },
+  ): Promise<MaterialImageRecord> => {
+    const row = await prisma.materialImage.upsert({
+      where: {
+        materialTypeId,
+      },
+      update: {
+        contentType: input.contentType,
+        fileName: input.fileName,
+        byteSize: input.content.byteLength,
+        content: Buffer.from(input.content),
+        updatedAt: new Date(),
+      },
+      create: {
+        materialTypeId,
+        contentType: input.contentType,
+        fileName: input.fileName,
+        byteSize: input.content.byteLength,
+        content: Buffer.from(input.content),
+      },
+    });
+    return {
+      materialTypeId: row.materialTypeId,
+      contentType: row.contentType,
+      fileName: row.fileName,
+      fileSizeBytes: row.byteSize,
+      content: row.content,
+      updatedAt: row.updatedAt.toISOString(),
+    };
   };
 
   const getCollectionPointById = async (
@@ -3001,6 +3095,8 @@ export const createCoreRepository = (prisma: PrismaClient) => {
     listInventoryStatusSummary,
     getPersonById,
     getMaterialById,
+    getMaterialImage,
+    upsertMaterialImage,
     getCollectionPointById,
     getItemById,
     getItemByName,

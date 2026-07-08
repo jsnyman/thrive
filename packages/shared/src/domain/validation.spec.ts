@@ -263,6 +263,32 @@ describe("validateEventPayload", () => {
     expect(result.issues.some((issue) => issue.path.includes("pointsPrice"))).toBe(true);
   });
 
+  test("accepts valid material image metadata payload", () => {
+    const result = validateEventPayload("material_type.image_set", {
+      materialTypeId: "mat-1",
+      contentType: "image/png",
+      fileName: "pet.png",
+      fileSizeBytes: 128,
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  test("rejects material image metadata payload when file size is not a positive integer", () => {
+    const result = validateEventPayload("material_type.image_set", {
+      materialTypeId: "mat-1",
+      contentType: "image/png",
+      fileName: "pet.png",
+      fileSizeBytes: 0,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("Expected payload validation to fail");
+    }
+    expect(result.issues.some((issue) => issue.path === "payload.fileSizeBytes")).toBe(true);
+  });
+
   test("accepts valid sale payload with tenths totals", () => {
     const result = validateEventPayload("sale.recorded", {
       personId: "person-1",

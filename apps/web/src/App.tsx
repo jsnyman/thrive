@@ -618,6 +618,10 @@ export const App = ({
   const [materials, setMaterials] = useState<MaterialRecord[]>([]);
   const [materialsLoading, setMaterialsLoading] = useState<boolean>(false);
   const [materialsError, setMaterialsError] = useState<string | null>(null);
+  const [brokenMaterialImageIds, setBrokenMaterialImageIds] = useState<string[]>([]);
+  const [selectedIntakeMaterialImageSrc, setSelectedIntakeMaterialImageSrc] = useState<
+    string | null
+  >(null);
   const [collectionPoints, setCollectionPoints] = useState<CollectionPointRecord[]>([]);
   const [sessionCollectionPointId, setSessionCollectionPointId] = useState<string | null>(null);
   const [collectionPointPromptSection, setCollectionPointPromptSection] = useState<
@@ -937,6 +941,10 @@ export const App = ({
     () => allPeople.find((person) => person.id === intakePersonId) ?? null,
     [allPeople, intakePersonId],
   );
+  const selectedIntakeMaterial = useMemo(
+    () => materials.find((material) => material.id === intakeDraftMaterialId) ?? null,
+    [materials, intakeDraftMaterialId],
+  );
   const intakeLocalSuggestions = useMemo(
     () =>
       filterLocalPersonSuggestions(
@@ -1006,6 +1014,55 @@ export const App = ({
       }, 0),
     [intakeLinePreviews],
   );
+
+  useEffect(() => {
+    if (selectedIntakeMaterial === null) {
+      setSelectedIntakeMaterialImageSrc(null);
+      return;
+    }
+    if (
+      selectedIntakeMaterial.imageUpdatedAt === null ||
+      selectedIntakeMaterial.imageUpdatedAt === undefined ||
+      brokenMaterialImageIds.includes(selectedIntakeMaterial.id)
+    ) {
+      setSelectedIntakeMaterialImageSrc(null);
+      return;
+    }
+
+    let cancelled = false;
+    let objectUrl: string | null = null;
+
+    const loadMaterialImage = async (): Promise<void> => {
+      try {
+        const image = await materialsClient.readMaterialImage(selectedIntakeMaterial.id);
+        const nextObjectUrl = URL.createObjectURL(image.blob);
+        if (cancelled) {
+          URL.revokeObjectURL(nextObjectUrl);
+          return;
+        }
+        objectUrl = nextObjectUrl;
+        setSelectedIntakeMaterialImageSrc(nextObjectUrl);
+      } catch {
+        if (!cancelled) {
+          setSelectedIntakeMaterialImageSrc(null);
+          setBrokenMaterialImageIds((previous) =>
+            previous.includes(selectedIntakeMaterial.id)
+              ? previous
+              : [...previous, selectedIntakeMaterial.id],
+          );
+        }
+      }
+    };
+
+    void loadMaterialImage();
+
+    return () => {
+      cancelled = true;
+      if (objectUrl !== null) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [brokenMaterialImageIds, materialsClient, selectedIntakeMaterial]);
 
   useEffect(() => {
     if (!intakeSuccess) return;
@@ -1092,6 +1149,7 @@ export const App = ({
     try {
       const next = await materialsClient.listMaterials();
       setMaterials(next);
+      setBrokenMaterialImageIds([]);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setMaterialsError(message);
@@ -1651,6 +1709,8 @@ export const App = ({
     setPeople([]);
     setAllPeople([]);
     setMaterials([]);
+    setSelectedIntakeMaterialImageSrc(null);
+    setBrokenMaterialImageIds([]);
     setCollectionPoints([]);
     setSessionCollectionPointId(null);
     setCollectionPointPromptSection(null);
@@ -5235,6 +5295,39 @@ export const App = ({
                       clearable
                       disabled={materialsLoading}
                     />
+                    {selectedIntakeMaterial !== null ? (
+                      <Card withBorder radius="md" padding="sm">
+                        <Stack gap="xs">
+                          <Text size="sm" fw={500}>
+                            {selectedIntakeMaterial.name}
+                          </Text>
+                          {selectedIntakeMaterialImageSrc !== null ? (
+                            <img
+                              alt={`${selectedIntakeMaterial.name} material image`}
+                              src={selectedIntakeMaterialImageSrc}
+                              style={{
+                                width: "100%",
+                                maxWidth: "220px",
+                                height: "160px",
+                                objectFit: "cover",
+                                borderRadius: "8px",
+                              }}
+                              onError={() => {
+                                setBrokenMaterialImageIds((previous) =>
+                                  previous.includes(selectedIntakeMaterial.id)
+                                    ? previous
+                                    : [...previous, selectedIntakeMaterial.id],
+                                );
+                              }}
+                            />
+                          ) : (
+                            <Text size="sm" c="dimmed">
+                              No material image available
+                            </Text>
+                          )}
+                        </Stack>
+                      </Card>
+                    ) : null}
                     <TextInput
                       label="Weight (kg)"
                       placeholder="e.g. 2.9"

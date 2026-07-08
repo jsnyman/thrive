@@ -27,6 +27,7 @@ type MaterialRecord = {
   id: string;
   name: string;
   pointsPerKg: number;
+  imageUpdatedAt?: string | null;
 };
 
 type CollectionPointRecord = {
@@ -267,6 +268,17 @@ const createDependencies = (options?: {
       },
     },
   ];
+  const materialImages = new Map<
+    string,
+    {
+      materialTypeId: string;
+      contentType: string;
+      fileName: string | null;
+      fileSizeBytes: number;
+      content: Uint8Array;
+      updatedAt: string;
+    }
+  >();
   const events: Event[] = [];
   const staffUsers: Array<{ id: string; username: string; role: StaffRole; passcodeHash: string }> =
     users.map((user) => ({
@@ -599,7 +611,14 @@ const createDependencies = (options?: {
         id: event.payload.materialTypeId,
         name: event.payload.name,
         pointsPerKg: event.payload.pointsPerKg,
+        imageUpdatedAt: null,
       });
+    }
+    if (event.eventType === "material_type.image_set") {
+      const material = materials.find((entry) => entry.id === event.payload.materialTypeId);
+      if (material !== undefined) {
+        material.imageUpdatedAt = event.occurredAt;
+      }
     }
     if (event.eventType === "item.created") {
       items.push({
@@ -863,6 +882,20 @@ const createDependencies = (options?: {
         );
       }),
     listMaterials: async () => materials,
+    getMaterialImage: async (materialId) => materialImages.get(materialId) ?? null,
+    upsertMaterialImage: async (materialId, input) => {
+      const updatedAt = new Date().toISOString();
+      const stored = {
+        materialTypeId: materialId,
+        contentType: input.contentType,
+        fileName: input.fileName,
+        fileSizeBytes: input.content.byteLength,
+        content: input.content,
+        updatedAt,
+      };
+      materialImages.set(materialId, stored);
+      return stored;
+    },
     listCollectionPoints: async () => collectionPoints,
     listItems: async () => items,
     listShopBatchesForItem: async (itemId) =>
@@ -1694,6 +1727,63 @@ describe("core HTTP endpoints", () => {
       .send({ name: "PET", pointsPerKg: 2.3 });
     expect(allowed.status).toBe(201);
     expect(allowed.body.material.name).toBe("PET");
+  });
+
+  test("PUT /materials/:materialId/image rejects collector and stores an image for administrator", async () => {
+    const server = createApiServer(createDependencies());
+    const collectorToken = await loginAndGetToken(server, "user", userPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const denied = await supertest(server)
+      .put("/materials/mat-1/image")
+      .set("authorization", `Bearer ${collectorToken}`)
+      .send({
+        contentType: "image/png",
+        fileName: "pet.png",
+        dataBase64: "AQIDBA==",
+      });
+    expect(denied.status).toBe(403);
+
+    const allowed = await supertest(server)
+      .put("/materials/mat-1/image")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({
+        contentType: "image/png",
+        fileName: "pet.png",
+        dataBase64: "AQIDBA==",
+      });
+    expect(allowed.status).toBe(201);
+    expect(allowed.body.materialTypeId).toBe("mat-1");
+    expect(allowed.body.contentType).toBe("image/png");
+    expect(allowed.body.fileSizeBytes).toBe(4);
+  });
+
+  test("GET /materials/:materialId/image returns the uploaded binary and material list exposes imageUpdatedAt", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const uploaded = await supertest(server)
+      .put("/materials/mat-1/image")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({
+        contentType: "image/png",
+        fileName: "pet.png",
+        dataBase64: "AQIDBA==",
+      });
+    expect(uploaded.status).toBe(201);
+
+    const materials = await supertest(server)
+      .get("/materials")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(materials.status).toBe(200);
+    expect(materials.body.materials[0]?.imageUpdatedAt).toBeDefined();
+
+    const image = await supertest(server)
+      .get("/materials/mat-1/image")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(image.status).toBe(200);
+    expect(image.headers["content-type"]).toContain("image/png");
+    expect(Buffer.compare(image.body as Buffer, Buffer.from([1, 2, 3, 4]))).toBe(0);
   });
 
   test("GET /collection-points is available to both collector and manager roles", async () => {

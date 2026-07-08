@@ -41,6 +41,10 @@ export const startApiServer = async (): Promise<ReturnType<typeof createApiServe
     getStaffUserByUsername: async (username) => getStaffUserByUsername(getPrismaClient(), username),
     listPeople: async (search) => createCoreRepository(getPrismaClient()).listPeople(search),
     listMaterials: async () => createCoreRepository(getPrismaClient()).listMaterials(),
+    getMaterialImage: async (materialId) =>
+      createCoreRepository(getPrismaClient()).getMaterialImage(materialId),
+    upsertMaterialImage: async (materialId, input) =>
+      createCoreRepository(getPrismaClient()).upsertMaterialImage(materialId, input),
     listCollectionPoints: async () =>
       createCoreRepository(getPrismaClient()).listCollectionPoints(),
     listItems: async () => createCoreRepository(getPrismaClient()).listItems(),

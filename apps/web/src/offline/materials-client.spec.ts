@@ -18,6 +18,7 @@ describe("createMaterialsClient", () => {
             id: "mat-1",
             name: "PET",
             pointsPerKg: 3,
+            imageUpdatedAt: "2026-07-08T10:00:00.000Z",
           },
         ],
       }),
@@ -28,6 +29,7 @@ describe("createMaterialsClient", () => {
 
     expect(materials).toHaveLength(1);
     expect(materials[0]?.name).toBe("PET");
+    expect(materials[0]?.imageUpdatedAt).toBe("2026-07-08T10:00:00.000Z");
     expect(fetchFn.mock.calls[0]?.[0]).toBe("/api/materials");
   });
 
@@ -51,5 +53,71 @@ describe("createMaterialsClient", () => {
     await expect(client.listMaterials()).rejects.toThrow("Materials fetch failed with status 500");
     await expect(client.listMaterials()).rejects.toThrow("Invalid material pointsPerKg");
     expect(fetchFn.mock.calls[0]?.[0]).toBe("/api/materials");
+  });
+
+  test("uploads a material image when online", async () => {
+    Object.defineProperty(globalThis.navigator, "onLine", {
+      configurable: true,
+      value: true,
+    });
+    const fetchFn = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      jsonResponse(
+        {
+          materialTypeId: "mat-1",
+          contentType: "image/png",
+          fileName: "pet.png",
+          fileSizeBytes: 4,
+          updatedAt: "2026-07-08T10:00:00.000Z",
+        },
+        201,
+      ),
+    );
+    const client = createMaterialsClient({ fetchFn, baseUrl: "/api" });
+
+    const uploaded = await client.uploadMaterialImage("mat-1", {
+      contentType: "image/png",
+      fileName: "pet.png",
+      dataBase64: "AQIDBA==",
+    });
+
+    expect(uploaded.updatedAt).toBe("2026-07-08T10:00:00.000Z");
+    expect(fetchFn.mock.calls[0]?.[0]).toBe("/api/materials/mat-1/image");
+    expect(fetchFn.mock.calls[0]?.[1]).toMatchObject({ method: "PUT" });
+  });
+
+  test("blocks material image upload while offline", async () => {
+    Object.defineProperty(globalThis.navigator, "onLine", {
+      configurable: true,
+      value: false,
+    });
+    const fetchFn = vi.fn<typeof fetch>();
+    const client = createMaterialsClient({ fetchFn });
+
+    await expect(
+      client.uploadMaterialImage("mat-1", {
+        contentType: "image/png",
+        fileName: "pet.png",
+        dataBase64: "AQIDBA==",
+      }),
+    ).rejects.toThrow("Material image upload requires an online connection");
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  test("reads a material image blob", async () => {
+    const fetchFn = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      new Response("test-image", {
+        status: 200,
+        headers: {
+          "content-type": "image/png",
+        },
+      }),
+    );
+    const client = createMaterialsClient({ fetchFn, baseUrl: "/api" });
+
+    const image = await client.readMaterialImage("mat-1");
+
+    expect(image.contentType).toBe("image/png");
+    await expect(image.blob.text()).resolves.toBe("test-image");
+    expect(fetchFn.mock.calls[0]?.[0]).toBe("/api/materials/mat-1/image");
   });
 });

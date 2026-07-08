@@ -22,6 +22,7 @@ export type EventType =
   | "person.removed"
   | "material_type.created"
   | "material_type.updated"
+  | "material_type.image_set"
   | "item.created"
   | "item.updated"
   | "collection_point.created"
@@ -88,6 +89,13 @@ export type MaterialTypeUpdates = {
 export type MaterialTypeUpdatedPayload = {
   materialTypeId: MaterialTypeId;
   updates: MaterialTypeUpdates;
+};
+
+export type MaterialTypeImageSetPayload = {
+  materialTypeId: MaterialTypeId;
+  contentType: string;
+  fileName?: string | null;
+  fileSizeBytes: number;
 };
 
 export type ItemCreatedPayload = {
@@ -279,6 +287,7 @@ export type EventPayloadMap = {
   "person.removed": PersonRemovedPayload;
   "material_type.created": MaterialTypeCreatedPayload;
   "material_type.updated": MaterialTypeUpdatedPayload;
+  "material_type.image_set": MaterialTypeImageSetPayload;
   "item.created": ItemCreatedPayload;
   "item.updated": ItemUpdatedPayload;
   "collection_point.created": CollectionPointCreatedPayload;
