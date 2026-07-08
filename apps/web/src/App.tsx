@@ -42,7 +42,12 @@ import { createLedgerClient, type LedgerBalance, type LedgerEntry } from "./offl
 import { createMaterialsClient, type MaterialRecord } from "./offline/materials-client";
 import { createPeopleClient, type PersonRecord } from "./offline/people-client";
 import { personAssignedLocationMismatches } from "./offline/person-location";
-import { MIN_PERSON_SEARCH_QUERY_LENGTH } from "./offline/person-search";
+import {
+  MIN_PERSON_SEARCH_QUERY_LENGTH,
+  filterGlobalPersonSuggestions,
+  filterLocalPersonSuggestions,
+  shouldOfferBroaderPersonSearch,
+} from "./offline/person-search";
 import { createProcurementClient, type ProcurementRecord } from "./offline/procurement-client";
 import { downloadCsv, type CsvRow } from "./offline/report-export";
 import {
@@ -379,6 +384,7 @@ const buildIntakeRecordedEvent = (
   payload: {
     personId: string;
     lines: IntakeEventLineInput[];
+    collectionPointId: string | null;
   },
 ): Event => {
   const lines = payload.lines.map((line) => ({
@@ -403,15 +409,10 @@ const buildIntakeRecordedEvent = (
       lines,
       totalPoints,
       locationText: null,
+      collectionPointId: payload.collectionPointId,
     },
   };
 };
-
-const createIntakeDraftLine = (defaultMaterialId: string | null = null): IntakeDraftLine => ({
-  lineId: `${crypto.randomUUID()}-${Math.random().toString(36).slice(2)}`,
-  materialTypeId: defaultMaterialId,
-  weightKg: "",
-});
 
 const createSaleDraftLine = (defaultItemId: string | null = null): SaleDraftLine => ({
   lineId: `${crypto.randomUUID()}-${Math.random().toString(36).slice(2)}`,
@@ -660,9 +661,11 @@ export const App = ({
   const [locationMismatchPending, setLocationMismatchPending] = useState<boolean>(false);
   const [locationMismatchError, setLocationMismatchError] = useState<string | null>(null);
   const [intakePersonId, setIntakePersonId] = useState<string | null>(null);
-  const [intakeLines, setIntakeLines] = useState<IntakeDraftLine[]>(() => [
-    createIntakeDraftLine(),
-  ]);
+  const [intakePersonSearchQuery, setIntakePersonSearchQuery] = useState<string>("");
+  const [intakeBroaderResults, setIntakeBroaderResults] = useState<PersonRecord[] | null>(null);
+  const [intakeLines, setIntakeLines] = useState<IntakeDraftLine[]>([]);
+  const [intakeDraftMaterialId, setIntakeDraftMaterialId] = useState<string | null>(null);
+  const [intakeDraftWeightKg, setIntakeDraftWeightKg] = useState<string>("");
   const [intakePending, setIntakePending] = useState<boolean>(false);
   const [intakeError, setIntakeError] = useState<string | null>(null);
   const [intakeSuccess, setIntakeSuccess] = useState<boolean>(false);
@@ -882,7 +885,7 @@ export const App = ({
     }
     return people.find((person) => person.id === selectedPersonId) ?? null;
   }, [people, selectedPersonId]);
-  const intakeDraftHasContent = intakeLines.some((line) => line.weightKg.trim().length > 0);
+  const intakeDraftHasContent = intakeLines.length > 0 || intakeDraftWeightKg.trim().length > 0;
   const saleDraftHasContent = saleLines.some((line) => line.quantity.trim().length > 0);
   const personHasTransactionInProgress = (personId: string): boolean =>
     (intakePersonId === personId && intakeDraftHasContent) ||
@@ -921,6 +924,19 @@ export const App = ({
   const selectedIntakePerson = useMemo(
     () => allPeople.find((person) => person.id === intakePersonId) ?? null,
     [allPeople, intakePersonId],
+  );
+  const intakeLocalSuggestions = useMemo(
+    () =>
+      filterLocalPersonSuggestions(
+        allPeople,
+        intakePersonSearchQuery,
+        sessionCollectionPointId ?? "",
+      ),
+    [allPeople, intakePersonSearchQuery, sessionCollectionPointId],
+  );
+  const intakeCanOfferBroaderSearch = shouldOfferBroaderPersonSearch(
+    intakeLocalSuggestions.length,
+    intakePersonSearchQuery,
   );
   const selectedSalePerson = useMemo(
     () => allPeople.find((person) => person.id === salePersonId) ?? null,
@@ -1536,9 +1552,6 @@ export const App = ({
     if (firstPerson === undefined) {
       return;
     }
-    if (intakePersonId === null) {
-      setIntakePersonId(firstPerson.id);
-    }
     if (ledgerPersonId === null) {
       setLedgerPersonId(firstPerson.id);
     }
@@ -1548,14 +1561,7 @@ export const App = ({
     if (pointsAdjustmentPersonId === null) {
       setPointsAdjustmentPersonId(firstPerson.id);
     }
-  }, [
-    sessionStatus,
-    intakePersonId,
-    ledgerPersonId,
-    allPeople,
-    pointsAdjustmentPersonId,
-    salePersonId,
-  ]);
+  }, [sessionStatus, ledgerPersonId, allPeople, pointsAdjustmentPersonId, salePersonId]);
 
   useEffect(() => {
     const selected = staffUsers.find((user) => user.id === editUserId) ?? null;
@@ -1573,27 +1579,6 @@ export const App = ({
     void loadLedger(ledgerPersonId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionStatus, ledgerPersonId]);
-
-  useEffect(() => {
-    if (materials.length === 0) {
-      return;
-    }
-    const defaultMaterialId = materials[0]?.id ?? null;
-    if (defaultMaterialId === null) {
-      return;
-    }
-    setIntakeLines((previous) =>
-      previous.map((line) => {
-        if (line.materialTypeId !== null) {
-          return line;
-        }
-        return {
-          ...line,
-          materialTypeId: defaultMaterialId,
-        };
-      }),
-    );
-  }, [materials]);
 
   useEffect(() => {
     if (items.length === 0) {
@@ -1924,6 +1909,52 @@ export const App = ({
     }
   };
 
+  const handleChangeIntakePerson = (): void => {
+    setIntakePersonId(null);
+    setIntakePersonSearchQuery("");
+    setIntakeBroaderResults(null);
+  };
+
+  const handleSearchBroaderIntakePeople = (): void => {
+    setIntakeBroaderResults(filterGlobalPersonSuggestions(allPeople, intakePersonSearchQuery));
+  };
+
+  const handleAddIntakeEntry = (): void => {
+    if (intakeDraftMaterialId === null) {
+      setIntakeError("Select a material to add");
+      return;
+    }
+    const weight = Number.parseFloat(intakeDraftWeightKg);
+    if (!Number.isFinite(weight) || weight <= 0) {
+      setIntakeError("Each line weight must be greater than 0");
+      return;
+    }
+    setIntakeError(null);
+    setIntakeLines((previous) => {
+      const existing = previous.find((line) => line.materialTypeId === intakeDraftMaterialId);
+      if (existing === undefined) {
+        return [
+          ...previous,
+          {
+            lineId: crypto.randomUUID(),
+            materialTypeId: intakeDraftMaterialId,
+            weightKg: String(weight),
+          },
+        ];
+      }
+      const existingWeight = Number.parseFloat(existing.weightKg);
+      const nextWeight = (Number.isFinite(existingWeight) ? existingWeight : 0) + weight;
+      return previous.map((line) =>
+        line.lineId === existing.lineId ? { ...line, weightKg: String(nextWeight) } : line,
+      );
+    });
+    setIntakeDraftWeightKg("");
+  };
+
+  const handleRemoveIntakeEntry = (lineId: string): void => {
+    setIntakeLines((previous) => previous.filter((line) => line.lineId !== lineId));
+  };
+
   const handleRecordIntake = async (): Promise<void> => {
     if (queue === null || sessionUser === null) {
       setIntakeError("Queue is unavailable");
@@ -1974,6 +2005,7 @@ export const App = ({
         buildIntakeRecordedEvent(sessionUser, {
           personId: intakePersonId,
           lines,
+          collectionPointId: sessionCollectionPointId,
         }),
       );
       triggerDeferredSync({
@@ -1982,15 +2014,10 @@ export const App = ({
         },
       });
       setLedgerPersonId(intakePersonId);
-      setIntakePersonId(null);
-      setIntakeLines([createIntakeDraftLine(materials[0]?.id ?? null)]);
-      setIntakeSuccess(true);
-      return;
-      await sync.syncNow();
-      await loadLedger(intakePersonId ?? "");
-      setLedgerPersonId(intakePersonId);
-      setIntakePersonId(null);
-      setIntakeLines([createIntakeDraftLine(materials[0]?.id ?? null)]);
+      handleChangeIntakePerson();
+      setIntakeLines([]);
+      setIntakeDraftMaterialId(null);
+      setIntakeDraftWeightKg("");
       setIntakeSuccess(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -4979,104 +5006,129 @@ export const App = ({
                         Collection saved successfully.
                       </Alert>
                     ) : null}
+                    {selectedIntakePerson === null ? (
+                      <Stack gap="xs">
+                        <TextInput
+                          label="Search person"
+                          placeholder="Name or surname"
+                          value={intakePersonSearchQuery}
+                          onChange={(event) => {
+                            setIntakePersonSearchQuery(event.currentTarget.value);
+                            setIntakeBroaderResults(null);
+                          }}
+                        />
+                        {intakePersonSearchQuery.trim().length > 0 &&
+                        intakePersonSearchQuery.trim().length < MIN_PERSON_SEARCH_QUERY_LENGTH ? (
+                          <Text size="sm" c="dimmed">
+                            {`Type at least ${String(MIN_PERSON_SEARCH_QUERY_LENGTH)} characters to search.`}
+                          </Text>
+                        ) : null}
+                        {intakeLocalSuggestions.map((person) => (
+                          <Button
+                            key={person.id}
+                            variant="subtle"
+                            justify="flex-start"
+                            onClick={() => {
+                              handleSelectIntakePerson(person.id);
+                            }}
+                          >
+                            {`${person.name} ${person.surname}`}
+                          </Button>
+                        ))}
+                        {intakeCanOfferBroaderSearch ? (
+                          <Button
+                            variant="default"
+                            size="xs"
+                            onClick={handleSearchBroaderIntakePeople}
+                          >
+                            Search other locations
+                          </Button>
+                        ) : null}
+                        {intakeBroaderResults?.map((person) => (
+                          <Button
+                            key={person.id}
+                            variant="subtle"
+                            justify="flex-start"
+                            onClick={() => {
+                              handleSelectIntakePerson(person.id);
+                            }}
+                          >
+                            {`${person.name} ${person.surname} — ${assignedLocationLabel(person.assignedCollectionPointId)}`}
+                          </Button>
+                        ))}
+                        {intakeBroaderResults !== null && intakeBroaderResults.length === 0 ? (
+                          <Text size="sm" c="dimmed">
+                            No people found at other locations.
+                          </Text>
+                        ) : null}
+                      </Stack>
+                    ) : (
+                      <Group justify="space-between" align="center">
+                        <Text size="sm">
+                          {`${selectedIntakePerson.name} ${selectedIntakePerson.surname} — Assigned location: ${assignedLocationLabel(selectedIntakePerson.assignedCollectionPointId)}`}
+                        </Text>
+                        <Button variant="subtle" size="xs" onClick={handleChangeIntakePerson}>
+                          Change person
+                        </Button>
+                      </Group>
+                    )}
+                    <Divider />
                     <Select
-                      label="Person"
-                      data={allPeople.map((person) => ({
-                        value: person.id,
-                        label: `${person.name} ${person.surname}`,
+                      label="Material"
+                      data={materials.map((material) => ({
+                        value: material.id,
+                        label: `${material.name} (${formatPointValue(material.pointsPerKg)} pts/kg)`,
                       }))}
-                      value={intakePersonId}
-                      onChange={handleSelectIntakePerson}
-                      onFocus={() => {
+                      value={intakeDraftMaterialId}
+                      onChange={(nextValue) => {
+                        setIntakeDraftMaterialId(nextValue);
                         setIntakeSuccess(false);
                       }}
                       searchable
                       clearable
+                      disabled={materialsLoading}
                     />
-                    {selectedIntakePerson !== null ? (
-                      <Text size="xs" c="dimmed">
-                        {`${selectedIntakePerson.name} ${selectedIntakePerson.surname} — Assigned location: ${assignedLocationLabel(selectedIntakePerson.assignedCollectionPointId)}`}
-                      </Text>
-                    ) : null}
-                    {intakeLines.map((line, index) => (
-                      <Card key={line.lineId} withBorder radius="md" padding="sm">
-                        <Stack gap="xs">
-                          <Select
-                            label={`Material ${String(index + 1)}`}
-                            data={materials.map((material) => ({
-                              value: material.id,
-                              label: `${material.name} (${formatPointValue(material.pointsPerKg)} pts/kg)`,
-                            }))}
-                            value={line.materialTypeId}
-                            onChange={(nextValue) => {
-                              setIntakeLines((previous) =>
-                                previous.map((entry) =>
-                                  entry.lineId === line.lineId
-                                    ? {
-                                        ...entry,
-                                        materialTypeId: nextValue,
-                                      }
-                                    : entry,
-                                ),
-                              );
-                            }}
-                            onFocus={() => {
-                              setIntakeSuccess(false);
-                            }}
-                            searchable
-                            clearable
-                            disabled={materialsLoading}
-                          />
-                          <TextInput
-                            label={`Weight Kg ${String(index + 1)}`}
-                            placeholder="e.g. 2.9"
-                            value={line.weightKg}
-                            onChange={(event) => {
-                              const nextWeight = event.currentTarget.value;
-                              setIntakeLines((previous) =>
-                                previous.map((entry) =>
-                                  entry.lineId === line.lineId
-                                    ? {
-                                        ...entry,
-                                        weightKg: nextWeight,
-                                      }
-                                    : entry,
-                                ),
-                              );
-                            }}
-                            onFocus={() => {
-                              setIntakeSuccess(false);
-                            }}
-                          />
-                          <Text size="sm" c="dimmed">
-                            {`Line ${String(index + 1)} points: ${intakeLinePreviews[index] === null || intakeLinePreviews[index] === undefined ? "-" : formatPointValue(intakeLinePreviews[index])}`}
-                          </Text>
-                          <Button
-                            variant="default"
-                            size="xs"
-                            onClick={() => {
-                              setIntakeLines((previous) =>
-                                previous.filter((entry) => entry.lineId !== line.lineId),
-                              );
-                            }}
-                          >
-                            Remove Line
-                          </Button>
-                        </Stack>
-                      </Card>
-                    ))}
-                    <Button
-                      variant="light"
-                      size="xs"
-                      onClick={() => {
-                        setIntakeLines((previous) => [
-                          ...previous,
-                          createIntakeDraftLine(materials[0]?.id ?? null),
-                        ]);
+                    <TextInput
+                      label="Weight (kg)"
+                      placeholder="e.g. 2.9"
+                      value={intakeDraftWeightKg}
+                      onChange={(event) => {
+                        setIntakeDraftWeightKg(event.currentTarget.value);
+                        setIntakeSuccess(false);
                       }}
-                    >
-                      Add Line
+                    />
+                    <Button variant="light" size="xs" onClick={handleAddIntakeEntry}>
+                      Add to Collection
                     </Button>
+                    <Divider />
+                    <Stack gap="xs">
+                      {intakeLines.map((line, index) => {
+                        const material =
+                          materials.find((entry) => entry.id === line.materialTypeId) ?? null;
+                        const preview = intakeLinePreviews[index];
+                        return (
+                          <Group key={line.lineId} justify="space-between" align="center">
+                            <Text size="sm">
+                              {`${material?.name ?? "Unknown material"}: ${line.weightKg} kg — ${preview === null || preview === undefined ? "-" : formatPointValue(preview)} pts`}
+                            </Text>
+                            <Button
+                              variant="default"
+                              size="xs"
+                              onClick={() => {
+                                handleRemoveIntakeEntry(line.lineId);
+                              }}
+                            >
+                              {`Remove ${material?.name ?? "entry"}`}
+                            </Button>
+                          </Group>
+                        );
+                      })}
+                      {intakeLines.length === 0 ? (
+                        <Text size="sm" c="dimmed">
+                          No materials added yet.
+                        </Text>
+                      ) : null}
+                    </Stack>
                     <Text size="sm" c="dimmed">
                       {`Total preview points: ${formatPointValue(intakeTotalPreviewPoints)}`}
                     </Text>

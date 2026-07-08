@@ -872,6 +872,7 @@ describe("App person registry", () => {
               id: "person-1",
               name: "Jane",
               surname: "Doe",
+              assignedCollectionPointId: "cp-1",
             },
           ],
         });
@@ -989,11 +990,19 @@ describe("App person registry", () => {
       expect(view.getByText("Select collection point")).toBeInTheDocument();
     });
     await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
-    await userEvent.type(view.getByLabelText("Weight Kg 1"), "2.9");
-    await userEvent.click(view.getByRole("button", { name: "Add Line" }));
-    await userEvent.click(view.getByRole("textbox", { name: "Material 2" }));
+
+    await userEvent.type(view.getByLabelText("Search person"), "Jane");
+    await userEvent.click(view.getByRole("button", { name: "Jane Doe" }));
+
+    await userEvent.click(view.getByRole("textbox", { name: "Material" }));
+    await userEvent.click(view.getByRole("option", { name: "PET (3.2 pts/kg)" }));
+    await userEvent.type(view.getByLabelText("Weight (kg)"), "2.9");
+    await userEvent.click(view.getByRole("button", { name: "Add to Collection" }));
+
+    await userEvent.click(view.getByRole("textbox", { name: "Material" }));
     await userEvent.click(view.getByRole("option", { name: "Glass (2.1 pts/kg)" }));
-    await userEvent.type(view.getByLabelText("Weight Kg 2"), "1.5");
+    await userEvent.type(view.getByLabelText("Weight (kg)"), "1.5");
+    await userEvent.click(view.getByRole("button", { name: "Add to Collection" }));
 
     await userEvent.click(view.getByRole("button", { name: "Record Intake" }));
 
@@ -1022,6 +1031,9 @@ describe("App person registry", () => {
     expect(body.events[0]?.eventType).toBe("intake.recorded");
     expect(body.events[0]?.payload.lines).toHaveLength(2);
     expect(body.events[0]?.payload.totalPoints).toBe(12.3);
+    expect(
+      (body.events[0]?.payload as { collectionPointId?: string | null }).collectionPointId,
+    ).toBe("cp-1");
   });
 
   function makeIntakeFetchMock(): ReturnType<typeof vi.fn<typeof fetch>> {
@@ -1040,7 +1052,9 @@ describe("App person registry", () => {
       }
       if (url.includes("/people")) {
         return jsonResponse({
-          people: [{ id: "person-1", name: "Jane", surname: "Doe" }],
+          people: [
+            { id: "person-1", name: "Jane", surname: "Doe", assignedCollectionPointId: "cp-1" },
+          ],
         });
       }
       if (url.includes("/materials")) {
@@ -1097,19 +1111,101 @@ describe("App person registry", () => {
     });
     await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
 
-    await userEvent.type(view.getByLabelText("Weight Kg 1"), "abc");
-    await userEvent.click(view.getByRole("button", { name: "Record Intake" }));
+    await userEvent.type(view.getByLabelText("Search person"), "Jane");
+    await userEvent.click(view.getByRole("button", { name: "Jane Doe" }));
+
+    await userEvent.click(view.getByRole("textbox", { name: "Material" }));
+    await userEvent.click(view.getByRole("option", { name: "PET (3.0 pts/kg)" }));
+    await userEvent.type(view.getByLabelText("Weight (kg)"), "abc");
+    await userEvent.click(view.getByRole("button", { name: "Add to Collection" }));
     await waitFor(() => {
       expect(view.getByText("Each line weight must be greater than 0")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Record Intake" }));
+    await waitFor(() => {
+      expect(view.getByText("Add at least one intake line")).toBeInTheDocument();
     });
     await expect(queue.pendingCount()).resolves.toBe(0);
   });
 
-  test("intake allows multiple lines with the same material (multiple bags)", async () => {
+  test("intake accumulates repeated entries of the same material into a single total (multiple bags)", async () => {
     stubResizeObserver();
     const queue = createEventQueue(createMemoryEventQueueStore());
     const syncStateStore = createMemorySyncStateStore();
-    vi.stubGlobal("fetch", makeIntakeFetchMock());
+    let capturedPushBody: unknown = null;
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({
+          people: [
+            { id: "person-1", name: "Jane", surname: "Doe", assignedCollectionPointId: "cp-1" },
+          ],
+        });
+      }
+      if (url.includes("/materials")) {
+        return jsonResponse({
+          materials: [
+            { id: "mat-1", name: "PET", pointsPerKg: 3 },
+            { id: "mat-2", name: "Glass", pointsPerKg: 2 },
+          ],
+        });
+      }
+      if (url.includes("/inventory/status-summary")) {
+        return jsonResponse({ summary: [{ status: "storage", totalQuantity: 10 }] });
+      }
+      if (url.includes("/inventory/batches")) {
+        return jsonResponse({
+          batches: [
+            {
+              inventoryBatchId: "batch-1",
+              itemId: "item-1",
+              quantities: { storage: 10, shop: 0, sold: 0, spoiled: 0, damaged: 0, missing: 0 },
+            },
+          ],
+        });
+      }
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      if (url.includes("/sync/push")) {
+        if (typeof init?.body === "string") {
+          capturedPushBody = JSON.parse(init.body) as unknown;
+        }
+        return jsonResponse({
+          acknowledgements: extractEventIdsFromPushBody(capturedPushBody).map((eventId) => ({
+            eventId,
+            status: "accepted" as const,
+          })),
+          latestCursor: "cursor-1",
+        });
+      }
+      if (url.includes("/sync/pull")) return jsonResponse({ events: [], nextCursor: "cursor-1" });
+      if (url.includes("/sync/status")) {
+        return jsonResponse({
+          latestCursor: "cursor-1",
+          projectionRefreshedAt: "2026-07-08T08:00:00.000Z",
+          projectionCursor: "cursor-1",
+        });
+      }
+      if (url.includes("/ledger/person-1/balance")) {
+        return jsonResponse({ balance: { personId: "person-1", balancePoints: 0 } });
+      }
+      if (url.includes("/ledger/person-1/entries")) {
+        return jsonResponse({ entries: [] });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     const view = render(
       <MantineProvider>
@@ -1130,19 +1226,33 @@ describe("App person registry", () => {
     });
     await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
 
-    // Both lines default to the first material (PET) — same material, two bags
-    await userEvent.type(view.getByLabelText("Weight Kg 1"), "1.5");
-    await userEvent.click(view.getByRole("button", { name: "Add Line" }));
-    await userEvent.type(view.getByLabelText("Weight Kg 2"), "2.0");
+    await userEvent.type(view.getByLabelText("Search person"), "Jane");
+    await userEvent.click(view.getByRole("button", { name: "Jane Doe" }));
+
+    // Two bags of the same material (PET) — both entries accumulate into one total
+    await userEvent.click(view.getByRole("textbox", { name: "Material" }));
+    await userEvent.click(view.getByRole("option", { name: "PET (3.0 pts/kg)" }));
+    await userEvent.type(view.getByLabelText("Weight (kg)"), "1.5");
+    await userEvent.click(view.getByRole("button", { name: "Add to Collection" }));
+    await userEvent.type(view.getByLabelText("Weight (kg)"), "2.0");
+    await userEvent.click(view.getByRole("button", { name: "Add to Collection" }));
+
+    expect(view.getByText("PET: 3.5 kg — 10.5 pts")).toBeInTheDocument();
+    expect(view.queryByText(/^PET: 1\.5 kg/)).not.toBeInTheDocument();
 
     await userEvent.click(view.getByRole("button", { name: "Record Intake" }));
 
-    // Duplicate-material validation must not fire
-    expect(view.queryByText("Duplicate materials are not allowed")).not.toBeInTheDocument();
-    // Event is enqueued (sync may fail in test env, but enqueue happens before sync)
     await waitFor(async () => {
-      await expect(queue.pendingCount()).resolves.toBeGreaterThanOrEqual(1);
+      await expect(queue.pendingCount()).resolves.toBe(0);
     });
+
+    const body = capturedPushBody as {
+      events: Array<{ payload: { lines: Array<{ materialTypeId: string; weightKg: number }> } }>;
+    };
+    expect(body.events).toHaveLength(1);
+    expect(body.events[0]?.payload.lines).toHaveLength(1);
+    expect(body.events[0]?.payload.lines[0]?.materialTypeId).toBe("mat-1");
+    expect(body.events[0]?.payload.lines[0]?.weightKg).toBe(3.5);
   });
 
   test("intake validation blocks missing person", async () => {
@@ -1212,7 +1322,7 @@ describe("App person registry", () => {
     await expect(queue.pendingCount()).resolves.toBe(0);
   });
 
-  test("intake validation blocks empty line set", async () => {
+  test("intake validation blocks submit with no material entries added", async () => {
     stubResizeObserver();
     const queue = createEventQueue(createMemoryEventQueueStore());
     const syncStateStore = createMemorySyncStateStore();
@@ -1241,6 +1351,7 @@ describe("App person registry", () => {
               id: "person-1",
               name: "Jane",
               surname: "Doe",
+              assignedCollectionPointId: "cp-1",
             },
           ],
         });
@@ -1306,7 +1417,9 @@ describe("App person registry", () => {
     });
     await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
 
-    await userEvent.click(view.getByRole("button", { name: "Remove Line" }));
+    await userEvent.type(view.getByLabelText("Search person"), "Jane");
+    await userEvent.click(view.getByRole("button", { name: "Jane Doe" }));
+
     await userEvent.click(view.getByRole("button", { name: "Record Intake" }));
     await waitFor(() => {
       expect(view.getByText("Add at least one intake line")).toBeInTheDocument();
@@ -1343,6 +1456,7 @@ describe("App person registry", () => {
               id: "person-1",
               name: "Jane",
               surname: "Doe",
+              assignedCollectionPointId: "cp-1",
             },
           ],
         });
@@ -1838,6 +1952,7 @@ describe("App person registry", () => {
               id: "person-1",
               name: "Jane",
               surname: "Doe",
+              assignedCollectionPointId: "cp-1",
             },
           ],
         });
@@ -6581,8 +6696,9 @@ describe("App person registry", () => {
       expect(view.getByText("Collection point: Heuwelkroon parkie")).toBeInTheDocument();
     });
 
-    await userEvent.click(view.getAllByLabelText("Person")[0]!);
-    await userEvent.click(view.getByRole("option", { name: "Jane Doe" }));
+    await userEvent.type(view.getByLabelText("Search person"), "Jane");
+    await userEvent.click(view.getByRole("button", { name: "Search other locations" }));
+    await userEvent.click(view.getByRole("button", { name: "Jane Doe — Old Village Point" }));
 
     await waitFor(() => {
       expect(view.getByText("Update assigned location?")).toBeInTheDocument();
@@ -6665,8 +6781,9 @@ describe("App person registry", () => {
       expect(view.getByText("Collection point: Heuwelkroon parkie")).toBeInTheDocument();
     });
 
-    await userEvent.click(view.getAllByLabelText("Person")[0]!);
-    await userEvent.click(view.getByRole("option", { name: "Jane Doe" }));
+    await userEvent.type(view.getByLabelText("Search person"), "Jane");
+    await userEvent.click(view.getByRole("button", { name: "Search other locations" }));
+    await userEvent.click(view.getByRole("button", { name: "Jane Doe — Unassigned" }));
 
     await waitFor(() => {
       expect(view.getByText("Update assigned location?")).toBeInTheDocument();
@@ -6677,7 +6794,7 @@ describe("App person registry", () => {
     await waitFor(() => {
       expect(view.queryByText("Update assigned location?")).not.toBeInTheDocument();
     });
-    expect(view.getAllByLabelText("Person")[0]).toHaveValue("Jane Doe");
+    expect(view.getByText("Jane Doe — Assigned location: Unassigned")).toBeInTheDocument();
   });
 
   test("editing is blocked while a collection draft with an entered weight is in progress for that person", async () => {
@@ -6735,9 +6852,9 @@ describe("App person registry", () => {
       expect(view.getByText("Collection point: Heuwelkroon parkie")).toBeInTheDocument();
     });
 
-    await userEvent.click(view.getAllByLabelText("Person")[0]!);
-    await userEvent.click(view.getByRole("option", { name: "Jane Doe" }));
-    await userEvent.type(view.getByLabelText("Weight Kg 1"), "1.5");
+    await userEvent.type(view.getByLabelText("Search person"), "Jane");
+    await userEvent.click(view.getByRole("button", { name: "Jane Doe" }));
+    await userEvent.type(view.getByLabelText("Weight (kg)"), "1.5");
 
     await userEvent.click(view.getByRole("button", { name: "Search" }));
     await waitFor(() => {
@@ -6815,5 +6932,171 @@ describe("App person registry", () => {
       expect(view.getByRole("heading", { name: "Edit Person" })).toBeInTheDocument();
     });
     expect(view.getByText("Assigned location: Heuwelkroon parkie")).toBeInTheDocument();
+  });
+
+  function makeCollectionSearchFetchMock(
+    people: Array<{
+      id: string;
+      name: string;
+      surname: string;
+      assignedCollectionPointId: string | null;
+    }>,
+  ): ReturnType<typeof vi.fn<typeof fetch>> {
+    return vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+  }
+
+  async function enterCollectionSession(view: RenderResult): Promise<void> {
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
+    await waitFor(() => {
+      expect(view.getByText("Collection point: Heuwelkroon parkie")).toBeInTheDocument();
+    });
+  }
+
+  test("collection person search shows no suggestions below the 3-letter threshold", async () => {
+    stubResizeObserver();
+    vi.stubGlobal(
+      "fetch",
+      makeCollectionSearchFetchMock([
+        { id: "person-1", name: "Jane", surname: "Doe", assignedCollectionPointId: "cp-1" },
+      ]),
+    );
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+    await enterCollectionSession(view);
+
+    await userEvent.type(view.getByLabelText("Search person"), "Ja");
+    expect(view.getByText("Type at least 3 characters to search.")).toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "Jane Doe" })).not.toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "Search other locations" })).not.toBeInTheDocument();
+
+    await userEvent.type(view.getByLabelText("Search person"), "n");
+    expect(view.getByRole("button", { name: "Jane Doe" })).toBeInTheDocument();
+  });
+
+  test("collection person search scopes suggestions to the session collection point and hides the broader-search option when local matches exist", async () => {
+    stubResizeObserver();
+    vi.stubGlobal(
+      "fetch",
+      makeCollectionSearchFetchMock([
+        { id: "person-1", name: "Jane", surname: "Doe", assignedCollectionPointId: "cp-1" },
+        { id: "person-2", name: "Jane", surname: "Smith", assignedCollectionPointId: "cp-2" },
+      ]),
+    );
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+    await enterCollectionSession(view);
+
+    await userEvent.type(view.getByLabelText("Search person"), "Jane");
+
+    expect(view.getByRole("button", { name: "Jane Doe" })).toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "Jane Smith" })).not.toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "Search other locations" })).not.toBeInTheDocument();
+  });
+
+  test("collection material entries can be removed independently, leaving other entries and totals intact", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({
+          people: [
+            { id: "person-1", name: "Jane", surname: "Doe", assignedCollectionPointId: "cp-1" },
+          ],
+        });
+      }
+      if (url.includes("/materials")) {
+        return jsonResponse({
+          materials: [
+            { id: "mat-1", name: "PET", pointsPerKg: 3 },
+            { id: "mat-2", name: "Glass", pointsPerKg: 2 },
+          ],
+        });
+      }
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+    await enterCollectionSession(view);
+
+    await userEvent.type(view.getByLabelText("Search person"), "Jane");
+    await userEvent.click(view.getByRole("button", { name: "Jane Doe" }));
+
+    await userEvent.click(view.getByRole("textbox", { name: "Material" }));
+    await userEvent.click(view.getByRole("option", { name: "PET (3.0 pts/kg)" }));
+    await userEvent.type(view.getByLabelText("Weight (kg)"), "2");
+    await userEvent.click(view.getByRole("button", { name: "Add to Collection" }));
+
+    await userEvent.click(view.getByRole("textbox", { name: "Material" }));
+    await userEvent.click(view.getByRole("option", { name: "Glass (2.0 pts/kg)" }));
+    await userEvent.type(view.getByLabelText("Weight (kg)"), "5");
+    await userEvent.click(view.getByRole("button", { name: "Add to Collection" }));
+
+    expect(view.getByText("PET: 2 kg — 6.0 pts")).toBeInTheDocument();
+    expect(view.getByText("Glass: 5 kg — 10.0 pts")).toBeInTheDocument();
+    expect(view.getByText("Total preview points: 16.0")).toBeInTheDocument();
+
+    await userEvent.click(view.getByRole("button", { name: "Remove PET" }));
+
+    expect(view.queryByText(/^PET:/)).not.toBeInTheDocument();
+    expect(view.getByText("Glass: 5 kg — 10.0 pts")).toBeInTheDocument();
+    expect(view.getByText("Total preview points: 10.0")).toBeInTheDocument();
   });
 });
