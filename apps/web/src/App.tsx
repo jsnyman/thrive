@@ -41,6 +41,7 @@ import { createItemsClient, type ItemRecord } from "./offline/items-client";
 import { createLedgerClient, type LedgerBalance, type LedgerEntry } from "./offline/ledger-client";
 import { createMaterialsClient, type MaterialRecord } from "./offline/materials-client";
 import { createPeopleClient, type PersonRecord } from "./offline/people-client";
+import { personAssignedLocationMismatches } from "./offline/person-location";
 import { MIN_PERSON_SEARCH_QUERY_LENGTH } from "./offline/person-search";
 import { createProcurementClient, type ProcurementRecord } from "./offline/procurement-client";
 import { downloadCsv, type CsvRow } from "./offline/report-export";
@@ -321,6 +322,7 @@ const buildCreatePersonEvent = (
     phone?: string | null;
     address?: string | null;
     notes?: string | null;
+    assignedCollectionPointId?: string | null;
   },
 ): Event => ({
   eventId: crypto.randomUUID(),
@@ -340,6 +342,7 @@ const buildCreatePersonEvent = (
     phone: payload.phone ?? null,
     address: payload.address ?? null,
     notes: payload.notes ?? null,
+    assignedCollectionPointId: payload.assignedCollectionPointId ?? null,
   },
 });
 
@@ -353,6 +356,7 @@ const buildUpdatePersonEvent = (
     phone?: string | null;
     address?: string | null;
     notes?: string | null;
+    assignedCollectionPointId?: string | null;
   },
 ): Event => ({
   eventId: crypto.randomUUID(),
@@ -652,6 +656,9 @@ export const App = ({
   const [removeReason, setRemoveReason] = useState<string>("");
   const [removePending, setRemovePending] = useState<boolean>(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
+  const [locationMismatchPersonId, setLocationMismatchPersonId] = useState<string | null>(null);
+  const [locationMismatchPending, setLocationMismatchPending] = useState<boolean>(false);
+  const [locationMismatchError, setLocationMismatchError] = useState<string | null>(null);
   const [intakePersonId, setIntakePersonId] = useState<string | null>(null);
   const [intakeLines, setIntakeLines] = useState<IntakeDraftLine[]>(() => [
     createIntakeDraftLine(),
@@ -875,6 +882,13 @@ export const App = ({
     }
     return people.find((person) => person.id === selectedPersonId) ?? null;
   }, [people, selectedPersonId]);
+  const intakeDraftHasContent = intakeLines.some((line) => line.weightKg.trim().length > 0);
+  const saleDraftHasContent = saleLines.some((line) => line.quantity.trim().length > 0);
+  const personHasTransactionInProgress = (personId: string): boolean =>
+    (intakePersonId === personId && intakeDraftHasContent) ||
+    (salePersonId === personId && saleDraftHasContent);
+  const selectedPersonTransactionInProgress =
+    selectedPerson !== null && personHasTransactionInProgress(selectedPerson.id);
   const canRecordSales = sessionUser?.role === "user" || sessionUser?.role === "administrator";
   const canRemovePerson = sessionUser?.role === "administrator";
   const canManageInventory = sessionUser?.role === "administrator";
@@ -889,6 +903,29 @@ export const App = ({
   const sessionCollectionPointName =
     collectionPoints.find((collectionPoint) => collectionPoint.id === sessionCollectionPointId)
       ?.name ?? null;
+  const collectionPointNameById = useMemo(
+    () =>
+      new Map(
+        collectionPoints.map((collectionPoint) => [collectionPoint.id, collectionPoint.name]),
+      ),
+    [collectionPoints],
+  );
+  const assignedLocationLabel = (assignedCollectionPointId: string | null | undefined): string =>
+    assignedCollectionPointId === null || assignedCollectionPointId === undefined
+      ? "Unassigned"
+      : (collectionPointNameById.get(assignedCollectionPointId) ?? assignedCollectionPointId);
+  const locationMismatchPerson = useMemo(
+    () => allPeople.find((person) => person.id === locationMismatchPersonId) ?? null,
+    [allPeople, locationMismatchPersonId],
+  );
+  const selectedIntakePerson = useMemo(
+    () => allPeople.find((person) => person.id === intakePersonId) ?? null,
+    [allPeople, intakePersonId],
+  );
+  const selectedSalePerson = useMemo(
+    () => allPeople.find((person) => person.id === salePersonId) ?? null,
+    [allPeople, salePersonId],
+  );
   const isManagerPanelOpen = (panel: ManagerPanelKey): boolean => openManagerPanels[panel];
   const selectedReconciliationIssue = useMemo(
     () =>
@@ -1678,6 +1715,7 @@ export const App = ({
           phone: toNullableOrUndefined(createPhone) ?? null,
           address: toNullableOrUndefined(createAddress) ?? null,
           notes: toNullableOrUndefined(createNotes) ?? null,
+          assignedCollectionPointId: sessionCollectionPointId,
         }),
       );
       triggerDeferredSync({
@@ -1706,6 +1744,10 @@ export const App = ({
   const handleEdit = async (): Promise<void> => {
     if (queue === null || sessionUser === null || selectedPerson === null) {
       setEditError("Select a person to edit");
+      return;
+    }
+    if (personHasTransactionInProgress(selectedPerson.id)) {
+      setEditError("This person has a transaction in progress and cannot be edited right now.");
       return;
     }
     const updates: {
@@ -1787,6 +1829,61 @@ export const App = ({
       setEditError(message);
     } finally {
       setEditPending(false);
+    }
+  };
+
+  const checkLocationMismatch = (personId: string | null): void => {
+    if (personId === null) {
+      return;
+    }
+    const person = allPeople.find((candidate) => candidate.id === personId) ?? null;
+    if (
+      person !== null &&
+      personAssignedLocationMismatches(person.assignedCollectionPointId, sessionCollectionPointId)
+    ) {
+      setLocationMismatchError(null);
+      setLocationMismatchPersonId(personId);
+    }
+  };
+
+  const handleSelectIntakePerson = (personId: string | null): void => {
+    setIntakePersonId(personId);
+    checkLocationMismatch(personId);
+  };
+
+  const handleSelectSalePerson = (personId: string | null): void => {
+    setSalePersonId(personId);
+    checkLocationMismatch(personId);
+  };
+
+  const handleConfirmLocationMismatchUpdate = async (): Promise<void> => {
+    if (
+      queue === null ||
+      sessionUser === null ||
+      locationMismatchPersonId === null ||
+      sessionCollectionPointId === null
+    ) {
+      return;
+    }
+    setLocationMismatchPending(true);
+    setLocationMismatchError(null);
+    try {
+      await queue.enqueue(
+        buildUpdatePersonEvent(sessionUser, locationMismatchPersonId, {
+          assignedCollectionPointId: sessionCollectionPointId,
+        }),
+      );
+      triggerDeferredSync({
+        onAccepted: async () => {
+          await loadAllPeople();
+        },
+      });
+      setLocationMismatchPersonId(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setLocationMismatchError(message);
+    } finally {
+      setLocationMismatchPending(false);
     }
   };
 
@@ -3152,6 +3249,12 @@ export const App = ({
                           <Button
                             size="xs"
                             variant="subtle"
+                            disabled={personHasTransactionInProgress(person.id)}
+                            title={
+                              personHasTransactionInProgress(person.id)
+                                ? "This person has a transaction in progress and cannot be edited right now."
+                                : undefined
+                            }
                             onClick={() => {
                               setSelectedPersonId(person.id);
                               setEditName("");
@@ -3246,6 +3349,16 @@ export const App = ({
                     <Text size="sm" c="dimmed">
                       Select a person from the list to edit.
                     </Text>
+                  ) : selectedPersonTransactionInProgress ? (
+                    <Stack gap="xs">
+                      <Text size="sm">{`${selectedPerson.name} ${selectedPerson.surname}`}</Text>
+                      <Text size="sm" c="dimmed">
+                        {`Assigned location: ${assignedLocationLabel(selectedPerson.assignedCollectionPointId)}`}
+                      </Text>
+                      <Text size="sm" c="orange">
+                        This person has a transaction in progress and cannot be edited right now.
+                      </Text>
+                    </Stack>
                   ) : (
                     <Stack gap="xs">
                       <Text size="sm">{`${selectedPerson.name} ${selectedPerson.surname}`}</Text>
@@ -3257,6 +3370,9 @@ export const App = ({
                         size="sm"
                         c="dimmed"
                       >{`Phone: ${maskSensitiveValue(selectedPerson.phone)}`}</Text>
+                      <Text size="sm" c="dimmed">
+                        {`Assigned location: ${assignedLocationLabel(selectedPerson.assignedCollectionPointId)}`}
+                      </Text>
                       <Divider />
                       <Text size="xs" c="dimmed">
                         Enter only fields you want to change. Existing ID/phone stay masked by
@@ -3395,6 +3511,43 @@ export const App = ({
               </Stack>
             </Modal>
 
+            <Modal
+              opened={locationMismatchPersonId !== null}
+              onClose={() => {
+                setLocationMismatchPersonId(null);
+                setLocationMismatchError(null);
+              }}
+              title="Update assigned location?"
+            >
+              <Stack gap="sm">
+                <Text size="sm">
+                  {`${locationMismatchPerson?.name ?? ""} ${locationMismatchPerson?.surname ?? ""} is currently assigned to ${assignedLocationLabel(locationMismatchPerson?.assignedCollectionPointId)}, which differs from this session's collection point (${sessionCollectionPointName ?? ""}). Update their assigned location?`}
+                </Text>
+                {locationMismatchError !== null ? (
+                  <Text c="red">{locationMismatchError}</Text>
+                ) : null}
+                <Group justify="flex-end">
+                  <Button
+                    variant="default"
+                    onClick={() => {
+                      setLocationMismatchPersonId(null);
+                      setLocationMismatchError(null);
+                    }}
+                  >
+                    Not now
+                  </Button>
+                  <Button
+                    loading={locationMismatchPending}
+                    onClick={() => {
+                      void handleConfirmLocationMismatchUpdate();
+                    }}
+                  >
+                    Update location
+                  </Button>
+                </Group>
+              </Stack>
+            </Modal>
+
             {activeView === "shop-sale" ? (
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
@@ -3406,10 +3559,15 @@ export const App = ({
                       label: `${person.name} ${person.surname}`,
                     }))}
                     value={salePersonId}
-                    onChange={setSalePersonId}
+                    onChange={handleSelectSalePerson}
                     searchable
                     clearable
                   />
+                  {selectedSalePerson !== null ? (
+                    <Text size="xs" c="dimmed">
+                      {`${selectedSalePerson.name} ${selectedSalePerson.surname} — Assigned location: ${assignedLocationLabel(selectedSalePerson.assignedCollectionPointId)}`}
+                    </Text>
+                  ) : null}
                   {saleLines.map((line, index) => {
                     const lineBatches = inventoryBatches.filter(
                       (batch) => batch.itemId === line.itemId && batch.quantities.shop > 0,
@@ -4828,13 +4986,18 @@ export const App = ({
                         label: `${person.name} ${person.surname}`,
                       }))}
                       value={intakePersonId}
-                      onChange={setIntakePersonId}
+                      onChange={handleSelectIntakePerson}
                       onFocus={() => {
                         setIntakeSuccess(false);
                       }}
                       searchable
                       clearable
                     />
+                    {selectedIntakePerson !== null ? (
+                      <Text size="xs" c="dimmed">
+                        {`${selectedIntakePerson.name} ${selectedIntakePerson.surname} — Assigned location: ${assignedLocationLabel(selectedIntakePerson.assignedCollectionPointId)}`}
+                      </Text>
+                    ) : null}
                     {intakeLines.map((line, index) => (
                       <Card key={line.lineId} withBorder radius="md" padding="sm">
                         <Stack gap="xs">
