@@ -35,6 +35,32 @@ describe("createPeopleClient", () => {
     expect(fetchFn.mock.calls[0]?.[0]).toBe("/api/people?search=Jane%20Doe");
   });
 
+  test("parses assignedCollectionPointId, defaulting to null when absent", async () => {
+    const fetchFn = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      jsonResponse({
+        people: [
+          {
+            id: "person-1",
+            name: "Jane",
+            surname: "Doe",
+            assignedCollectionPointId: "cp-1",
+          },
+          {
+            id: "person-2",
+            name: "Alice",
+            surname: "Zulu",
+          },
+        ],
+      }),
+    );
+    const client = createPeopleClient({ fetchFn });
+
+    const people = await client.listPeople();
+
+    expect(people[0]?.assignedCollectionPointId).toBe("cp-1");
+    expect(people[1]?.assignedCollectionPointId).toBeNull();
+  });
+
   test("throws deterministic errors for non-ok and invalid responses", async () => {
     const fetchFn = vi
       .fn<typeof fetch>()

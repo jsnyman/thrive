@@ -6,8 +6,10 @@ import {
   Card,
   Container,
   Divider,
+  FileInput,
   Group,
   Modal,
+  NativeSelect,
   Select,
   PasswordInput,
   SimpleGrid,
@@ -28,6 +30,10 @@ import {
 import type { EventQueue } from "./offline/event-queue";
 import { createAuthClient, type AuthUser } from "./offline/auth-client";
 import {
+  createCollectionPointsClient,
+  type CollectionPointRecord,
+} from "./offline/collection-points-client";
+import {
   createInventoryClient,
   type InventoryBatchState,
   type InventoryStatus,
@@ -37,6 +43,13 @@ import { createItemsClient, type ItemRecord } from "./offline/items-client";
 import { createLedgerClient, type LedgerBalance, type LedgerEntry } from "./offline/ledger-client";
 import { createMaterialsClient, type MaterialRecord } from "./offline/materials-client";
 import { createPeopleClient, type PersonRecord } from "./offline/people-client";
+import { personAssignedLocationMismatches } from "./offline/person-location";
+import {
+  MIN_PERSON_SEARCH_QUERY_LENGTH,
+  filterGlobalPersonSuggestions,
+  filterLocalPersonSuggestions,
+  shouldOfferBroaderPersonSearch,
+} from "./offline/person-search";
 import { createProcurementClient, type ProcurementRecord } from "./offline/procurement-client";
 import { downloadCsv, type CsvRow } from "./offline/report-export";
 import {
@@ -61,6 +74,7 @@ import {
   type AdjustmentRequestRecord,
   type InventoryStatus as AdjustmentInventoryStatus,
 } from "./offline/adjustments-client";
+import { createSaleAdjustmentRequestsClient } from "./offline/sale-adjustment-client";
 import { createUsersClient, type StaffUserRecord } from "./offline/users-client";
 import type {
   SyncReconciliationIssue,
@@ -157,15 +171,16 @@ type NavViewKey =
   | "shop-sale"
   | "shop-procurement"
   | "shop-expense"
+  | "adjustments"
   | "adjustments-points-request"
   | "adjustments-inventory-request"
   | "adjustments-points-apply"
   | "adjustments-inventory-apply"
   | "reporting"
   | "users-list"
-  | "users-create"
-  | "users-edit"
-  | "items-manage";
+  | "items-manage"
+  | "collection-points-manage"
+  | "materials-manage";
 
 const inventoryStatuses: InventoryStatus[] = [
   "storage",
@@ -186,6 +201,16 @@ const createClosedManagerPanels = (): Record<ManagerPanelKey, boolean> => ({
   salesReport: false,
   cashflowReport: false,
 });
+
+const REPORT_PANEL_LABELS: Record<ManagerPanelKey, string> = {
+  reconciliation: "Integrity and Reconciliation",
+  materialsReport: "Materials Collected Report",
+  pointsLiability: "Points Liability Report",
+  inventoryStatusReport: "Inventory Status Report",
+  inventoryStatusLog: "Inventory Status Change Log",
+  salesReport: "Sales Report",
+  cashflowReport: "Cashflow Report",
+};
 
 const formatCurrencyValue = (value: number): string => value.toFixed(2);
 
@@ -316,6 +341,7 @@ const buildCreatePersonEvent = (
     phone?: string | null;
     address?: string | null;
     notes?: string | null;
+    assignedCollectionPointId?: string | null;
   },
 ): Event => ({
   eventId: crypto.randomUUID(),
@@ -335,6 +361,7 @@ const buildCreatePersonEvent = (
     phone: payload.phone ?? null,
     address: payload.address ?? null,
     notes: payload.notes ?? null,
+    assignedCollectionPointId: payload.assignedCollectionPointId ?? null,
   },
 });
 
@@ -348,6 +375,7 @@ const buildUpdatePersonEvent = (
     phone?: string | null;
     address?: string | null;
     notes?: string | null;
+    assignedCollectionPointId?: string | null;
   },
 ): Event => ({
   eventId: crypto.randomUUID(),
@@ -370,6 +398,7 @@ const buildIntakeRecordedEvent = (
   payload: {
     personId: string;
     lines: IntakeEventLineInput[];
+    collectionPointId: string | null;
   },
 ): Event => {
   const lines = payload.lines.map((line) => ({
@@ -394,15 +423,10 @@ const buildIntakeRecordedEvent = (
       lines,
       totalPoints,
       locationText: null,
+      collectionPointId: payload.collectionPointId,
     },
   };
 };
-
-const createIntakeDraftLine = (defaultMaterialId: string | null = null): IntakeDraftLine => ({
-  lineId: `${crypto.randomUUID()}-${Math.random().toString(36).slice(2)}`,
-  materialTypeId: defaultMaterialId,
-  weightKg: "",
-});
 
 const createSaleDraftLine = (defaultItemId: string | null = null): SaleDraftLine => ({
   lineId: `${crypto.randomUUID()}-${Math.random().toString(36).slice(2)}`,
@@ -445,6 +469,7 @@ const buildSaleRecordedEvent = (
   payload: {
     personId: string;
     lines: SaleEventLineInput[];
+    collectionPointId: string | null;
   },
 ): Event => {
   const lines = payload.lines.map((line) => ({
@@ -470,6 +495,7 @@ const buildSaleRecordedEvent = (
       lines,
       totalPoints,
       locationText: null,
+      collectionPointId: payload.collectionPointId,
     },
   };
 };
@@ -578,6 +604,7 @@ export const App = ({
   const authClient = useMemo(() => createAuthClient(), []);
   const peopleClient = useMemo(() => createPeopleClient(), []);
   const materialsClient = useMemo(() => createMaterialsClient(), []);
+  const collectionPointsClient = useMemo(() => createCollectionPointsClient(), []);
   const itemsClient = useMemo(() => createItemsClient(), []);
   const inventoryClient = useMemo(() => createInventoryClient(), []);
   const procurementClient = useMemo(() => createProcurementClient(), []);
@@ -585,6 +612,7 @@ export const App = ({
   const reportsClient = useMemo(() => createReportsClient(), []);
   const reconciliationClient = useMemo(() => createReconciliationClient(), []);
   const adjustmentsClient = useMemo(() => createAdjustmentsClient(), []);
+  const saleAdjustmentRequestsClient = useMemo(() => createSaleAdjustmentRequestsClient(), []);
   const usersClient = useMemo(() => createUsersClient(), []);
 
   const [sessionStatus, setSessionStatus] = useState<SessionStatus>("loading");
@@ -603,6 +631,20 @@ export const App = ({
   const [materials, setMaterials] = useState<MaterialRecord[]>([]);
   const [materialsLoading, setMaterialsLoading] = useState<boolean>(false);
   const [materialsError, setMaterialsError] = useState<string | null>(null);
+  const [brokenMaterialImageIds, setBrokenMaterialImageIds] = useState<string[]>([]);
+  const [selectedIntakeMaterialImageSrc, setSelectedIntakeMaterialImageSrc] = useState<
+    string | null
+  >(null);
+  const [collectionPoints, setCollectionPoints] = useState<CollectionPointRecord[]>([]);
+  const [sessionCollectionPointId, setSessionCollectionPointId] = useState<string | null>(null);
+  const [collectionPointPromptSection, setCollectionPointPromptSection] = useState<
+    "collection" | "sales" | null
+  >(null);
+  const [collectionPointPromptOptions, setCollectionPointPromptOptions] = useState<
+    CollectionPointRecord[]
+  >([]);
+  const [collectionPointPromptLoading, setCollectionPointPromptLoading] = useState<boolean>(false);
+  const [collectionPointPromptError, setCollectionPointPromptError] = useState<string | null>(null);
   const [items, setItems] = useState<ItemRecord[]>([]);
   const [itemsLoading, setItemsLoading] = useState<boolean>(false);
   const [itemsError, setItemsError] = useState<string | null>(null);
@@ -613,6 +655,25 @@ export const App = ({
   const [itemEditSku, setItemEditSku] = useState<string>("");
   const [itemEditError, setItemEditError] = useState<string | null>(null);
   const [itemEditPending, setItemEditPending] = useState<boolean>(false);
+  const [collectionPointCreateMode, setCollectionPointCreateMode] = useState<boolean>(false);
+  const [collectionPointCreateName, setCollectionPointCreateName] = useState<string>("");
+  const [collectionPointCreatePending, setCollectionPointCreatePending] = useState<boolean>(false);
+  const [collectionPointCreateError, setCollectionPointCreateError] = useState<string | null>(null);
+  const [collectionPointEditingId, setCollectionPointEditingId] = useState<string | null>(null);
+  const [collectionPointEditName, setCollectionPointEditName] = useState<string>("");
+  const [collectionPointEditIsActive, setCollectionPointEditIsActive] = useState<boolean>(true);
+  const [collectionPointEditPending, setCollectionPointEditPending] = useState<boolean>(false);
+  const [collectionPointEditError, setCollectionPointEditError] = useState<string | null>(null);
+  const [materialCreateMode, setMaterialCreateMode] = useState<boolean>(false);
+  const [materialCreateName, setMaterialCreateName] = useState<string>("");
+  const [materialCreatePointsPerKg, setMaterialCreatePointsPerKg] = useState<string>("");
+  const [materialCreatePending, setMaterialCreatePending] = useState<boolean>(false);
+  const [materialCreateError, setMaterialCreateError] = useState<string | null>(null);
+  const [materialImageUploadingId, setMaterialImageUploadingId] = useState<string | null>(null);
+  const [materialImageUploadError, setMaterialImageUploadError] = useState<string | null>(null);
+  const [materialManageImageSrcById, setMaterialManageImageSrcById] = useState<
+    Record<string, string>
+  >({});
 
   const [createName, setCreateName] = useState<string>("");
   const [createSurname, setCreateSurname] = useState<string>("");
@@ -636,21 +697,37 @@ export const App = ({
   const [removeReason, setRemoveReason] = useState<string>("");
   const [removePending, setRemovePending] = useState<boolean>(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
+  const [locationMismatchPersonId, setLocationMismatchPersonId] = useState<string | null>(null);
+  const [locationMismatchPending, setLocationMismatchPending] = useState<boolean>(false);
+  const [locationMismatchError, setLocationMismatchError] = useState<string | null>(null);
   const [intakePersonId, setIntakePersonId] = useState<string | null>(null);
-  const [intakeLines, setIntakeLines] = useState<IntakeDraftLine[]>(() => [
-    createIntakeDraftLine(),
-  ]);
+  const [intakePersonSearchQuery, setIntakePersonSearchQuery] = useState<string>("");
+  const [intakeBroaderResults, setIntakeBroaderResults] = useState<PersonRecord[] | null>(null);
+  const [intakeLines, setIntakeLines] = useState<IntakeDraftLine[]>([]);
+  const [intakeDraftMaterialId, setIntakeDraftMaterialId] = useState<string | null>(null);
+  const [intakeDraftWeightKg, setIntakeDraftWeightKg] = useState<string>("");
   const [intakePending, setIntakePending] = useState<boolean>(false);
   const [intakeError, setIntakeError] = useState<string | null>(null);
   const [intakeSuccess, setIntakeSuccess] = useState<boolean>(false);
   const [salePersonId, setSalePersonId] = useState<string | null>(null);
+  const [salePersonSearchQuery, setSalePersonSearchQuery] = useState<string>("");
+  const [saleBroaderResults, setSaleBroaderResults] = useState<PersonRecord[] | null>(null);
   const [saleLines, setSaleLines] = useState<SaleDraftLine[]>(() => [createSaleDraftLine()]);
   const [salePending, setSalePending] = useState<boolean>(false);
   const [saleError, setSaleError] = useState<string | null>(null);
   const [saleSuccess, setSaleSuccess] = useState<string | null>(null);
+  const [saleAdjustmentNote, setSaleAdjustmentNote] = useState<string>("");
+  const [saleAdjustmentPending, setSaleAdjustmentPending] = useState<boolean>(false);
+  const [saleAdjustmentError, setSaleAdjustmentError] = useState<string | null>(null);
+  const [saleAdjustmentSuccess, setSaleAdjustmentSuccess] = useState<boolean>(false);
+  const [saleLastSaleEventId, setSaleLastSaleEventId] = useState<string | null>(null);
+  const [saleLastSalePersonId, setSaleLastSalePersonId] = useState<string | null>(null);
   const [procurementLines, setProcurementLines] = useState<ProcurementDraftLine[]>(() => [
     createProcurementDraftLine(),
   ]);
+  const [expandedProcurementLineId, setExpandedProcurementLineId] = useState<string | null>(
+    () => procurementLines[0]?.lineId ?? null,
+  );
   const [procurementSupplierName, setProcurementSupplierName] = useState<string>("");
   const [procurementTripDistanceKm, setProcurementTripDistanceKm] = useState<string>("");
   const [procurementDate, setProcurementDate] = useState<string>(() =>
@@ -680,7 +757,9 @@ export const App = ({
   const [expenseError, setExpenseError] = useState<string | null>(null);
   const [materialsReportFromDate, setMaterialsReportFromDate] = useState<string>("");
   const [materialsReportToDate, setMaterialsReportToDate] = useState<string>("");
-  const [materialsReportLocationText, setMaterialsReportLocationText] = useState<string>("");
+  const [materialsReportCollectionPointId, setMaterialsReportCollectionPointId] = useState<
+    string | null
+  >(null);
   const [materialsReportMaterialTypeId, setMaterialsReportMaterialTypeId] = useState<string | null>(
     null,
   );
@@ -735,7 +814,9 @@ export const App = ({
   const [salesReportFromDate, setSalesReportFromDate] = useState<string>("");
   const [salesReportToDate, setSalesReportToDate] = useState<string>("");
   const [salesReportItemId, setSalesReportItemId] = useState<string | null>(null);
-  const [salesReportLocationText, setSalesReportLocationText] = useState<string>("");
+  const [salesReportCollectionPointId, setSalesReportCollectionPointId] = useState<string | null>(
+    null,
+  );
   const [salesReportRows, setSalesReportRows] = useState<SalesReportRow[]>([]);
   const [salesReportSummary, setSalesReportSummary] = useState<
     SalesReportResponse["summary"] | null
@@ -748,7 +829,9 @@ export const App = ({
   const salesReportRequestRef = useRef<number>(0);
   const [cashflowReportFromDate, setCashflowReportFromDate] = useState<string>("");
   const [cashflowReportToDate, setCashflowReportToDate] = useState<string>("");
-  const [cashflowReportLocationText, setCashflowReportLocationText] = useState<string>("");
+  const [cashflowReportCollectionPointId, setCashflowReportCollectionPointId] = useState<
+    string | null
+  >(null);
   const [cashflowReportRows, setCashflowReportRows] = useState<CashflowReportRow[]>([]);
   const [cashflowReportSummary, setCashflowReportSummary] = useState<
     CashflowReportResponse["summary"] | null
@@ -782,6 +865,7 @@ export const App = ({
     useState<Record<ManagerPanelKey, boolean>>(createClosedManagerPanels);
   const [loadedManagerPanels, setLoadedManagerPanels] =
     useState<Record<ManagerPanelKey, boolean>>(createClosedManagerPanels);
+  const [activeReportPanel, setActiveReportPanel] = useState<ManagerPanelKey | null>(null);
 
   const [ledgerPersonId, setLedgerPersonId] = useState<string | null>(null);
   const [ledgerBalance, setLedgerBalance] = useState<LedgerBalance | null>(null);
@@ -836,6 +920,7 @@ export const App = ({
   const [staffUsers, setStaffUsers] = useState<StaffUserRecord[]>([]);
   const [staffUsersLoading, setStaffUsersLoading] = useState<boolean>(false);
   const [staffUsersError, setStaffUsersError] = useState<string | null>(null);
+  const [usersCreateMode, setUsersCreateMode] = useState<boolean>(false);
   const [createUserUsername, setCreateUserUsername] = useState<string>("");
   const [createUserRole, setCreateUserRole] = useState<"user" | "administrator">("user");
   const [createUserPasscode, setCreateUserPasscode] = useState<string>("");
@@ -859,6 +944,13 @@ export const App = ({
     }
     return people.find((person) => person.id === selectedPersonId) ?? null;
   }, [people, selectedPersonId]);
+  const intakeDraftHasContent = intakeLines.length > 0 || intakeDraftWeightKg.trim().length > 0;
+  const saleDraftHasContent = saleLines.some((line) => line.quantity.trim().length > 0);
+  const personHasTransactionInProgress = (personId: string): boolean =>
+    (intakePersonId === personId && intakeDraftHasContent) ||
+    (salePersonId === personId && saleDraftHasContent);
+  const selectedPersonTransactionInProgress =
+    selectedPerson !== null && personHasTransactionInProgress(selectedPerson.id);
   const canRecordSales = sessionUser?.role === "user" || sessionUser?.role === "administrator";
   const canRemovePerson = sessionUser?.role === "administrator";
   const canManageInventory = sessionUser?.role === "administrator";
@@ -869,6 +961,63 @@ export const App = ({
   const showProcurementPanel = canManageInventory && activeView === "shop-procurement";
   const showExpensePanel = canManageInventory && activeView === "shop-expense";
   const showLedgerPanel = canManageInventory && activeView === "collection-log";
+  const isInSessionSection = activeView === "collection-log" || activeView === "shop-sale";
+  const sessionCollectionPointName =
+    collectionPoints.find((collectionPoint) => collectionPoint.id === sessionCollectionPointId)
+      ?.name ?? null;
+  const collectionPointNameById = useMemo(
+    () =>
+      new Map(
+        collectionPoints.map((collectionPoint) => [collectionPoint.id, collectionPoint.name]),
+      ),
+    [collectionPoints],
+  );
+  const assignedLocationLabel = (assignedCollectionPointId: string | null | undefined): string =>
+    assignedCollectionPointId === null || assignedCollectionPointId === undefined
+      ? "Unassigned"
+      : (collectionPointNameById.get(assignedCollectionPointId) ?? assignedCollectionPointId);
+  const locationMismatchPerson = useMemo(
+    () => allPeople.find((person) => person.id === locationMismatchPersonId) ?? null,
+    [allPeople, locationMismatchPersonId],
+  );
+  const selectedIntakePerson = useMemo(
+    () => allPeople.find((person) => person.id === intakePersonId) ?? null,
+    [allPeople, intakePersonId],
+  );
+  const selectedIntakeMaterial = useMemo(
+    () => materials.find((material) => material.id === intakeDraftMaterialId) ?? null,
+    [materials, intakeDraftMaterialId],
+  );
+  const intakeLocalSuggestions = useMemo(
+    () =>
+      filterLocalPersonSuggestions(
+        allPeople,
+        intakePersonSearchQuery,
+        sessionCollectionPointId ?? "",
+      ),
+    [allPeople, intakePersonSearchQuery, sessionCollectionPointId],
+  );
+  const intakeCanOfferBroaderSearch = shouldOfferBroaderPersonSearch(
+    intakeLocalSuggestions.length,
+    intakePersonSearchQuery,
+  );
+  const selectedSalePerson = useMemo(
+    () => allPeople.find((person) => person.id === salePersonId) ?? null,
+    [allPeople, salePersonId],
+  );
+  const saleLocalSuggestions = useMemo(
+    () =>
+      filterLocalPersonSuggestions(
+        allPeople,
+        salePersonSearchQuery,
+        sessionCollectionPointId ?? "",
+      ),
+    [allPeople, salePersonSearchQuery, sessionCollectionPointId],
+  );
+  const saleCanOfferBroaderSearch = shouldOfferBroaderPersonSearch(
+    saleLocalSuggestions.length,
+    salePersonSearchQuery,
+  );
   const isManagerPanelOpen = (panel: ManagerPanelKey): boolean => openManagerPanels[panel];
   const selectedReconciliationIssue = useMemo(
     () =>
@@ -908,6 +1057,108 @@ export const App = ({
       }, 0),
     [intakeLinePreviews],
   );
+
+  useEffect(() => {
+    if (selectedIntakeMaterial === null) {
+      setSelectedIntakeMaterialImageSrc(null);
+      return;
+    }
+    if (
+      selectedIntakeMaterial.imageUpdatedAt === null ||
+      selectedIntakeMaterial.imageUpdatedAt === undefined ||
+      brokenMaterialImageIds.includes(selectedIntakeMaterial.id)
+    ) {
+      setSelectedIntakeMaterialImageSrc(null);
+      return;
+    }
+
+    let cancelled = false;
+    let objectUrl: string | null = null;
+
+    const loadMaterialImage = async (): Promise<void> => {
+      try {
+        const image = await materialsClient.readMaterialImage(selectedIntakeMaterial.id);
+        const nextObjectUrl = URL.createObjectURL(image.blob);
+        if (cancelled) {
+          URL.revokeObjectURL(nextObjectUrl);
+          return;
+        }
+        objectUrl = nextObjectUrl;
+        setSelectedIntakeMaterialImageSrc(nextObjectUrl);
+      } catch {
+        if (!cancelled) {
+          setSelectedIntakeMaterialImageSrc(null);
+          setBrokenMaterialImageIds((previous) =>
+            previous.includes(selectedIntakeMaterial.id)
+              ? previous
+              : [...previous, selectedIntakeMaterial.id],
+          );
+        }
+      }
+    };
+
+    void loadMaterialImage();
+
+    return () => {
+      cancelled = true;
+      if (objectUrl !== null) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [brokenMaterialImageIds, materialsClient, selectedIntakeMaterial]);
+
+  useEffect(() => {
+    if (activeView !== "materials-manage") {
+      return;
+    }
+    let cancelled = false;
+    const objectUrls: string[] = [];
+
+    const loadMaterialImages = async (): Promise<void> => {
+      const entries = await Promise.all(
+        materials
+          .filter(
+            (material) =>
+              material.imageUpdatedAt !== null &&
+              material.imageUpdatedAt !== undefined &&
+              !brokenMaterialImageIds.includes(material.id),
+          )
+          .map(async (material): Promise<readonly [string, string] | null> => {
+            try {
+              const image = await materialsClient.readMaterialImage(material.id);
+              return [material.id, URL.createObjectURL(image.blob)] as const;
+            } catch {
+              return null;
+            }
+          }),
+      );
+      if (cancelled) {
+        entries.forEach((entry) => {
+          if (entry !== null) {
+            URL.revokeObjectURL(entry[1]);
+          }
+        });
+        return;
+      }
+      const nextMap: Record<string, string> = {};
+      entries.forEach((entry) => {
+        if (entry !== null) {
+          nextMap[entry[0]] = entry[1];
+          objectUrls.push(entry[1]);
+        }
+      });
+      setMaterialManageImageSrcById(nextMap);
+    };
+
+    void loadMaterialImages();
+
+    return () => {
+      cancelled = true;
+      objectUrls.forEach((url) => {
+        URL.revokeObjectURL(url);
+      });
+    };
+  }, [activeView, brokenMaterialImageIds, materials, materialsClient]);
 
   useEffect(() => {
     if (!intakeSuccess) return;
@@ -951,6 +1202,15 @@ export const App = ({
   );
 
   const loadPeople = async (searchText?: string): Promise<void> => {
+    if (
+      searchText !== undefined &&
+      searchText.trim().length > 0 &&
+      searchText.trim().length < MIN_PERSON_SEARCH_QUERY_LENGTH
+    ) {
+      setPeople([]);
+      setPeopleError(null);
+      return;
+    }
     setPeopleLoading(true);
     setPeopleError(null);
     try {
@@ -985,12 +1245,70 @@ export const App = ({
     try {
       const next = await materialsClient.listMaterials();
       setMaterials(next);
+      setBrokenMaterialImageIds([]);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setMaterialsError(message);
     } finally {
       setMaterialsLoading(false);
     }
+  };
+
+  const loadCollectionPoints = async (): Promise<CollectionPointRecord[]> => {
+    const next = await collectionPointsClient.listCollectionPoints();
+    setCollectionPoints(next);
+    return next;
+  };
+
+  useEffect(() => {
+    if (activeView !== "reporting") {
+      return;
+    }
+    void loadCollectionPoints().catch(() => {
+      setCollectionPoints([]);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeView, collectionPointsClient]);
+
+  const enterSection = async (section: "collection" | "sales"): Promise<void> => {
+    const targetView: NavViewKey = section === "collection" ? "collection-log" : "shop-sale";
+    if (sessionCollectionPointId !== null && activeView === targetView) {
+      return;
+    }
+    setCollectionPointPromptLoading(true);
+    setCollectionPointPromptError(null);
+    try {
+      const points = await loadCollectionPoints();
+      const activePoints = points.filter((point) => point.isActive);
+      if (activePoints.length === 0) {
+        setCollectionPointPromptError("No active collection points are available.");
+        return;
+      }
+      setCollectionPointPromptOptions(activePoints);
+      setCollectionPointPromptSection(section);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setCollectionPointPromptError(
+        `Collection points could not be refreshed. Section entry is blocked while offline. (${message})`,
+      );
+    } finally {
+      setCollectionPointPromptLoading(false);
+    }
+  };
+
+  const selectSessionCollectionPoint = (collectionPointId: string): void => {
+    if (collectionPointPromptSection === null) {
+      return;
+    }
+    setSessionCollectionPointId(collectionPointId);
+    setActiveView(collectionPointPromptSection === "collection" ? "collection-log" : "shop-sale");
+    setCollectionPointPromptSection(null);
+    setCollectionPointPromptOptions([]);
+  };
+
+  const exitSection = (): void => {
+    setSessionCollectionPointId(null);
+    setActiveView("person-search");
   };
 
   const loadItems = async (): Promise<void> => {
@@ -1105,7 +1423,7 @@ export const App = ({
   const loadMaterialsCollectedReport = async (filters?: {
     fromDate?: string | null;
     toDate?: string | null;
-    locationText?: string | null;
+    collectionPointId?: string | null;
     materialTypeId?: string | null;
   }): Promise<void> => {
     materialsReportRequestRef.current += 1;
@@ -1218,7 +1536,7 @@ export const App = ({
   const loadSalesReport = async (filters?: {
     fromDate?: string | null;
     toDate?: string | null;
-    locationText?: string | null;
+    collectionPointId?: string | null;
     itemId?: string | null;
   }): Promise<void> => {
     salesReportRequestRef.current += 1;
@@ -1251,7 +1569,7 @@ export const App = ({
   const loadCashflowReport = async (filters?: {
     fromDate?: string | null;
     toDate?: string | null;
-    locationText?: string | null;
+    collectionPointId?: string | null;
   }): Promise<void> => {
     cashflowReportRequestRef.current += 1;
     const requestId = cashflowReportRequestRef.current;
@@ -1423,26 +1741,13 @@ export const App = ({
     if (firstPerson === undefined) {
       return;
     }
-    if (intakePersonId === null) {
-      setIntakePersonId(firstPerson.id);
-    }
     if (ledgerPersonId === null) {
       setLedgerPersonId(firstPerson.id);
-    }
-    if (salePersonId === null) {
-      setSalePersonId(firstPerson.id);
     }
     if (pointsAdjustmentPersonId === null) {
       setPointsAdjustmentPersonId(firstPerson.id);
     }
-  }, [
-    sessionStatus,
-    intakePersonId,
-    ledgerPersonId,
-    allPeople,
-    pointsAdjustmentPersonId,
-    salePersonId,
-  ]);
+  }, [sessionStatus, ledgerPersonId, allPeople, pointsAdjustmentPersonId]);
 
   useEffect(() => {
     const selected = staffUsers.find((user) => user.id === editUserId) ?? null;
@@ -1460,27 +1765,6 @@ export const App = ({
     void loadLedger(ledgerPersonId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionStatus, ledgerPersonId]);
-
-  useEffect(() => {
-    if (materials.length === 0) {
-      return;
-    }
-    const defaultMaterialId = materials[0]?.id ?? null;
-    if (defaultMaterialId === null) {
-      return;
-    }
-    setIntakeLines((previous) =>
-      previous.map((line) => {
-        if (line.materialTypeId !== null) {
-          return line;
-        }
-        return {
-          ...line,
-          materialTypeId: defaultMaterialId,
-        };
-      }),
-    );
-  }, [materials]);
 
   useEffect(() => {
     if (items.length === 0) {
@@ -1531,12 +1815,22 @@ export const App = ({
     setPeople([]);
     setAllPeople([]);
     setMaterials([]);
+    setSelectedIntakeMaterialImageSrc(null);
+    setBrokenMaterialImageIds([]);
+    setCollectionPoints([]);
+    setSessionCollectionPointId(null);
+    setCollectionPointPromptSection(null);
+    setCollectionPointPromptOptions([]);
+    setCollectionPointPromptError(null);
+    setActiveView("person-search");
     setItems([]);
     setSelectedPersonId(null);
     setLedgerPersonId(null);
     setSalePersonId(null);
     setSaleLines([createSaleDraftLine()]);
-    setProcurementLines([createProcurementDraftLine()]);
+    const logoutProcurementLine = createProcurementDraftLine();
+    setProcurementLines([logoutProcurementLine]);
+    setExpandedProcurementLineId(logoutProcurementLine.lineId);
     setProcurementSupplierName("");
     setProcurementTripDistanceKm("");
     setProcurementDate(new Date().toISOString().slice(0, 10));
@@ -1596,6 +1890,7 @@ export const App = ({
           phone: toNullableOrUndefined(createPhone) ?? null,
           address: toNullableOrUndefined(createAddress) ?? null,
           notes: toNullableOrUndefined(createNotes) ?? null,
+          assignedCollectionPointId: sessionCollectionPointId,
         }),
       );
       triggerDeferredSync({
@@ -1624,6 +1919,10 @@ export const App = ({
   const handleEdit = async (): Promise<void> => {
     if (queue === null || sessionUser === null || selectedPerson === null) {
       setEditError("Select a person to edit");
+      return;
+    }
+    if (personHasTransactionInProgress(selectedPerson.id)) {
+      setEditError("This person has a transaction in progress and cannot be edited right now.");
       return;
     }
     const updates: {
@@ -1708,6 +2007,61 @@ export const App = ({
     }
   };
 
+  const checkLocationMismatch = (personId: string | null): void => {
+    if (personId === null) {
+      return;
+    }
+    const person = allPeople.find((candidate) => candidate.id === personId) ?? null;
+    if (
+      person !== null &&
+      personAssignedLocationMismatches(person.assignedCollectionPointId, sessionCollectionPointId)
+    ) {
+      setLocationMismatchError(null);
+      setLocationMismatchPersonId(personId);
+    }
+  };
+
+  const handleSelectIntakePerson = (personId: string | null): void => {
+    setIntakePersonId(personId);
+    checkLocationMismatch(personId);
+  };
+
+  const handleSelectSalePerson = (personId: string | null): void => {
+    setSalePersonId(personId);
+    checkLocationMismatch(personId);
+  };
+
+  const handleConfirmLocationMismatchUpdate = async (): Promise<void> => {
+    if (
+      queue === null ||
+      sessionUser === null ||
+      locationMismatchPersonId === null ||
+      sessionCollectionPointId === null
+    ) {
+      return;
+    }
+    setLocationMismatchPending(true);
+    setLocationMismatchError(null);
+    try {
+      await queue.enqueue(
+        buildUpdatePersonEvent(sessionUser, locationMismatchPersonId, {
+          assignedCollectionPointId: sessionCollectionPointId,
+        }),
+      );
+      triggerDeferredSync({
+        onAccepted: async () => {
+          await loadAllPeople();
+        },
+      });
+      setLocationMismatchPersonId(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setLocationMismatchError(message);
+    } finally {
+      setLocationMismatchPending(false);
+    }
+  };
+
   const handleRemovePerson = async (): Promise<void> => {
     if (selectedPerson === null) {
       setRemoveError("No person selected");
@@ -1743,6 +2097,62 @@ export const App = ({
     } finally {
       setRemovePending(false);
     }
+  };
+
+  const handleChangeIntakePerson = (): void => {
+    setIntakePersonId(null);
+    setIntakePersonSearchQuery("");
+    setIntakeBroaderResults(null);
+  };
+
+  const handleSearchBroaderIntakePeople = (): void => {
+    setIntakeBroaderResults(filterGlobalPersonSuggestions(allPeople, intakePersonSearchQuery));
+  };
+
+  const handleChangeSalePerson = (): void => {
+    setSalePersonId(null);
+    setSalePersonSearchQuery("");
+    setSaleBroaderResults(null);
+  };
+
+  const handleSearchBroaderSalePeople = (): void => {
+    setSaleBroaderResults(filterGlobalPersonSuggestions(allPeople, salePersonSearchQuery));
+  };
+
+  const handleAddIntakeEntry = (): void => {
+    if (intakeDraftMaterialId === null) {
+      setIntakeError("Select a material to add");
+      return;
+    }
+    const weight = Number.parseFloat(intakeDraftWeightKg);
+    if (!Number.isFinite(weight) || weight <= 0) {
+      setIntakeError("Each line weight must be greater than 0");
+      return;
+    }
+    setIntakeError(null);
+    setIntakeLines((previous) => {
+      const existing = previous.find((line) => line.materialTypeId === intakeDraftMaterialId);
+      if (existing === undefined) {
+        return [
+          ...previous,
+          {
+            lineId: crypto.randomUUID(),
+            materialTypeId: intakeDraftMaterialId,
+            weightKg: String(weight),
+          },
+        ];
+      }
+      const existingWeight = Number.parseFloat(existing.weightKg);
+      const nextWeight = (Number.isFinite(existingWeight) ? existingWeight : 0) + weight;
+      return previous.map((line) =>
+        line.lineId === existing.lineId ? { ...line, weightKg: String(nextWeight) } : line,
+      );
+    });
+    setIntakeDraftWeightKg("");
+  };
+
+  const handleRemoveIntakeEntry = (lineId: string): void => {
+    setIntakeLines((previous) => previous.filter((line) => line.lineId !== lineId));
   };
 
   const handleRecordIntake = async (): Promise<void> => {
@@ -1795,6 +2205,7 @@ export const App = ({
         buildIntakeRecordedEvent(sessionUser, {
           personId: intakePersonId,
           lines,
+          collectionPointId: sessionCollectionPointId,
         }),
       );
       triggerDeferredSync({
@@ -1803,15 +2214,10 @@ export const App = ({
         },
       });
       setLedgerPersonId(intakePersonId);
-      setIntakePersonId(null);
-      setIntakeLines([createIntakeDraftLine(materials[0]?.id ?? null)]);
-      setIntakeSuccess(true);
-      return;
-      await sync.syncNow();
-      await loadLedger(intakePersonId ?? "");
-      setLedgerPersonId(intakePersonId);
-      setIntakePersonId(null);
-      setIntakeLines([createIntakeDraftLine(materials[0]?.id ?? null)]);
+      handleChangeIntakePerson();
+      setIntakeLines([]);
+      setIntakeDraftMaterialId(null);
+      setIntakeDraftWeightKg("");
       setIntakeSuccess(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1819,6 +2225,41 @@ export const App = ({
     } finally {
       setIntakePending(false);
     }
+  };
+
+  const handleSubmitSaleAdjustment = async (
+    saleEventId: string,
+    personId: string,
+    note: string,
+  ): Promise<void> => {
+    if (note.trim().length === 0) {
+      return;
+    }
+    setSaleAdjustmentPending(true);
+    setSaleAdjustmentError(null);
+    try {
+      await saleAdjustmentRequestsClient.requestAdjustment({
+        saleEventId,
+        personId,
+        note: note.trim(),
+      });
+      setSaleAdjustmentNote("");
+      setSaleAdjustmentSuccess(true);
+      setSaleLastSaleEventId(null);
+      setSaleLastSalePersonId(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSaleAdjustmentError(message);
+    } finally {
+      setSaleAdjustmentPending(false);
+    }
+  };
+
+  const handleRetrySaleAdjustment = (): void => {
+    if (saleLastSaleEventId === null || saleLastSalePersonId === null) {
+      return;
+    }
+    void handleSubmitSaleAdjustment(saleLastSaleEventId, saleLastSalePersonId, saleAdjustmentNote);
   };
 
   const handleRecordSale = async (): Promise<void> => {
@@ -1923,26 +2364,27 @@ export const App = ({
     setSaleError(null);
     setSaleSuccess(null);
     try {
-      await queue.enqueue(
-        buildSaleRecordedEvent(sessionUser, {
-          personId: salePersonId,
-          lines: eventLines,
-        }),
-      );
+      const saleEvent = buildSaleRecordedEvent(sessionUser, {
+        personId: salePersonId,
+        lines: eventLines,
+        collectionPointId: sessionCollectionPointId,
+      });
+      await queue.enqueue(saleEvent);
       triggerDeferredSync({
         onAccepted: async () => {
           await Promise.all([loadInventory(), loadLedger(salePersonId)]);
         },
       });
+      const noteAtCheckout = saleAdjustmentNote;
       setLedgerPersonId(salePersonId);
       setSaleLines([createSaleDraftLine(items[0]?.id ?? null)]);
       setSaleSuccess("Sale recorded successfully");
-      return;
-      await sync.syncNow();
-      await Promise.all([loadInventory(), loadLedger(salePersonId ?? "")]);
-      setLedgerPersonId(salePersonId);
-      setSaleLines([createSaleDraftLine(items[0]?.id ?? null)]);
-      setSaleSuccess("Sale recorded successfully");
+      setSaleAdjustmentSuccess(false);
+      setSaleLastSaleEventId(saleEvent.eventId);
+      setSaleLastSalePersonId(salePersonId);
+      if (noteAtCheckout.trim().length > 0) {
+        await handleSubmitSaleAdjustment(saleEvent.eventId, salePersonId, noteAtCheckout);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setSaleError(message);
@@ -2004,6 +2446,132 @@ export const App = ({
       setItemEditError(message);
     } finally {
       setItemEditPending(false);
+    }
+  };
+
+  const handleCreateCollectionPoint = async (): Promise<void> => {
+    if (!canManageInventory) {
+      setCollectionPointCreateError("You do not have permission to manage collection points");
+      return;
+    }
+    if (collectionPointCreateName.trim().length === 0) {
+      setCollectionPointCreateError("Name is required");
+      return;
+    }
+    setCollectionPointCreatePending(true);
+    setCollectionPointCreateError(null);
+    try {
+      await collectionPointsClient.createCollectionPoint({
+        name: collectionPointCreateName.trim(),
+      });
+      await loadCollectionPoints();
+      setCollectionPointCreateName("");
+      setCollectionPointCreateMode(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setCollectionPointCreateError(message);
+    } finally {
+      setCollectionPointCreatePending(false);
+    }
+  };
+
+  const handleSaveCollectionPointEdit = async (): Promise<void> => {
+    if (!canManageInventory) {
+      setCollectionPointEditError("You do not have permission to manage collection points");
+      return;
+    }
+    if (collectionPointEditingId === null) {
+      setCollectionPointEditError("No collection point selected");
+      return;
+    }
+    if (collectionPointEditName.trim().length === 0) {
+      setCollectionPointEditError("Name is required");
+      return;
+    }
+    setCollectionPointEditPending(true);
+    setCollectionPointEditError(null);
+    try {
+      await collectionPointsClient.updateCollectionPoint(collectionPointEditingId, {
+        updates: {
+          name: collectionPointEditName.trim(),
+          isActive: collectionPointEditIsActive,
+        },
+      });
+      await loadCollectionPoints();
+      setCollectionPointEditingId(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setCollectionPointEditError(message);
+    } finally {
+      setCollectionPointEditPending(false);
+    }
+  };
+
+  const handleCreateMaterial = async (): Promise<void> => {
+    if (!canManageInventory) {
+      setMaterialCreateError("You do not have permission to manage materials");
+      return;
+    }
+    if (materialCreateName.trim().length === 0) {
+      setMaterialCreateError("Name is required");
+      return;
+    }
+    const pointsPerKg = Number.parseFloat(materialCreatePointsPerKg);
+    if (!Number.isFinite(pointsPerKg) || pointsPerKg < 0) {
+      setMaterialCreateError("Points per kg must be 0 or greater");
+      return;
+    }
+    setMaterialCreatePending(true);
+    setMaterialCreateError(null);
+    try {
+      await materialsClient.createMaterial({ name: materialCreateName.trim(), pointsPerKg });
+      await loadMaterials();
+      setMaterialCreateName("");
+      setMaterialCreatePointsPerKg("");
+      setMaterialCreateMode(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setMaterialCreateError(message);
+    } finally {
+      setMaterialCreatePending(false);
+    }
+  };
+
+  const readFileAsBase64 = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result;
+        if (typeof result !== "string") {
+          reject(new Error("Failed to read file"));
+          return;
+        }
+        const commaIndex = result.indexOf(",");
+        resolve(commaIndex === -1 ? result : result.slice(commaIndex + 1));
+      };
+      reader.onerror = () => {
+        reject(new Error("Failed to read file"));
+      };
+      reader.readAsDataURL(file);
+    });
+
+  const handleUploadMaterialImage = async (materialTypeId: string, file: File): Promise<void> => {
+    setMaterialImageUploadingId(materialTypeId);
+    setMaterialImageUploadError(null);
+    try {
+      const dataBase64 = await readFileAsBase64(file);
+      await materialsClient.uploadMaterialImage(materialTypeId, {
+        contentType: file.type.length > 0 ? file.type : "application/octet-stream",
+        fileName: file.name,
+        dataBase64,
+      });
+      setBrokenMaterialImageIds((previous) => previous.filter((id) => id !== materialTypeId));
+      await loadMaterials();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setMaterialImageUploadError(message);
+    } finally {
+      setMaterialImageUploadingId(null);
     }
   };
 
@@ -2107,14 +2675,9 @@ export const App = ({
           await Promise.all([loadInventory(), loadProcurements(), loadItems()]);
         },
       });
-      setProcurementLines([createProcurementDraftLine()]);
-      setProcurementSupplierName("");
-      setProcurementTripDistanceKm("");
-      setProcurementDate(new Date().toISOString().slice(0, 10));
-      return;
-      await sync.syncNow();
-      await Promise.all([loadInventory(), loadProcurements()]);
-      setProcurementLines([createProcurementDraftLine()]);
+      const nextProcurementLine = createProcurementDraftLine();
+      setProcurementLines([nextProcurementLine]);
+      setExpandedProcurementLineId(nextProcurementLine.lineId);
       setProcurementSupplierName("");
       setProcurementTripDistanceKm("");
       setProcurementDate(new Date().toISOString().slice(0, 10));
@@ -2123,6 +2686,20 @@ export const App = ({
       setProcurementError(message);
     } finally {
       setProcurementPending(false);
+    }
+  };
+
+  const handleAddProcurementLine = (): void => {
+    const nextLine = createProcurementDraftLine();
+    setProcurementLines((previous) => [...previous, nextLine]);
+    setExpandedProcurementLineId(nextLine.lineId);
+  };
+
+  const handleRemoveProcurementLine = (lineId: string): void => {
+    const remaining = procurementLines.filter((entry) => entry.lineId !== lineId);
+    setProcurementLines(remaining);
+    if (expandedProcurementLineId === lineId) {
+      setExpandedProcurementLineId(remaining[0]?.lineId ?? null);
     }
   };
 
@@ -2338,11 +2915,10 @@ export const App = ({
     }
     const fromDate = materialsReportFromDate.trim();
     const toDate = materialsReportToDate.trim();
-    const locationText = materialsReportLocationText.trim();
     await loadMaterialsCollectedReport({
       fromDate: fromDate.length > 0 ? fromDate : null,
       toDate: toDate.length > 0 ? toDate : null,
-      locationText: locationText.length > 0 ? locationText : null,
+      collectionPointId: materialsReportCollectionPointId,
       materialTypeId: materialsReportMaterialTypeId,
     });
   };
@@ -2388,11 +2964,10 @@ export const App = ({
     }
     const fromDate = salesReportFromDate.trim();
     const toDate = salesReportToDate.trim();
-    const locationText = salesReportLocationText.trim();
     await loadSalesReport({
       fromDate: fromDate.length > 0 ? fromDate : null,
       toDate: toDate.length > 0 ? toDate : null,
-      locationText: locationText.length > 0 ? locationText : null,
+      collectionPointId: salesReportCollectionPointId,
       itemId: salesReportItemId,
     });
   };
@@ -2404,11 +2979,10 @@ export const App = ({
     }
     const fromDate = cashflowReportFromDate.trim();
     const toDate = cashflowReportToDate.trim();
-    const locationText = cashflowReportLocationText.trim();
     await loadCashflowReport({
       fromDate: fromDate.length > 0 ? fromDate : null,
       toDate: toDate.length > 0 ? toDate : null,
-      locationText: locationText.length > 0 ? locationText : null,
+      collectionPointId: cashflowReportCollectionPointId,
     });
   };
 
@@ -2629,6 +3203,7 @@ export const App = ({
       setCreateUserUsername("");
       setCreateUserPasscode("");
       setCreateUserRole("user");
+      setUsersCreateMode(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setCreateUserError(message);
@@ -2660,6 +3235,7 @@ export const App = ({
       });
       await loadStaffUsers();
       setEditUserPasscode("");
+      setEditUserId(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setEditUserError(message);
@@ -2781,25 +3357,35 @@ export const App = ({
             <Button
               className="navActionButton"
               variant={activeView === "collection-log" ? "filled" : "light"}
+              loading={collectionPointPromptLoading}
               onClick={() => {
-                setActiveView("collection-log");
+                void enterSection("collection");
               }}
             >
               Log material collection
             </Button>
           </Stack>
           <Stack className="navGroup" gap="xs">
-            <Text className="navGroupTitle">Shop</Text>
+            <Text className="navGroupTitle">Sales</Text>
             <Button
               className="navActionButton"
               variant={activeView === "shop-sale" ? "filled" : "light"}
+              loading={collectionPointPromptLoading}
               onClick={() => {
-                setActiveView("shop-sale");
+                void enterSection("sales");
               }}
             >
               Record Sale
             </Button>
-            {canManageInventory ? (
+          </Stack>
+          {collectionPointPromptError !== null ? (
+            <Text c="red" size="xs">
+              {collectionPointPromptError}
+            </Text>
+          ) : null}
+          {canManageInventory ? (
+            <Stack className="navGroup" gap="xs">
+              <Text className="navGroupTitle">Administration</Text>
               <Button
                 className="navActionButton"
                 variant={activeView === "shop-procurement" ? "filled" : "light"}
@@ -2810,8 +3396,6 @@ export const App = ({
               >
                 Procurement
               </Button>
-            ) : null}
-            {canManageInventory ? (
               <Button
                 className="navActionButton"
                 variant={activeView === "shop-expense" ? "filled" : "light"}
@@ -2821,8 +3405,6 @@ export const App = ({
               >
                 Record Expense
               </Button>
-            ) : null}
-            {canManageInventory ? (
               <Button
                 className="navActionButton"
                 variant={activeView === "items-manage" ? "filled" : "light"}
@@ -2832,8 +3414,28 @@ export const App = ({
               >
                 Manage Items
               </Button>
-            ) : null}
-          </Stack>
+              <Button
+                className="navActionButton"
+                variant={activeView === "collection-points-manage" ? "filled" : "light"}
+                onClick={() => {
+                  setActiveView("collection-points-manage");
+                  void loadCollectionPoints();
+                }}
+              >
+                Collection Points
+              </Button>
+              <Button
+                className="navActionButton"
+                variant={activeView === "materials-manage" ? "filled" : "light"}
+                onClick={() => {
+                  setActiveView("materials-manage");
+                  void loadMaterials();
+                }}
+              >
+                Collected Materials
+              </Button>
+            </Stack>
+          ) : null}
           <Stack className="navGroup" gap="xs">
             <Group justify="space-between">
               <Text className="navGroupTitle">Adjustments</Text>
@@ -2841,49 +3443,15 @@ export const App = ({
                 <Badge color="red">{String(pendingAdjustmentCount)}</Badge>
               ) : null}
             </Group>
-            {canManageInventory ? (
-              <>
-                <Button
-                  className="navActionButton"
-                  variant={activeView === "adjustments-points-apply" ? "filled" : "light"}
-                  onClick={() => {
-                    setActiveView("adjustments-points-apply");
-                  }}
-                >
-                  Adjust points
-                </Button>
-                <Button
-                  className="navActionButton"
-                  variant={activeView === "adjustments-inventory-apply" ? "filled" : "light"}
-                  onClick={() => {
-                    setActiveView("adjustments-inventory-apply");
-                  }}
-                >
-                  Adjust inventory
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button
-                  className="navActionButton"
-                  variant={activeView === "adjustments-points-request" ? "filled" : "light"}
-                  onClick={() => {
-                    setActiveView("adjustments-points-request");
-                  }}
-                >
-                  Request points adjustment
-                </Button>
-                <Button
-                  className="navActionButton"
-                  variant={activeView === "adjustments-inventory-request" ? "filled" : "light"}
-                  onClick={() => {
-                    setActiveView("adjustments-inventory-request");
-                  }}
-                >
-                  Request inventory adjustment
-                </Button>
-              </>
-            )}
+            <Button
+              className="navActionButton"
+              variant={activeView.startsWith("adjustments") ? "filled" : "light"}
+              onClick={() => {
+                setActiveView("adjustments");
+              }}
+            >
+              Open Adjustments
+            </Button>
           </Stack>
           {canViewReports ? (
             <Stack className="navGroup" gap="xs">
@@ -2893,6 +3461,7 @@ export const App = ({
                 variant={activeView === "reporting" ? "filled" : "light"}
                 onClick={() => {
                   setActiveView("reporting");
+                  setActiveReportPanel(null);
                 }}
               >
                 Reports
@@ -2907,27 +3476,11 @@ export const App = ({
                 variant={activeView === "users-list" ? "filled" : "light"}
                 onClick={() => {
                   setActiveView("users-list");
+                  setUsersCreateMode(false);
+                  setEditUserId(null);
                 }}
               >
-                List all
-              </Button>
-              <Button
-                className="navActionButton"
-                variant={activeView === "users-create" ? "filled" : "light"}
-                onClick={() => {
-                  setActiveView("users-create");
-                }}
-              >
-                Add new user
-              </Button>
-              <Button
-                className="navActionButton"
-                variant={activeView === "users-edit" ? "filled" : "light"}
-                onClick={() => {
-                  setActiveView("users-edit");
-                }}
-              >
-                Rename and edit user
+                Users
               </Button>
             </Stack>
           ) : null}
@@ -2969,18 +3522,37 @@ export const App = ({
               <Title order={2}>
                 {activeView === "collection-log"
                   ? "Collection"
-                  : activeView.startsWith("shop-")
-                    ? "Shop"
-                    : activeView === "items-manage"
-                      ? "Manage Items"
-                      : activeView.startsWith("adjustments-")
-                        ? "Adjustments"
-                        : activeView === "reporting"
-                          ? "Reports"
-                          : activeView.startsWith("users-")
-                            ? "User Management"
-                            : "Person Registry"}
+                  : activeView === "shop-sale"
+                    ? "Sales"
+                    : activeView.startsWith("shop-")
+                      ? "Administration"
+                      : activeView === "items-manage"
+                        ? "Manage Items"
+                        : activeView === "collection-points-manage"
+                          ? "Collection Points"
+                          : activeView === "materials-manage"
+                            ? "Collected Materials"
+                            : activeView.startsWith("adjustments")
+                              ? "Adjustments"
+                              : activeView === "reporting"
+                                ? "Reports"
+                                : activeView.startsWith("users-")
+                                  ? "User Management"
+                                  : "Person Registry"}
               </Title>
+              {isInSessionSection ? (
+                <Group gap="xs">
+                  <Text size="sm">{`Collection point: ${sessionCollectionPointName ?? "none"}`}</Text>
+                  <Button
+                    className="navActionButton"
+                    variant="subtle"
+                    size="xs"
+                    onClick={exitSection}
+                  >
+                    Exit to main menu
+                  </Button>
+                </Group>
+              ) : null}
               <Text c="dimmed" size="sm">{`Pending events: ${String(sync.pendingCount)}`}</Text>
               <Text c="dimmed" size="sm">{`Last sync: ${sync.lastSyncAt ?? "never"}`}</Text>
               {sync.errorMessage !== null ? (
@@ -3022,6 +3594,12 @@ export const App = ({
                       </Button>
                     </Group>
                     {peopleError !== null ? <Text c="red">{peopleError}</Text> : null}
+                    {search.trim().length > 0 &&
+                    search.trim().length < MIN_PERSON_SEARCH_QUERY_LENGTH ? (
+                      <Text size="sm" c="dimmed">
+                        {`Type at least ${String(MIN_PERSON_SEARCH_QUERY_LENGTH)} characters to search.`}
+                      </Text>
+                    ) : null}
                     <Stack gap={4}>
                       {people.map((person) => (
                         <Group
@@ -3043,6 +3621,12 @@ export const App = ({
                           <Button
                             size="xs"
                             variant="subtle"
+                            disabled={personHasTransactionInProgress(person.id)}
+                            title={
+                              personHasTransactionInProgress(person.id)
+                                ? "This person has a transaction in progress and cannot be edited right now."
+                                : undefined
+                            }
                             onClick={() => {
                               setSelectedPersonId(person.id);
                               setEditName("");
@@ -3137,6 +3721,16 @@ export const App = ({
                     <Text size="sm" c="dimmed">
                       Select a person from the list to edit.
                     </Text>
+                  ) : selectedPersonTransactionInProgress ? (
+                    <Stack gap="xs">
+                      <Text size="sm">{`${selectedPerson.name} ${selectedPerson.surname}`}</Text>
+                      <Text size="sm" c="dimmed">
+                        {`Assigned location: ${assignedLocationLabel(selectedPerson.assignedCollectionPointId)}`}
+                      </Text>
+                      <Text size="sm" c="orange">
+                        This person has a transaction in progress and cannot be edited right now.
+                      </Text>
+                    </Stack>
                   ) : (
                     <Stack gap="xs">
                       <Text size="sm">{`${selectedPerson.name} ${selectedPerson.surname}`}</Text>
@@ -3148,6 +3742,9 @@ export const App = ({
                         size="sm"
                         c="dimmed"
                       >{`Phone: ${maskSensitiveValue(selectedPerson.phone)}`}</Text>
+                      <Text size="sm" c="dimmed">
+                        {`Assigned location: ${assignedLocationLabel(selectedPerson.assignedCollectionPointId)}`}
+                      </Text>
                       <Divider />
                       <Text size="xs" c="dimmed">
                         Enter only fields you want to change. Existing ID/phone stay masked by
@@ -3259,21 +3856,137 @@ export const App = ({
               </Stack>
             </Modal>
 
+            <Modal
+              opened={collectionPointPromptSection !== null}
+              onClose={() => {
+                setCollectionPointPromptSection(null);
+                setCollectionPointPromptOptions([]);
+              }}
+              title="Select collection point"
+            >
+              <Stack gap="sm">
+                <Text size="sm">
+                  Choose the collection point for this{" "}
+                  {collectionPointPromptSection === "collection" ? "collection" : "sales"} session.
+                  This stays locked until you exit the section.
+                </Text>
+                {collectionPointPromptOptions.map((collectionPoint) => (
+                  <Button
+                    key={collectionPoint.id}
+                    onClick={() => {
+                      selectSessionCollectionPoint(collectionPoint.id);
+                    }}
+                  >
+                    {collectionPoint.name}
+                  </Button>
+                ))}
+              </Stack>
+            </Modal>
+
+            <Modal
+              opened={locationMismatchPersonId !== null}
+              onClose={() => {
+                setLocationMismatchPersonId(null);
+                setLocationMismatchError(null);
+              }}
+              title="Update assigned location?"
+            >
+              <Stack gap="sm">
+                <Text size="sm">
+                  {`${locationMismatchPerson?.name ?? ""} ${locationMismatchPerson?.surname ?? ""} is currently assigned to ${assignedLocationLabel(locationMismatchPerson?.assignedCollectionPointId)}, which differs from this session's collection point (${sessionCollectionPointName ?? ""}). Update their assigned location?`}
+                </Text>
+                {locationMismatchError !== null ? (
+                  <Text c="red">{locationMismatchError}</Text>
+                ) : null}
+                <Group justify="flex-end">
+                  <Button
+                    variant="default"
+                    onClick={() => {
+                      setLocationMismatchPersonId(null);
+                      setLocationMismatchError(null);
+                    }}
+                  >
+                    Not now
+                  </Button>
+                  <Button
+                    loading={locationMismatchPending}
+                    onClick={() => {
+                      void handleConfirmLocationMismatchUpdate();
+                    }}
+                  >
+                    Update location
+                  </Button>
+                </Group>
+              </Stack>
+            </Modal>
+
             {activeView === "shop-sale" ? (
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
                   <Title order={4}>Record Sale</Title>
-                  <Select
-                    label="Sale Person"
-                    data={allPeople.map((person) => ({
-                      value: person.id,
-                      label: `${person.name} ${person.surname}`,
-                    }))}
-                    value={salePersonId}
-                    onChange={setSalePersonId}
-                    searchable
-                    clearable
-                  />
+                  {selectedSalePerson === null ? (
+                    <Stack gap="xs">
+                      <TextInput
+                        label="Search person"
+                        placeholder="Name or surname"
+                        value={salePersonSearchQuery}
+                        onChange={(event) => {
+                          setSalePersonSearchQuery(event.currentTarget.value);
+                          setSaleBroaderResults(null);
+                        }}
+                      />
+                      {salePersonSearchQuery.trim().length > 0 &&
+                      salePersonSearchQuery.trim().length < MIN_PERSON_SEARCH_QUERY_LENGTH ? (
+                        <Text size="sm" c="dimmed">
+                          {`Type at least ${String(MIN_PERSON_SEARCH_QUERY_LENGTH)} characters to search.`}
+                        </Text>
+                      ) : null}
+                      {saleLocalSuggestions.map((person) => (
+                        <Button
+                          key={person.id}
+                          variant="subtle"
+                          justify="flex-start"
+                          onClick={() => {
+                            handleSelectSalePerson(person.id);
+                          }}
+                        >
+                          {`${person.name} ${person.surname}`}
+                        </Button>
+                      ))}
+                      {saleCanOfferBroaderSearch ? (
+                        <Button variant="default" size="xs" onClick={handleSearchBroaderSalePeople}>
+                          Search other locations
+                        </Button>
+                      ) : null}
+                      {saleBroaderResults?.map((person) => (
+                        <Button
+                          key={person.id}
+                          variant="subtle"
+                          justify="flex-start"
+                          onClick={() => {
+                            handleSelectSalePerson(person.id);
+                          }}
+                        >
+                          {`${person.name} ${person.surname} — ${assignedLocationLabel(person.assignedCollectionPointId)}`}
+                        </Button>
+                      ))}
+                      {saleBroaderResults !== null && saleBroaderResults.length === 0 ? (
+                        <Text size="sm" c="dimmed">
+                          No people found at other locations.
+                        </Text>
+                      ) : null}
+                    </Stack>
+                  ) : (
+                    <Group justify="space-between" align="center">
+                      <Text size="sm">
+                        {`${selectedSalePerson.name} ${selectedSalePerson.surname} — Assigned location: ${assignedLocationLabel(selectedSalePerson.assignedCollectionPointId)}`}
+                      </Text>
+                      <Button variant="subtle" size="xs" onClick={handleChangeSalePerson}>
+                        Change person
+                      </Button>
+                    </Group>
+                  )}
+                  <Divider />
                   {saleLines.map((line, index) => {
                     const lineBatches = inventoryBatches.filter(
                       (batch) => batch.itemId === line.itemId && batch.quantities.shop > 0,
@@ -3385,6 +4098,38 @@ export const App = ({
                   >
                     Record Sale
                   </Button>
+                  <Divider />
+                  <Textarea
+                    label="Points / inventory adjustment request (optional)"
+                    placeholder="e.g. Item was out of stock, please refund points"
+                    value={saleAdjustmentNote}
+                    onChange={(event) => {
+                      setSaleAdjustmentNote(event.currentTarget.value);
+                      setSaleAdjustmentSuccess(false);
+                    }}
+                  />
+                  {saleAdjustmentSuccess ? (
+                    <Text c="green" size="sm">
+                      Adjustment request recorded.
+                    </Text>
+                  ) : null}
+                  {saleAdjustmentError !== null ? (
+                    <Stack gap={4}>
+                      <Text c="red" size="sm">
+                        {`Adjustment request could not be saved: ${saleAdjustmentError}`}
+                      </Text>
+                      {saleLastSaleEventId !== null ? (
+                        <Button
+                          size="xs"
+                          variant="default"
+                          onClick={handleRetrySaleAdjustment}
+                          loading={saleAdjustmentPending}
+                        >
+                          Retry adjustment request
+                        </Button>
+                      ) : null}
+                    </Stack>
+                  ) : null}
                 </Stack>
               </Card>
             ) : null}
@@ -3429,6 +4174,44 @@ export const App = ({
                         unitCostDerived !== null && hasValidMarkup
                           ? roundUpToNearest10Cents(unitCostDerived * (1 + markup / 100))
                           : null;
+                      if (line.lineId !== expandedProcurementLineId) {
+                        return (
+                          <Card key={line.lineId} withBorder radius="md" padding="sm">
+                            <Group justify="space-between">
+                              <Stack gap={2}>
+                                <Text size="sm" fw={500}>
+                                  {line.itemName.trim().length > 0
+                                    ? line.itemName
+                                    : `Line ${String(index + 1)}`}
+                                </Text>
+                                <Text size="xs" c="dimmed">
+                                  {`Cost per unit: ${unitCostDerived !== null ? unitCostDerived.toFixed(2) : "-"} | Selling price: ${sellingPriceDerived !== null ? sellingPriceDerived.toFixed(2) : "-"}`}
+                                </Text>
+                              </Stack>
+                              <Group gap="xs">
+                                <Button
+                                  size="xs"
+                                  variant="default"
+                                  onClick={() => {
+                                    setExpandedProcurementLineId(line.lineId);
+                                  }}
+                                >
+                                  Edit
+                                </Button>
+                                <Button
+                                  size="xs"
+                                  variant="default"
+                                  onClick={() => {
+                                    handleRemoveProcurementLine(line.lineId);
+                                  }}
+                                >
+                                  Remove
+                                </Button>
+                              </Group>
+                            </Group>
+                          </Card>
+                        );
+                      }
                       return (
                         <Card key={line.lineId} withBorder radius="md" padding="sm">
                           <Stack gap="xs">
@@ -3501,9 +4284,7 @@ export const App = ({
                               variant="default"
                               size="xs"
                               onClick={() => {
-                                setProcurementLines((previous) =>
-                                  previous.filter((entry) => entry.lineId !== line.lineId),
-                                );
+                                handleRemoveProcurementLine(line.lineId);
                               }}
                             >
                               Remove Procurement Line
@@ -3512,16 +4293,7 @@ export const App = ({
                         </Card>
                       );
                     })}
-                    <Button
-                      variant="light"
-                      size="xs"
-                      onClick={() => {
-                        setProcurementLines((previous) => [
-                          ...previous,
-                          createProcurementDraftLine(),
-                        ]);
-                      }}
-                    >
+                    <Button variant="light" size="xs" onClick={handleAddProcurementLine}>
                       Add Procurement Line
                     </Button>
                     <Text size="sm" c="dimmed">
@@ -3834,7 +4606,28 @@ export const App = ({
               </Card>
             ) : null}
 
-            {canViewReports && activeView === "reporting" ? (
+            {canViewReports && activeView === "reporting" && activeReportPanel === null ? (
+              <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                <Stack gap="sm">
+                  <Title order={4}>Reports</Title>
+                  {(Object.keys(REPORT_PANEL_LABELS) as ManagerPanelKey[]).map((panel) => (
+                    <Button
+                      key={panel}
+                      variant="light"
+                      onClick={() => {
+                        setActiveReportPanel(panel);
+                      }}
+                    >
+                      {REPORT_PANEL_LABELS[panel]}
+                    </Button>
+                  ))}
+                </Stack>
+              </Card>
+            ) : null}
+
+            {canViewReports &&
+            activeView === "reporting" &&
+            activeReportPanel === "reconciliation" ? (
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
                   <Group justify="space-between">
@@ -4004,7 +4797,9 @@ export const App = ({
               </Card>
             ) : null}
 
-            {canViewReports && activeView === "reporting" ? (
+            {canViewReports &&
+            activeView === "reporting" &&
+            activeReportPanel === "materialsReport" ? (
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
                   <Group justify="space-between">
@@ -4051,11 +4846,19 @@ export const App = ({
                         searchable
                         clearable
                       />
-                      <TextInput
-                        label="Location"
-                        value={materialsReportLocationText}
+                      <NativeSelect
+                        label="Collection Point"
+                        data={[
+                          { value: "", label: "" },
+                          ...collectionPoints.map((collectionPoint) => ({
+                            value: collectionPoint.id,
+                            label: collectionPoint.name,
+                          })),
+                        ]}
+                        value={materialsReportCollectionPointId ?? ""}
                         onChange={(event) => {
-                          setMaterialsReportLocationText(event.currentTarget.value);
+                          const value = event.currentTarget.value;
+                          setMaterialsReportCollectionPointId(value.length > 0 ? value : null);
                         }}
                       />
                     </SimpleGrid>
@@ -4119,7 +4922,9 @@ export const App = ({
               </Card>
             ) : null}
 
-            {canViewReports && activeView === "reporting" ? (
+            {canViewReports &&
+            activeView === "reporting" &&
+            activeReportPanel === "pointsLiability" ? (
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
                   <Group justify="space-between">
@@ -4206,7 +5011,9 @@ export const App = ({
               </Card>
             ) : null}
 
-            {canViewReports && activeView === "reporting" ? (
+            {canViewReports &&
+            activeView === "reporting" &&
+            activeReportPanel === "inventoryStatusReport" ? (
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
                   <Group justify="space-between">
@@ -4295,7 +5102,9 @@ export const App = ({
               </Card>
             ) : null}
 
-            {canViewReports && activeView === "reporting" ? (
+            {canViewReports &&
+            activeView === "reporting" &&
+            activeReportPanel === "inventoryStatusLog" ? (
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
                   <Group justify="space-between">
@@ -4415,7 +5224,7 @@ export const App = ({
               </Card>
             ) : null}
 
-            {canViewReports && activeView === "reporting" ? (
+            {canViewReports && activeView === "reporting" && activeReportPanel === "salesReport" ? (
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
                   <Group justify="space-between">
@@ -4462,11 +5271,19 @@ export const App = ({
                         searchable
                         clearable
                       />
-                      <TextInput
-                        label="Sales Location"
-                        value={salesReportLocationText}
+                      <NativeSelect
+                        label="Sales Collection Point"
+                        data={[
+                          { value: "", label: "" },
+                          ...collectionPoints.map((collectionPoint) => ({
+                            value: collectionPoint.id,
+                            label: collectionPoint.name,
+                          })),
+                        ]}
+                        value={salesReportCollectionPointId ?? ""}
                         onChange={(event) => {
-                          setSalesReportLocationText(event.currentTarget.value);
+                          const value = event.currentTarget.value;
+                          setSalesReportCollectionPointId(value.length > 0 ? value : null);
                         }}
                       />
                     </SimpleGrid>
@@ -4537,7 +5354,9 @@ export const App = ({
               </Card>
             ) : null}
 
-            {canViewReports && activeView === "reporting" ? (
+            {canViewReports &&
+            activeView === "reporting" &&
+            activeReportPanel === "cashflowReport" ? (
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
                   <Group justify="space-between">
@@ -4573,11 +5392,19 @@ export const App = ({
                           setCashflowReportToDate(event.currentTarget.value);
                         }}
                       />
-                      <TextInput
-                        label="Cashflow Location"
-                        value={cashflowReportLocationText}
+                      <NativeSelect
+                        label="Cashflow Collection Point"
+                        data={[
+                          { value: "", label: "" },
+                          ...collectionPoints.map((collectionPoint) => ({
+                            value: collectionPoint.id,
+                            label: collectionPoint.name,
+                          })),
+                        ]}
+                        value={cashflowReportCollectionPointId ?? ""}
                         onChange={(event) => {
-                          setCashflowReportLocationText(event.currentTarget.value);
+                          const value = event.currentTarget.value;
+                          setCashflowReportCollectionPointId(value.length > 0 ? value : null);
                         }}
                       />
                     </SimpleGrid>
@@ -4685,99 +5512,162 @@ export const App = ({
                         Collection saved successfully.
                       </Alert>
                     ) : null}
+                    {selectedIntakePerson === null ? (
+                      <Stack gap="xs">
+                        <TextInput
+                          label="Search person"
+                          placeholder="Name or surname"
+                          value={intakePersonSearchQuery}
+                          onChange={(event) => {
+                            setIntakePersonSearchQuery(event.currentTarget.value);
+                            setIntakeBroaderResults(null);
+                          }}
+                        />
+                        {intakePersonSearchQuery.trim().length > 0 &&
+                        intakePersonSearchQuery.trim().length < MIN_PERSON_SEARCH_QUERY_LENGTH ? (
+                          <Text size="sm" c="dimmed">
+                            {`Type at least ${String(MIN_PERSON_SEARCH_QUERY_LENGTH)} characters to search.`}
+                          </Text>
+                        ) : null}
+                        {intakeLocalSuggestions.map((person) => (
+                          <Button
+                            key={person.id}
+                            variant="subtle"
+                            justify="flex-start"
+                            onClick={() => {
+                              handleSelectIntakePerson(person.id);
+                            }}
+                          >
+                            {`${person.name} ${person.surname}`}
+                          </Button>
+                        ))}
+                        {intakeCanOfferBroaderSearch ? (
+                          <Button
+                            variant="default"
+                            size="xs"
+                            onClick={handleSearchBroaderIntakePeople}
+                          >
+                            Search other locations
+                          </Button>
+                        ) : null}
+                        {intakeBroaderResults?.map((person) => (
+                          <Button
+                            key={person.id}
+                            variant="subtle"
+                            justify="flex-start"
+                            onClick={() => {
+                              handleSelectIntakePerson(person.id);
+                            }}
+                          >
+                            {`${person.name} ${person.surname} — ${assignedLocationLabel(person.assignedCollectionPointId)}`}
+                          </Button>
+                        ))}
+                        {intakeBroaderResults !== null && intakeBroaderResults.length === 0 ? (
+                          <Text size="sm" c="dimmed">
+                            No people found at other locations.
+                          </Text>
+                        ) : null}
+                      </Stack>
+                    ) : (
+                      <Group justify="space-between" align="center">
+                        <Text size="sm">
+                          {`${selectedIntakePerson.name} ${selectedIntakePerson.surname} — Assigned location: ${assignedLocationLabel(selectedIntakePerson.assignedCollectionPointId)}`}
+                        </Text>
+                        <Button variant="subtle" size="xs" onClick={handleChangeIntakePerson}>
+                          Change person
+                        </Button>
+                      </Group>
+                    )}
+                    <Divider />
                     <Select
-                      label="Person"
-                      data={allPeople.map((person) => ({
-                        value: person.id,
-                        label: `${person.name} ${person.surname}`,
+                      label="Material"
+                      data={materials.map((material) => ({
+                        value: material.id,
+                        label: `${material.name} (${formatPointValue(material.pointsPerKg)} pts/kg)`,
                       }))}
-                      value={intakePersonId}
-                      onChange={setIntakePersonId}
-                      onFocus={() => {
+                      value={intakeDraftMaterialId}
+                      onChange={(nextValue) => {
+                        setIntakeDraftMaterialId(nextValue);
                         setIntakeSuccess(false);
                       }}
                       searchable
                       clearable
+                      disabled={materialsLoading}
                     />
-                    {intakeLines.map((line, index) => (
-                      <Card key={line.lineId} withBorder radius="md" padding="sm">
+                    {selectedIntakeMaterial !== null ? (
+                      <Card withBorder radius="md" padding="sm">
                         <Stack gap="xs">
-                          <Select
-                            label={`Material ${String(index + 1)}`}
-                            data={materials.map((material) => ({
-                              value: material.id,
-                              label: `${material.name} (${formatPointValue(material.pointsPerKg)} pts/kg)`,
-                            }))}
-                            value={line.materialTypeId}
-                            onChange={(nextValue) => {
-                              setIntakeLines((previous) =>
-                                previous.map((entry) =>
-                                  entry.lineId === line.lineId
-                                    ? {
-                                        ...entry,
-                                        materialTypeId: nextValue,
-                                      }
-                                    : entry,
-                                ),
-                              );
-                            }}
-                            onFocus={() => {
-                              setIntakeSuccess(false);
-                            }}
-                            searchable
-                            clearable
-                            disabled={materialsLoading}
-                          />
-                          <TextInput
-                            label={`Weight Kg ${String(index + 1)}`}
-                            placeholder="e.g. 2.9"
-                            value={line.weightKg}
-                            onChange={(event) => {
-                              const nextWeight = event.currentTarget.value;
-                              setIntakeLines((previous) =>
-                                previous.map((entry) =>
-                                  entry.lineId === line.lineId
-                                    ? {
-                                        ...entry,
-                                        weightKg: nextWeight,
-                                      }
-                                    : entry,
-                                ),
-                              );
-                            }}
-                            onFocus={() => {
-                              setIntakeSuccess(false);
-                            }}
-                          />
-                          <Text size="sm" c="dimmed">
-                            {`Line ${String(index + 1)} points: ${intakeLinePreviews[index] === null || intakeLinePreviews[index] === undefined ? "-" : formatPointValue(intakeLinePreviews[index])}`}
+                          <Text size="sm" fw={500}>
+                            {selectedIntakeMaterial.name}
                           </Text>
-                          <Button
-                            variant="default"
-                            size="xs"
-                            onClick={() => {
-                              setIntakeLines((previous) =>
-                                previous.filter((entry) => entry.lineId !== line.lineId),
-                              );
-                            }}
-                          >
-                            Remove Line
-                          </Button>
+                          {selectedIntakeMaterialImageSrc !== null ? (
+                            <img
+                              alt={`${selectedIntakeMaterial.name} material image`}
+                              src={selectedIntakeMaterialImageSrc}
+                              style={{
+                                width: "100%",
+                                maxWidth: "220px",
+                                height: "160px",
+                                objectFit: "cover",
+                                borderRadius: "8px",
+                              }}
+                              onError={() => {
+                                setBrokenMaterialImageIds((previous) =>
+                                  previous.includes(selectedIntakeMaterial.id)
+                                    ? previous
+                                    : [...previous, selectedIntakeMaterial.id],
+                                );
+                              }}
+                            />
+                          ) : (
+                            <Text size="sm" c="dimmed">
+                              No material image available
+                            </Text>
+                          )}
                         </Stack>
                       </Card>
-                    ))}
-                    <Button
-                      variant="light"
-                      size="xs"
-                      onClick={() => {
-                        setIntakeLines((previous) => [
-                          ...previous,
-                          createIntakeDraftLine(materials[0]?.id ?? null),
-                        ]);
+                    ) : null}
+                    <TextInput
+                      label="Weight (kg)"
+                      placeholder="e.g. 2.9"
+                      value={intakeDraftWeightKg}
+                      onChange={(event) => {
+                        setIntakeDraftWeightKg(event.currentTarget.value);
+                        setIntakeSuccess(false);
                       }}
-                    >
-                      Add Line
+                    />
+                    <Button variant="light" size="xs" onClick={handleAddIntakeEntry}>
+                      Add to Collection
                     </Button>
+                    <Divider />
+                    <Stack gap="xs">
+                      {intakeLines.map((line, index) => {
+                        const material =
+                          materials.find((entry) => entry.id === line.materialTypeId) ?? null;
+                        const preview = intakeLinePreviews[index];
+                        return (
+                          <Group key={line.lineId} justify="space-between" align="center">
+                            <Text size="sm">
+                              {`${material?.name ?? "Unknown material"}: ${line.weightKg} kg — ${preview === null || preview === undefined ? "-" : formatPointValue(preview)} pts`}
+                            </Text>
+                            <Button
+                              variant="default"
+                              size="xs"
+                              onClick={() => {
+                                handleRemoveIntakeEntry(line.lineId);
+                              }}
+                            >
+                              {`Remove ${material?.name ?? "entry"}`}
+                            </Button>
+                          </Group>
+                        );
+                      })}
+                      {intakeLines.length === 0 ? (
+                        <Text size="sm" c="dimmed">
+                          No materials added yet.
+                        </Text>
+                      ) : null}
+                    </Stack>
                     <Text size="sm" c="dimmed">
                       {`Total preview points: ${formatPointValue(intakeTotalPreviewPoints)}`}
                     </Text>
@@ -4848,9 +5738,65 @@ export const App = ({
             </SimpleGrid>
 
             <SimpleGrid cols={{ base: 1, lg: 2 }}>
+              {activeView === "adjustments" ? (
+                <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                  <Stack gap="sm">
+                    <Title order={4}>Adjustments</Title>
+                    {canManageInventory ? (
+                      <>
+                        <Button
+                          variant="light"
+                          onClick={() => {
+                            setActiveView("adjustments-points-apply");
+                          }}
+                        >
+                          Adjust points
+                        </Button>
+                        <Button
+                          variant="light"
+                          onClick={() => {
+                            setActiveView("adjustments-inventory-apply");
+                          }}
+                        >
+                          Adjust inventory
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button
+                          variant="light"
+                          onClick={() => {
+                            setActiveView("adjustments-points-request");
+                          }}
+                        >
+                          Request points adjustment
+                        </Button>
+                        <Button
+                          variant="light"
+                          onClick={() => {
+                            setActiveView("adjustments-inventory-request");
+                          }}
+                        >
+                          Request inventory adjustment
+                        </Button>
+                      </>
+                    )}
+                  </Stack>
+                </Card>
+              ) : null}
+
               {activeView === "adjustments-points-request" ? (
                 <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                   <Stack gap="sm">
+                    <Button
+                      variant="subtle"
+                      size="xs"
+                      onClick={() => {
+                        setActiveView("adjustments");
+                      }}
+                    >
+                      Back to Adjustments
+                    </Button>
                     <Title order={4}>Points Adjustment Request</Title>
                     <Select
                       label="Person"
@@ -4901,6 +5847,15 @@ export const App = ({
               {activeView === "adjustments-inventory-request" ? (
                 <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                   <Stack gap="sm">
+                    <Button
+                      variant="subtle"
+                      size="xs"
+                      onClick={() => {
+                        setActiveView("adjustments");
+                      }}
+                    >
+                      Back to Adjustments
+                    </Button>
                     <Title order={4}>Inventory Adjustment Request</Title>
                     <Select
                       label="Batch"
@@ -4962,6 +5917,15 @@ export const App = ({
               {activeView === "adjustments-points-apply" && canManageInventory ? (
                 <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                   <Stack gap="sm">
+                    <Button
+                      variant="subtle"
+                      size="xs"
+                      onClick={() => {
+                        setActiveView("adjustments");
+                      }}
+                    >
+                      Back to Adjustments
+                    </Button>
                     <Title order={4}>Adjust Points</Title>
                     <Button
                       variant="default"
@@ -5036,6 +6000,15 @@ export const App = ({
               {activeView === "adjustments-inventory-apply" && canManageInventory ? (
                 <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                   <Stack gap="sm">
+                    <Button
+                      variant="subtle"
+                      size="xs"
+                      onClick={() => {
+                        setActiveView("adjustments");
+                      }}
+                    >
+                      Back to Adjustments
+                    </Button>
                     <Title order={4}>Adjust Inventory</Title>
                     <Button
                       variant="default"
@@ -5275,124 +6248,426 @@ export const App = ({
                 </Card>
               ) : null}
 
+              {activeView === "collection-points-manage" && canManageInventory ? (
+                <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                  <Stack gap="sm">
+                    <Title order={4}>Collection Points</Title>
+                    {collectionPointCreateMode ? (
+                      <Stack gap="xs">
+                        <Title order={5}>New Collection Point</Title>
+                        <TextInput
+                          label="Name"
+                          value={collectionPointCreateName}
+                          onChange={(event) => {
+                            setCollectionPointCreateName(event.currentTarget.value);
+                          }}
+                        />
+                        {collectionPointCreateError !== null ? (
+                          <Text c="red">{collectionPointCreateError}</Text>
+                        ) : null}
+                        <Group>
+                          <Button
+                            loading={collectionPointCreatePending}
+                            onClick={() => {
+                              void handleCreateCollectionPoint();
+                            }}
+                          >
+                            Save Collection Point
+                          </Button>
+                          <Button
+                            variant="default"
+                            onClick={() => {
+                              setCollectionPointCreateMode(false);
+                              setCollectionPointCreateName("");
+                              setCollectionPointCreateError(null);
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </Group>
+                      </Stack>
+                    ) : collectionPointEditingId === null ? (
+                      <>
+                        <Button
+                          variant="light"
+                          size="xs"
+                          onClick={() => {
+                            setCollectionPointCreateMode(true);
+                            setCollectionPointCreateError(null);
+                          }}
+                        >
+                          New Collection Point
+                        </Button>
+                        {[...collectionPoints]
+                          .sort((a, b) => a.name.localeCompare(b.name))
+                          .map((point) => (
+                            <Card key={point.id} withBorder radius="md" padding="sm">
+                              <Group justify="space-between">
+                                <Stack gap={2}>
+                                  <Text size="sm" fw={500}>
+                                    {point.name}
+                                  </Text>
+                                  <Badge color={point.isActive ? "green" : "gray"}>
+                                    {point.isActive ? "Active" : "Inactive"}
+                                  </Badge>
+                                </Stack>
+                                <Button
+                                  size="xs"
+                                  variant="default"
+                                  onClick={() => {
+                                    setCollectionPointEditingId(point.id);
+                                    setCollectionPointEditName(point.name);
+                                    setCollectionPointEditIsActive(point.isActive);
+                                    setCollectionPointEditError(null);
+                                  }}
+                                >
+                                  Edit
+                                </Button>
+                              </Group>
+                            </Card>
+                          ))}
+                        {collectionPoints.length === 0 ? (
+                          <Text size="sm" c="dimmed">
+                            No collection points found.
+                          </Text>
+                        ) : null}
+                      </>
+                    ) : (
+                      <Stack gap="xs">
+                        <Title order={5}>
+                          {`Editing: ${
+                            collectionPoints.find((point) => point.id === collectionPointEditingId)
+                              ?.name ?? collectionPointEditingId
+                          }`}
+                        </Title>
+                        <TextInput
+                          label="Name"
+                          value={collectionPointEditName}
+                          onChange={(event) => {
+                            setCollectionPointEditName(event.currentTarget.value);
+                          }}
+                        />
+                        <Select
+                          label="Status"
+                          data={[
+                            { value: "active", label: "Active" },
+                            { value: "inactive", label: "Inactive" },
+                          ]}
+                          value={collectionPointEditIsActive ? "active" : "inactive"}
+                          onChange={(value) => {
+                            setCollectionPointEditIsActive(value === "active");
+                          }}
+                        />
+                        {collectionPointEditError !== null ? (
+                          <Text c="red">{collectionPointEditError}</Text>
+                        ) : null}
+                        <Group>
+                          <Button
+                            loading={collectionPointEditPending}
+                            onClick={() => {
+                              void handleSaveCollectionPointEdit();
+                            }}
+                          >
+                            Save Changes
+                          </Button>
+                          <Button
+                            variant="default"
+                            onClick={() => {
+                              setCollectionPointEditingId(null);
+                              setCollectionPointEditError(null);
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </Group>
+                      </Stack>
+                    )}
+                  </Stack>
+                </Card>
+              ) : null}
+
+              {activeView === "materials-manage" && canManageInventory ? (
+                <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                  <Stack gap="sm">
+                    <Title order={4}>Collected Materials</Title>
+                    {materialsError !== null ? <Text c="red">{materialsError}</Text> : null}
+                    {materialCreateMode ? (
+                      <Stack gap="xs">
+                        <Title order={5}>New Material</Title>
+                        <TextInput
+                          label="Name"
+                          value={materialCreateName}
+                          onChange={(event) => {
+                            setMaterialCreateName(event.currentTarget.value);
+                          }}
+                        />
+                        <TextInput
+                          label="Points per kg"
+                          value={materialCreatePointsPerKg}
+                          onChange={(event) => {
+                            setMaterialCreatePointsPerKg(event.currentTarget.value);
+                          }}
+                        />
+                        {materialCreateError !== null ? (
+                          <Text c="red">{materialCreateError}</Text>
+                        ) : null}
+                        <Group>
+                          <Button
+                            loading={materialCreatePending}
+                            onClick={() => {
+                              void handleCreateMaterial();
+                            }}
+                          >
+                            Save Material
+                          </Button>
+                          <Button
+                            variant="default"
+                            onClick={() => {
+                              setMaterialCreateMode(false);
+                              setMaterialCreateName("");
+                              setMaterialCreatePointsPerKg("");
+                              setMaterialCreateError(null);
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </Group>
+                      </Stack>
+                    ) : (
+                      <>
+                        <Button
+                          variant="light"
+                          size="xs"
+                          onClick={() => {
+                            setMaterialCreateMode(true);
+                            setMaterialCreateError(null);
+                          }}
+                        >
+                          New Material
+                        </Button>
+                        {materialImageUploadError !== null ? (
+                          <Text c="red">{materialImageUploadError}</Text>
+                        ) : null}
+                        {materials.map((material) => (
+                          <Card key={material.id} withBorder radius="md" padding="sm">
+                            <Stack gap="xs">
+                              <Text size="sm" fw={500}>
+                                {material.name}
+                              </Text>
+                              <Text size="xs" c="dimmed">
+                                {`${formatPointValue(material.pointsPerKg)} pts/kg`}
+                              </Text>
+                              {materialManageImageSrcById[material.id] !== undefined ? (
+                                <img
+                                  alt={`${material.name} material image`}
+                                  src={materialManageImageSrcById[material.id]}
+                                  style={{
+                                    width: "100%",
+                                    maxWidth: "160px",
+                                    height: "120px",
+                                    objectFit: "cover",
+                                    borderRadius: "8px",
+                                  }}
+                                  onError={() => {
+                                    setBrokenMaterialImageIds((previous) =>
+                                      previous.includes(material.id)
+                                        ? previous
+                                        : [...previous, material.id],
+                                    );
+                                  }}
+                                />
+                              ) : (
+                                <Text size="xs" c="dimmed">
+                                  No image uploaded
+                                </Text>
+                              )}
+                              <FileInput
+                                label="Upload image"
+                                placeholder="Choose file"
+                                accept="image/*"
+                                disabled={materialImageUploadingId === material.id}
+                                onChange={(file) => {
+                                  if (file !== null) {
+                                    void handleUploadMaterialImage(material.id, file);
+                                  }
+                                }}
+                              />
+                            </Stack>
+                          </Card>
+                        ))}
+                        {materials.length === 0 && !materialsLoading ? (
+                          <Text size="sm" c="dimmed">
+                            No materials found.
+                          </Text>
+                        ) : null}
+                      </>
+                    )}
+                  </Stack>
+                </Card>
+              ) : null}
+
               {activeView === "users-list" && canManageUsers ? (
                 <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                   <Stack gap="sm">
                     <Title order={4}>Users</Title>
-                    <Button
-                      variant="default"
-                      onClick={() => {
-                        void loadStaffUsers();
-                      }}
-                      loading={staffUsersLoading}
-                    >
-                      Refresh Users
-                    </Button>
-                    {staffUsersError !== null ? <Text c="red">{staffUsersError}</Text> : null}
-                    {staffUsers.map((user) => (
-                      <Card key={user.id} withBorder radius="md" padding="sm">
-                        <Text size="sm">{`${user.username} (${user.role})`}</Text>
-                      </Card>
-                    ))}
-                  </Stack>
-                </Card>
-              ) : null}
-
-              {activeView === "users-create" && canManageUsers ? (
-                <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
-                  <Stack gap="sm">
-                    <Title order={4}>Add User</Title>
-                    <TextInput
-                      label="Username"
-                      value={createUserUsername}
-                      onChange={(event) => {
-                        setCreateUserUsername(event.currentTarget.value);
-                      }}
-                    />
-                    <Select
-                      label="Role"
-                      data={[
-                        { value: "user", label: "user" },
-                        { value: "administrator", label: "administrator" },
-                      ]}
-                      value={createUserRole}
-                      onChange={(value) => {
-                        if (value === "user" || value === "administrator") {
-                          setCreateUserRole(value);
-                        }
-                      }}
-                    />
-                    <TextInput
-                      label="Passcode"
-                      value={createUserPasscode}
-                      onChange={(event) => {
-                        setCreateUserPasscode(event.currentTarget.value);
-                      }}
-                    />
-                    {createUserError !== null ? <Text c="red">{createUserError}</Text> : null}
-                    <Button
-                      onClick={() => {
-                        void handleCreateUser();
-                      }}
-                      loading={createUserPending}
-                    >
-                      Add new user
-                    </Button>
-                  </Stack>
-                </Card>
-              ) : null}
-
-              {activeView === "users-edit" && canManageUsers ? (
-                <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
-                  <Stack gap="sm">
-                    <Title order={4}>Rename and edit user</Title>
-                    <Select
-                      label="User"
-                      data={staffUsers.map((user) => ({
-                        value: user.id,
-                        label: `${user.username} (${user.role})`,
-                      }))}
-                      value={editUserId}
-                      onChange={setEditUserId}
-                      searchable
-                      clearable
-                    />
-                    <TextInput
-                      label="Username"
-                      value={editUserUsername}
-                      onChange={(event) => {
-                        setEditUserUsername(event.currentTarget.value);
-                      }}
-                    />
-                    <Select
-                      label="Role"
-                      data={[
-                        { value: "user", label: "user" },
-                        { value: "administrator", label: "administrator" },
-                      ]}
-                      value={editUserRole}
-                      onChange={(value) => {
-                        if (value === "user" || value === "administrator") {
-                          setEditUserRole(value);
-                        }
-                      }}
-                    />
-                    <TextInput
-                      label="New passcode (optional)"
-                      value={editUserPasscode}
-                      onChange={(event) => {
-                        setEditUserPasscode(event.currentTarget.value);
-                      }}
-                    />
-                    {editUserError !== null ? <Text c="red">{editUserError}</Text> : null}
-                    <Button
-                      onClick={() => {
-                        void handleUpdateUser();
-                      }}
-                      loading={editUserPending}
-                    >
-                      Rename and edit user
-                    </Button>
+                    {usersCreateMode ? (
+                      <Stack gap="xs">
+                        <Title order={5}>Add User</Title>
+                        <TextInput
+                          label="Username"
+                          value={createUserUsername}
+                          onChange={(event) => {
+                            setCreateUserUsername(event.currentTarget.value);
+                          }}
+                        />
+                        <Select
+                          label="Role"
+                          data={[
+                            { value: "user", label: "user" },
+                            { value: "administrator", label: "administrator" },
+                          ]}
+                          value={createUserRole}
+                          onChange={(value) => {
+                            if (value === "user" || value === "administrator") {
+                              setCreateUserRole(value);
+                            }
+                          }}
+                        />
+                        <TextInput
+                          label="Passcode"
+                          value={createUserPasscode}
+                          onChange={(event) => {
+                            setCreateUserPasscode(event.currentTarget.value);
+                          }}
+                        />
+                        {createUserError !== null ? <Text c="red">{createUserError}</Text> : null}
+                        <Group>
+                          <Button
+                            onClick={() => {
+                              void handleCreateUser();
+                            }}
+                            loading={createUserPending}
+                          >
+                            Add new user
+                          </Button>
+                          <Button
+                            variant="default"
+                            onClick={() => {
+                              setUsersCreateMode(false);
+                              setCreateUserUsername("");
+                              setCreateUserPasscode("");
+                              setCreateUserRole("user");
+                              setCreateUserError(null);
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </Group>
+                      </Stack>
+                    ) : editUserId !== null ? (
+                      <Stack gap="xs">
+                        <Title order={5}>
+                          {`Editing: ${
+                            staffUsers.find((user) => user.id === editUserId)?.username ??
+                            editUserId
+                          }`}
+                        </Title>
+                        <TextInput
+                          label="Username"
+                          value={editUserUsername}
+                          onChange={(event) => {
+                            setEditUserUsername(event.currentTarget.value);
+                          }}
+                        />
+                        <Select
+                          label="Role"
+                          data={[
+                            { value: "user", label: "user" },
+                            { value: "administrator", label: "administrator" },
+                          ]}
+                          value={editUserRole}
+                          onChange={(value) => {
+                            if (value === "user" || value === "administrator") {
+                              setEditUserRole(value);
+                            }
+                          }}
+                        />
+                        <TextInput
+                          label="New passcode (optional)"
+                          value={editUserPasscode}
+                          onChange={(event) => {
+                            setEditUserPasscode(event.currentTarget.value);
+                          }}
+                        />
+                        {editUserError !== null ? <Text c="red">{editUserError}</Text> : null}
+                        <Group>
+                          <Button
+                            onClick={() => {
+                              void handleUpdateUser();
+                            }}
+                            loading={editUserPending}
+                          >
+                            Save Changes
+                          </Button>
+                          <Button
+                            variant="default"
+                            onClick={() => {
+                              setEditUserId(null);
+                              setEditUserError(null);
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </Group>
+                      </Stack>
+                    ) : (
+                      <>
+                        <Group>
+                          <Button
+                            variant="default"
+                            onClick={() => {
+                              void loadStaffUsers();
+                            }}
+                            loading={staffUsersLoading}
+                          >
+                            Refresh Users
+                          </Button>
+                          <Button
+                            variant="light"
+                            onClick={() => {
+                              setUsersCreateMode(true);
+                              setCreateUserError(null);
+                            }}
+                          >
+                            Add
+                          </Button>
+                        </Group>
+                        {staffUsersError !== null ? <Text c="red">{staffUsersError}</Text> : null}
+                        {staffUsers.map((user) => (
+                          <Card key={user.id} withBorder radius="md" padding="sm">
+                            <Group justify="space-between">
+                              <Text size="sm">{`${user.username} (${user.role})`}</Text>
+                              <Button
+                                size="xs"
+                                variant="default"
+                                onClick={() => {
+                                  setEditUserId(user.id);
+                                  setEditUserPasscode("");
+                                  setEditUserError(null);
+                                }}
+                              >
+                                Edit
+                              </Button>
+                            </Group>
+                          </Card>
+                        ))}
+                        {staffUsers.length === 0 && !staffUsersLoading ? (
+                          <Text size="sm" c="dimmed">
+                            No users found.
+                          </Text>
+                        ) : null}
+                      </>
+                    )}
                   </Stack>
                 </Card>
               ) : null}

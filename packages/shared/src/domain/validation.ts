@@ -185,6 +185,7 @@ const EVENT_TYPES: EventType[] = [
   "person.removed",
   "material_type.created",
   "material_type.updated",
+  "material_type.image_set",
   "item.created",
   "item.updated",
   "staff_user.created",
@@ -199,6 +200,7 @@ const EVENT_TYPES: EventType[] = [
   "inventory.adjustment_applied",
   "points.adjustment_requested",
   "points.adjustment_applied",
+  "sale.adjustment_requested",
   "conflict.detected",
   "conflict.resolved",
 ];
@@ -230,6 +232,11 @@ const validatePersonCreatedPayload = (
   expectNullableString(payload.phone, `${path}.phone`, issues);
   expectNullableString(payload.address, `${path}.address`, issues);
   expectNullableString(payload.notes, `${path}.notes`, issues, { allowEmpty: true });
+  expectNullableString(
+    payload.assignedCollectionPointId,
+    `${path}.assignedCollectionPointId`,
+    issues,
+  );
   return true;
 };
 
@@ -281,6 +288,13 @@ const validatePersonProfileUpdatedPayload = (
   if ("notes" in updates) {
     expectNullableString(updates.notes, `${path}.updates.notes`, issues, { allowEmpty: true });
   }
+  if ("assignedCollectionPointId" in updates) {
+    expectNullableString(
+      updates.assignedCollectionPointId,
+      `${path}.updates.assignedCollectionPointId`,
+      issues,
+    );
+  }
   return true;
 };
 
@@ -321,6 +335,21 @@ const validateMaterialTypeUpdatedPayload = (
   if ("pointsPerKg" in updates) {
     expectTenthsPointNumber(updates.pointsPerKg, `${path}.updates.pointsPerKg`, issues, { min: 0 });
   }
+  return true;
+};
+
+const validateMaterialTypeImageSetPayload = (
+  payload: unknown,
+  issues: ValidationIssue[],
+  path: string,
+): payload is EventPayloadMap["material_type.image_set"] => {
+  if (!expectRecord(payload, path, issues)) {
+    return false;
+  }
+  expectString(payload.materialTypeId, `${path}.materialTypeId`, issues);
+  expectString(payload.contentType, `${path}.contentType`, issues);
+  expectNullableString(payload.fileName, `${path}.fileName`, issues);
+  expectNumber(payload.fileSizeBytes, `${path}.fileSizeBytes`, issues, { integer: true, min: 1 });
   return true;
 };
 
@@ -372,6 +401,57 @@ const validateItemUpdatedPayload = (
   }
   if ("sku" in updates) {
     expectNullableString(updates.sku, `${path}.updates.sku`, issues, { allowEmpty: true });
+  }
+  return true;
+};
+
+const expectBoolean = (
+  value: unknown,
+  path: string,
+  issues: ValidationIssue[],
+): value is boolean => {
+  if (typeof value !== "boolean") {
+    addIssue(issues, path, "Expected boolean");
+    return false;
+  }
+  return true;
+};
+
+const validateCollectionPointCreatedPayload = (
+  payload: unknown,
+  issues: ValidationIssue[],
+  path: string,
+): payload is EventPayloadMap["collection_point.created"] => {
+  if (!expectRecord(payload, path, issues)) {
+    return false;
+  }
+  expectString(payload.collectionPointId, `${path}.collectionPointId`, issues);
+  expectString(payload.name, `${path}.name`, issues);
+  return true;
+};
+
+const validateCollectionPointUpdatedPayload = (
+  payload: unknown,
+  issues: ValidationIssue[],
+  path: string,
+): payload is EventPayloadMap["collection_point.updated"] => {
+  if (!expectRecord(payload, path, issues)) {
+    return false;
+  }
+  expectString(payload.collectionPointId, `${path}.collectionPointId`, issues);
+  if (!expectRecord(payload.updates, `${path}.updates`, issues)) {
+    return false;
+  }
+  const updates = payload.updates;
+  const updateKeys = Object.keys(updates);
+  if (updateKeys.length === 0) {
+    addIssue(issues, `${path}.updates`, "Expected at least one field to update");
+  }
+  if ("name" in updates) {
+    expectString(updates.name, `${path}.updates.name`, issues);
+  }
+  if ("isActive" in updates) {
+    expectBoolean(updates.isActive, `${path}.updates.isActive`, issues);
   }
   return true;
 };
@@ -469,6 +549,7 @@ const validateIntakeRecordedPayload = (
     }
   }
   expectTenthsPointNumber(payload.totalPoints, `${path}.totalPoints`, issues, { min: 0 });
+  expectNullableString(payload.collectionPointId, `${path}.collectionPointId`, issues);
   return true;
 };
 
@@ -531,6 +612,7 @@ const validateSaleRecordedPayload = (
     }
   }
   expectTenthsPointNumber(payload.totalPoints, `${path}.totalPoints`, issues, { min: 0 });
+  expectNullableString(payload.collectionPointId, `${path}.collectionPointId`, issues);
   return true;
 };
 
@@ -744,6 +826,20 @@ const validatePointsAdjustmentAppliedPayload = (
   return true;
 };
 
+const validateSaleAdjustmentRequestedPayload = (
+  payload: unknown,
+  issues: ValidationIssue[],
+  path: string,
+): payload is EventPayloadMap["sale.adjustment_requested"] => {
+  if (!expectRecord(payload, path, issues)) {
+    return false;
+  }
+  expectString(payload.saleEventId, `${path}.saleEventId`, issues);
+  expectString(payload.personId, `${path}.personId`, issues);
+  expectString(payload.note, `${path}.note`, issues);
+  return true;
+};
+
 const validateConflictDetectedPayload = (
   payload: unknown,
   issues: ValidationIssue[],
@@ -826,11 +922,20 @@ export const validateEventPayload = <T extends EventType>(
     case "material_type.updated":
       validateMaterialTypeUpdatedPayload(payload, issues, "payload");
       break;
+    case "material_type.image_set":
+      validateMaterialTypeImageSetPayload(payload, issues, "payload");
+      break;
     case "item.created":
       validateItemCreatedPayload(payload, issues, "payload");
       break;
     case "item.updated":
       validateItemUpdatedPayload(payload, issues, "payload");
+      break;
+    case "collection_point.created":
+      validateCollectionPointCreatedPayload(payload, issues, "payload");
+      break;
+    case "collection_point.updated":
+      validateCollectionPointUpdatedPayload(payload, issues, "payload");
       break;
     case "staff_user.created":
       validateStaffUserCreatedPayload(payload, issues, "payload");
@@ -867,6 +972,9 @@ export const validateEventPayload = <T extends EventType>(
       break;
     case "points.adjustment_applied":
       validatePointsAdjustmentAppliedPayload(payload, issues, "payload");
+      break;
+    case "sale.adjustment_requested":
+      validateSaleAdjustmentRequestedPayload(payload, issues, "payload");
       break;
     case "conflict.detected":
       validateConflictDetectedPayload(payload, issues, "payload");

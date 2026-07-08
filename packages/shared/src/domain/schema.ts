@@ -47,6 +47,11 @@ const numberSchema = (options?: Partial<JsonSchema>): JsonSchema => ({
   ...options,
 });
 
+const booleanSchema = (options?: Partial<JsonSchema>): JsonSchema => ({
+  type: "boolean",
+  ...options,
+});
+
 const arraySchema = (items: JsonSchema, options?: Partial<JsonSchema>): JsonSchema => ({
   type: "array",
   items,
@@ -66,8 +71,11 @@ export const EVENT_TYPES: EventType[] = [
   "person.removed",
   "material_type.created",
   "material_type.updated",
+  "material_type.image_set",
   "item.created",
   "item.updated",
+  "collection_point.created",
+  "collection_point.updated",
   "staff_user.created",
   "staff_user.role_changed",
   "intake.recorded",
@@ -80,6 +88,7 @@ export const EVENT_TYPES: EventType[] = [
   "inventory.adjustment_applied",
   "points.adjustment_requested",
   "points.adjustment_applied",
+  "sale.adjustment_requested",
   "conflict.detected",
   "conflict.resolved",
 ];
@@ -102,6 +111,7 @@ const personCreatedSchema = objectSchema(
     phone: nullable(stringSchema()),
     address: nullable(stringSchema()),
     notes: nullable(stringSchema()),
+    assignedCollectionPointId: nullable(stringSchema()),
   },
   ["personId", "name", "surname"],
 );
@@ -117,6 +127,7 @@ const personProfileUpdatedSchema = objectSchema(
         phone: nullable(stringSchema()),
         address: nullable(stringSchema()),
         notes: nullable(stringSchema()),
+        assignedCollectionPointId: nullable(stringSchema()),
       },
       [],
     ),
@@ -155,6 +166,16 @@ const materialTypeUpdatedSchema = objectSchema(
   ["materialTypeId", "updates"],
 );
 
+const materialTypeImageSetSchema = objectSchema(
+  {
+    materialTypeId: stringSchema(),
+    contentType: stringSchema(),
+    fileName: nullable(stringSchema()),
+    fileSizeBytes: integerSchema({ minimum: 1 }),
+  },
+  ["materialTypeId", "contentType", "fileSizeBytes"],
+);
+
 const itemCreatedSchema = objectSchema(
   {
     itemId: stringSchema(),
@@ -180,6 +201,28 @@ const itemUpdatedSchema = objectSchema(
     ),
   },
   ["itemId", "updates"],
+);
+
+const collectionPointCreatedSchema = objectSchema(
+  {
+    collectionPointId: stringSchema(),
+    name: stringSchema(),
+  },
+  ["collectionPointId", "name"],
+);
+
+const collectionPointUpdatedSchema = objectSchema(
+  {
+    collectionPointId: stringSchema(),
+    updates: objectSchema(
+      {
+        name: stringSchema(),
+        isActive: booleanSchema(),
+      },
+      [],
+    ),
+  },
+  ["collectionPointId", "updates"],
 );
 
 const staffUserCreatedSchema = objectSchema(
@@ -215,6 +258,7 @@ const intakeRecordedSchema = objectSchema(
     personId: stringSchema(),
     lines: arraySchema(intakeLineSchema, { minItems: 1 }),
     totalPoints: numberSchema({ minimum: 0 }),
+    collectionPointId: nullable(stringSchema()),
   },
   ["personId", "lines", "totalPoints"],
 );
@@ -235,6 +279,7 @@ const saleRecordedSchema = objectSchema(
     personId: stringSchema(),
     lines: arraySchema(saleLineSchema, { minItems: 1 }),
     totalPoints: numberSchema({ minimum: 0 }),
+    collectionPointId: nullable(stringSchema()),
   },
   ["personId", "lines", "totalPoints"],
 );
@@ -350,6 +395,15 @@ const pointsAdjustmentAppliedSchema = objectSchema(
   ["personId", "deltaPoints", "reason"],
 );
 
+const saleAdjustmentRequestedSchema = objectSchema(
+  {
+    saleEventId: stringSchema(),
+    personId: stringSchema(),
+    note: stringSchema(),
+  },
+  ["saleEventId", "personId", "note"],
+);
+
 const conflictDetectedSchema = objectSchema(
   {
     conflictId: stringSchema(),
@@ -388,8 +442,11 @@ export const eventPayloadSchemas: Record<EventType, JsonSchema> = {
   "person.removed": personRemovedSchema,
   "material_type.created": materialTypeCreatedSchema,
   "material_type.updated": materialTypeUpdatedSchema,
+  "material_type.image_set": materialTypeImageSetSchema,
   "item.created": itemCreatedSchema,
   "item.updated": itemUpdatedSchema,
+  "collection_point.created": collectionPointCreatedSchema,
+  "collection_point.updated": collectionPointUpdatedSchema,
   "staff_user.created": staffUserCreatedSchema,
   "staff_user.role_changed": staffUserRoleChangedSchema,
   "intake.recorded": intakeRecordedSchema,
@@ -402,6 +459,7 @@ export const eventPayloadSchemas: Record<EventType, JsonSchema> = {
   "inventory.adjustment_applied": inventoryAdjustmentAppliedSchema,
   "points.adjustment_requested": pointsAdjustmentRequestedSchema,
   "points.adjustment_applied": pointsAdjustmentAppliedSchema,
+  "sale.adjustment_requested": saleAdjustmentRequestedSchema,
   "conflict.detected": conflictDetectedSchema,
   "conflict.resolved": conflictResolvedSchema,
 };

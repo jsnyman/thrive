@@ -82,6 +82,173 @@ describe("validateEventPayload", () => {
     expect(result.issues.some((issue) => issue.path.includes("pointsAwarded"))).toBe(true);
   });
 
+  test("accepts valid person.created payload with an assigned collection point", () => {
+    const result = validateEventPayload("person.created", {
+      personId: "person-1",
+      name: "Jane",
+      surname: "Doe",
+      assignedCollectionPointId: "cp-1",
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test("accepts valid person.created payload with no assigned collection point", () => {
+    const result = validateEventPayload("person.created", {
+      personId: "person-1",
+      name: "Jane",
+      surname: "Doe",
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test("rejects person.created payload when assignedCollectionPointId is not a string", () => {
+    const result = validateEventPayload("person.created", {
+      personId: "person-1",
+      name: "Jane",
+      surname: "Doe",
+      assignedCollectionPointId: 123,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("Expected validation to fail");
+    }
+    expect(result.issues.some((issue) => issue.path.includes("assignedCollectionPointId"))).toBe(
+      true,
+    );
+  });
+
+  test("accepts valid person.profile_updated payload reassigning the collection point", () => {
+    const result = validateEventPayload("person.profile_updated", {
+      personId: "person-1",
+      updates: { assignedCollectionPointId: "cp-2" },
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test("accepts valid person.profile_updated payload clearing the collection point", () => {
+    const result = validateEventPayload("person.profile_updated", {
+      personId: "person-1",
+      updates: { assignedCollectionPointId: null },
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test("accepts valid collection_point.created payload", () => {
+    const result = validateEventPayload("collection_point.created", {
+      collectionPointId: "cp-1",
+      name: "Heuwelkroon parkie",
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test("rejects collection_point.created payload when name is missing", () => {
+    const result = validateEventPayload("collection_point.created", {
+      collectionPointId: "cp-1",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("Expected validation to fail");
+    }
+    expect(result.issues.some((issue) => issue.path.includes("name"))).toBe(true);
+  });
+
+  test("accepts valid collection_point.updated payload toggling isActive", () => {
+    const result = validateEventPayload("collection_point.updated", {
+      collectionPointId: "cp-1",
+      updates: { isActive: false },
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test("accepts valid collection_point.updated payload renaming", () => {
+    const result = validateEventPayload("collection_point.updated", {
+      collectionPointId: "cp-1",
+      updates: { name: "Renamed point" },
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test("rejects collection_point.updated payload when isActive is not a boolean", () => {
+    const result = validateEventPayload("collection_point.updated", {
+      collectionPointId: "cp-1",
+      updates: { isActive: "false" },
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("Expected validation to fail");
+    }
+    expect(result.issues.some((issue) => issue.path.includes("isActive"))).toBe(true);
+  });
+
+  test("rejects collection_point.updated payload with no update fields", () => {
+    const result = validateEventPayload("collection_point.updated", {
+      collectionPointId: "cp-1",
+      updates: {},
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("Expected validation to fail");
+    }
+    expect(result.issues.some((issue) => issue.path.includes("updates"))).toBe(true);
+  });
+
+  test("accepts old-shape intake payload with no collectionPointId (locationText-era compatibility)", () => {
+    const result = validateEventPayload("intake.recorded", {
+      personId: "person-1",
+      lines: [
+        {
+          materialTypeId: "mat-1",
+          weightKg: 2.5,
+          pointsPerKg: 3,
+          pointsAwarded: 7.5,
+        },
+      ],
+      totalPoints: 7.5,
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  test("accepts new-shape intake payload with a collectionPointId", () => {
+    const result = validateEventPayload("intake.recorded", {
+      personId: "person-1",
+      lines: [
+        {
+          materialTypeId: "mat-1",
+          weightKg: 2.5,
+          pointsPerKg: 3,
+          pointsAwarded: 7.5,
+        },
+      ],
+      totalPoints: 7.5,
+      collectionPointId: "cp-1",
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  test("rejects intake payload when collectionPointId is not a string", () => {
+    const result = validateEventPayload("intake.recorded", {
+      personId: "person-1",
+      lines: [
+        {
+          materialTypeId: "mat-1",
+          weightKg: 2.5,
+          pointsPerKg: 3,
+          pointsAwarded: 7.5,
+        },
+      ],
+      totalPoints: 7.5,
+      collectionPointId: 123,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("Expected validation to fail");
+    }
+    expect(result.issues.some((issue) => issue.path.includes("collectionPointId"))).toBe(true);
+  });
+
   test("rejects point values with more than one decimal place", () => {
     const result = validateEventPayload("item.created", {
       itemId: "item-1",
@@ -94,6 +261,32 @@ describe("validateEventPayload", () => {
       throw new Error("Expected payload validation to fail");
     }
     expect(result.issues.some((issue) => issue.path.includes("pointsPrice"))).toBe(true);
+  });
+
+  test("accepts valid material image metadata payload", () => {
+    const result = validateEventPayload("material_type.image_set", {
+      materialTypeId: "mat-1",
+      contentType: "image/png",
+      fileName: "pet.png",
+      fileSizeBytes: 128,
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  test("rejects material image metadata payload when file size is not a positive integer", () => {
+    const result = validateEventPayload("material_type.image_set", {
+      materialTypeId: "mat-1",
+      contentType: "image/png",
+      fileName: "pet.png",
+      fileSizeBytes: 0,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("Expected payload validation to fail");
+    }
+    expect(result.issues.some((issue) => issue.path === "payload.fileSizeBytes")).toBe(true);
   });
 
   test("accepts valid sale payload with tenths totals", () => {
@@ -112,6 +305,48 @@ describe("validateEventPayload", () => {
     });
 
     expect(result.ok).toBe(true);
+  });
+
+  test("accepts new-shape sale payload with a collectionPointId", () => {
+    const result = validateEventPayload("sale.recorded", {
+      personId: "person-1",
+      lines: [
+        {
+          itemId: "item-1",
+          inventoryBatchId: "batch-1",
+          quantity: 2,
+          pointsPrice: 10.5,
+          lineTotalPoints: 21.0,
+        },
+      ],
+      totalPoints: 21.0,
+      collectionPointId: "cp-1",
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  test("rejects sale payload when collectionPointId is not a string", () => {
+    const result = validateEventPayload("sale.recorded", {
+      personId: "person-1",
+      lines: [
+        {
+          itemId: "item-1",
+          inventoryBatchId: "batch-1",
+          quantity: 2,
+          pointsPrice: 10.5,
+          lineTotalPoints: 21.0,
+        },
+      ],
+      totalPoints: 21.0,
+      collectionPointId: 123,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("Expected validation to fail");
+    }
+    expect(result.issues.some((issue) => issue.path.includes("collectionPointId"))).toBe(true);
   });
 
   test("rejects sale payload when line and total points do not match computed values", () => {
@@ -434,6 +669,49 @@ describe("expense.recorded payload", () => {
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("Expected validation to fail");
     expect(result.issues.some((issue) => issue.path === "payload.incurredDate")).toBe(true);
+  });
+});
+
+describe("sale.adjustment_requested payload", () => {
+  const makeSaleAdjustmentEvent = (payload: Record<string, unknown>) => ({
+    eventId: "event-1",
+    eventType: "sale.adjustment_requested",
+    occurredAt: "2026-03-12T10:00:00.000Z",
+    recordedAt: "2026-03-12T10:00:01.000Z",
+    actorUserId: "user-1",
+    deviceId: "device-1",
+    locationText: null,
+    schemaVersion: 1,
+    correlationId: null,
+    causationId: null,
+    payload,
+  });
+
+  test("accepts a valid sale adjustment request", () => {
+    const result = validateEvent(
+      makeSaleAdjustmentEvent({
+        saleEventId: "sale-event-1",
+        personId: "person-1",
+        note: "Customer says an item was out of stock, please refund points",
+      }),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  test("rejects a request missing saleEventId", () => {
+    const result = validateEvent(makeSaleAdjustmentEvent({ personId: "person-1", note: "Note" }));
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Expected validation to fail");
+    expect(result.issues.some((issue) => issue.path === "payload.saleEventId")).toBe(true);
+  });
+
+  test("rejects a request with an empty note", () => {
+    const result = validateEvent(
+      makeSaleAdjustmentEvent({ saleEventId: "sale-event-1", personId: "person-1", note: "" }),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Expected validation to fail");
+    expect(result.issues.some((issue) => issue.path === "payload.note")).toBe(true);
   });
 });
 

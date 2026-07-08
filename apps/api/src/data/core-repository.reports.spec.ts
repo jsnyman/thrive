@@ -45,7 +45,7 @@ describe("core repository materials report", () => {
     const rows = await repository.listMaterialsCollectedReport({
       fromDate: "2026-03-01",
       toDate: "2026-03-31",
-      locationText: "village",
+      collectionPointId: "cp-1",
       materialTypeId: "mat-1",
     });
 
@@ -61,9 +61,9 @@ describe("core repository materials report", () => {
     ]);
     expect(capturedSql).toContain("from mv_materials_collected_daily");
     expect(capturedSql).toContain(
-      "where day >= $1::date and day <= $2::date and lower(location_text) like $3 and material_type_id = $4",
+      "where day >= $1::date and day <= $2::date and collection_point_id = $3 and material_type_id = $4",
     );
-    expect(capturedParams).toEqual(["2026-03-01", "2026-03-31", "%village%", "mat-1"]);
+    expect(capturedParams).toEqual(["2026-03-01", "2026-03-31", "cp-1", "mat-1"]);
   });
 
   test("queries points liability rows and filtered summary", async () => {
@@ -135,7 +135,7 @@ describe("core repository materials report", () => {
       },
     });
     expect(capturedSql).toContain("from mv_points_balances b");
-    expect(capturedSql).toContain("join mv_people p on p.id = b.person_id");
+    expect(capturedSql).toContain("join mv_people p on p.id::text = b.person_id");
     expect(capturedSql).toContain(
       "where b.balance_points > 0 and (lower(p.name) like $1 or lower(p.surname) like $1)",
     );
@@ -425,7 +425,7 @@ describe("core repository materials report", () => {
     ]);
   });
 
-  test("builds sales report with grouping, summary, filters, and unknown location fallback", async () => {
+  test("builds sales report with grouping, summary, filters, and historical location override", async () => {
     const createEventStoreMock = createEventStore as jest.MockedFunction<typeof createEventStore>;
     createEventStoreMock.mockReturnValue({
       appendEvent: async () => ({ status: "accepted" as const }),
@@ -445,12 +445,30 @@ describe("core repository materials report", () => {
         ],
         findUnique: async () => null,
       },
+      collectionPoint: {
+        findMany: async () => [
+          {
+            id: "cp-1",
+            name: "Village B",
+            isActive: true,
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+          },
+          {
+            id: "cp-heuwelkroon",
+            name: "Heuwelkroon parkie",
+            isActive: true,
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+          },
+        ],
+        findUnique: async () => null,
+      },
       $queryRawUnsafe: async () => [],
       $queryRaw: async (...args: unknown[]) => {
         const sql = String(args[0]);
         if (sql.includes("where event_type = 'sale.recorded'")) {
           return [
             {
+              // old-shape event: no collectionPointId in payload -> overridden to Heuwelkroon parkie
               event_id: "sale-3",
               occurred_at: new Date("2026-03-09T11:00:00.000Z"),
               location_text: null,
@@ -467,6 +485,7 @@ describe("core repository materials report", () => {
               },
             },
             {
+              // old-shape event: raw free-text locationText is ignored once collectionPointId is absent
               event_id: "sale-2",
               occurred_at: new Date("2026-03-08T10:30:00.000Z"),
               location_text: "Village A",
@@ -483,6 +502,7 @@ describe("core repository materials report", () => {
               },
             },
             {
+              // old-shape event
               event_id: "sale-1",
               occurred_at: new Date("2026-03-08T09:00:00.000Z"),
               location_text: "Village A",
@@ -505,6 +525,24 @@ describe("core repository materials report", () => {
                 ],
               },
             },
+            {
+              // new-shape event: has a real collectionPointId, resolves to its own collection point name
+              event_id: "sale-4",
+              occurred_at: new Date("2026-03-08T12:00:00.000Z"),
+              location_text: null,
+              payload: {
+                collectionPointId: "cp-1",
+                lines: [
+                  {
+                    itemId: "item-1",
+                    inventoryBatchId: "batch-1",
+                    quantity: 1,
+                    pointsPrice: 10.5,
+                    lineTotalPoints: 10.5,
+                  },
+                ],
+              },
+            },
           ];
         }
         return [];
@@ -517,7 +555,7 @@ describe("core repository materials report", () => {
     const report = await repository.listSalesReport({
       fromDate: "2026-03-08",
       toDate: "2026-03-09",
-      locationText: "village a",
+      collectionPointId: "cp-heuwelkroon",
       itemId: "item-1",
     });
 
@@ -527,7 +565,7 @@ describe("core repository materials report", () => {
           day: "2026-03-08",
           itemId: "item-1",
           itemName: "Soap",
-          locationText: "Village A",
+          locationText: "Heuwelkroon parkie",
           totalQuantity: 5,
           totalPoints: 52.5,
           saleCount: 2,
@@ -543,7 +581,7 @@ describe("core repository materials report", () => {
     const defaultReport = await repository.listSalesReport({
       fromDate: "2026-03-01",
       toDate: "2026-03-31",
-      locationText: null,
+      collectionPointId: null,
       itemId: null,
     });
     expect(defaultReport.rows).toEqual([
@@ -551,7 +589,7 @@ describe("core repository materials report", () => {
         day: "2026-03-09",
         itemId: "item-2",
         itemName: "Rice",
-        locationText: "Unknown",
+        locationText: "Heuwelkroon parkie",
         totalQuantity: 1,
         totalPoints: 20.0,
         saleCount: 1,
@@ -560,7 +598,7 @@ describe("core repository materials report", () => {
         day: "2026-03-08",
         itemId: "item-2",
         itemName: "Rice",
-        locationText: "Village A",
+        locationText: "Heuwelkroon parkie",
         totalQuantity: 1,
         totalPoints: 20.0,
         saleCount: 1,
@@ -569,20 +607,29 @@ describe("core repository materials report", () => {
         day: "2026-03-08",
         itemId: "item-1",
         itemName: "Soap",
-        locationText: "Village A",
+        locationText: "Heuwelkroon parkie",
         totalQuantity: 5,
         totalPoints: 52.5,
         saleCount: 2,
       },
+      {
+        day: "2026-03-08",
+        itemId: "item-1",
+        itemName: "Soap",
+        locationText: "Village B",
+        totalQuantity: 1,
+        totalPoints: 10.5,
+        saleCount: 1,
+      },
     ]);
     expect(defaultReport.summary).toEqual({
-      totalQuantity: 7,
-      totalPoints: 92.5,
-      saleCount: 4,
+      totalQuantity: 8,
+      totalPoints: 103.0,
+      saleCount: 5,
     });
   });
 
-  test("builds cashflow report with daily totals, expense categories, filters, and procurement excluded", async () => {
+  test("builds cashflow report with daily totals, expense categories, filters, historical location override, and procurement excluded", async () => {
     const createEventStoreMock = createEventStore as jest.MockedFunction<typeof createEventStore>;
     createEventStoreMock.mockReturnValue({
       appendEvent: async () => ({ status: "accepted" as const }),
@@ -596,6 +643,23 @@ describe("core repository materials report", () => {
       person: { findMany: async () => [], findUnique: async () => null },
       materialType: { findMany: async () => [], findUnique: async () => null },
       item: { findMany: async () => [], findUnique: async () => null },
+      collectionPoint: {
+        findMany: async () => [
+          {
+            id: "cp-1",
+            name: "Village B",
+            isActive: true,
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+          },
+          {
+            id: "cp-heuwelkroon",
+            name: "Heuwelkroon parkie",
+            isActive: true,
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+          },
+        ],
+        findUnique: async () => null,
+      },
       $queryRawUnsafe: async () => [],
       $queryRaw: async (...args: unknown[]) => {
         const sql = String(args[0]);
@@ -612,6 +676,8 @@ describe("core repository materials report", () => {
               },
             },
             {
+              // expenses are global — location_text is untouched by the historical
+              // override and continues to drive filtering exactly as before.
               event_id: "expense-2",
               event_type: "expense.recorded",
               occurred_at: new Date("2026-03-08T14:00:00.000Z"),
@@ -622,6 +688,8 @@ describe("core repository materials report", () => {
               },
             },
             {
+              // old-shape sale: no collectionPointId -> overridden to Heuwelkroon parkie,
+              // its raw "Village A" location_text is ignored for filtering/display.
               event_id: "sale-2",
               event_type: "sale.recorded",
               occurred_at: new Date("2026-03-08T10:30:00.000Z"),
@@ -641,12 +709,24 @@ describe("core repository materials report", () => {
               },
             },
             {
+              // old-shape sale
               event_id: "sale-1",
               event_type: "sale.recorded",
               occurred_at: new Date("2026-03-08T09:00:00.000Z"),
               location_text: "Village A",
               payload: {
                 totalPoints: 21.0,
+              },
+            },
+            {
+              // new-shape sale: has a real collectionPointId, resolves to its own name
+              event_id: "sale-3",
+              event_type: "sale.recorded",
+              occurred_at: new Date("2026-03-08T11:00:00.000Z"),
+              location_text: null,
+              payload: {
+                collectionPointId: "cp-1",
+                totalPoints: 15.0,
               },
             },
             {
@@ -670,7 +750,7 @@ describe("core repository materials report", () => {
     const report = await repository.listCashflowReport({
       fromDate: "2026-03-08",
       toDate: "2026-03-09",
-      locationText: "village a",
+      collectionPointId: "cp-heuwelkroon",
     });
 
     expect(report).toEqual({
@@ -678,32 +758,26 @@ describe("core repository materials report", () => {
         {
           day: "2026-03-08",
           salesPointsValue: 52.5,
-          expenseCashTotal: 18.5,
-          netCashflow: 34,
+          expenseCashTotal: 0,
+          netCashflow: 52.5,
           saleCount: 2,
-          expenseCount: 2,
+          expenseCount: 0,
         },
       ],
       summary: {
         totalSalesPointsValue: 52.5,
-        totalExpenseCash: 18.5,
-        netCashflow: 34,
+        totalExpenseCash: 0,
+        netCashflow: 52.5,
         saleCount: 2,
-        expenseCount: 2,
+        expenseCount: 0,
       },
-      expenseCategories: [
-        {
-          category: "Fuel",
-          totalCashAmount: 18.5,
-          expenseCount: 2,
-        },
-      ],
+      expenseCategories: [],
     });
 
     const defaultReport = await repository.listCashflowReport({
       fromDate: "2026-03-01",
       toDate: "2026-03-31",
-      locationText: null,
+      collectionPointId: null,
     });
     expect(defaultReport.rows).toEqual([
       {
@@ -716,10 +790,10 @@ describe("core repository materials report", () => {
       },
       {
         day: "2026-03-08",
-        salesPointsValue: 52.5,
+        salesPointsValue: 67.5,
         expenseCashTotal: 18.5,
-        netCashflow: 34,
-        saleCount: 2,
+        netCashflow: 49,
+        saleCount: 3,
         expenseCount: 2,
       },
     ]);
@@ -736,10 +810,10 @@ describe("core repository materials report", () => {
       },
     ]);
     expect(defaultReport.summary).toEqual({
-      totalSalesPointsValue: 52.5,
+      totalSalesPointsValue: 67.5,
       totalExpenseCash: 23.75,
-      netCashflow: 28.75,
-      saleCount: 2,
+      netCashflow: 43.75,
+      saleCount: 3,
       expenseCount: 3,
     });
   });

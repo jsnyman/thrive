@@ -20,12 +20,20 @@ type PersonRecord = {
   address?: string | null;
   notes?: string | null;
   balancePoints?: number;
+  assignedCollectionPointId?: string | null;
 };
 
 type MaterialRecord = {
   id: string;
   name: string;
   pointsPerKg: number;
+  imageUpdatedAt?: string | null;
+};
+
+type CollectionPointRecord = {
+  id: string;
+  name: string;
+  isActive: boolean;
 };
 
 type ItemRecord = {
@@ -64,6 +72,7 @@ type MaterialsCollectedReportRow = {
   day: string;
   materialTypeId: string;
   materialName: string;
+  collectionPointId: string;
   locationText: string;
   totalWeightKg: number;
   totalPoints: number;
@@ -129,6 +138,7 @@ type SalesReportRow = {
   day: string;
   itemId: string;
   itemName: string;
+  collectionPointId: string;
   locationText: string;
   totalQuantity: number;
   totalPoints: number;
@@ -216,6 +226,18 @@ const createDependencies = (options?: {
       pointsPerKg: 3.2,
     },
   ];
+  const collectionPoints: CollectionPointRecord[] = [
+    {
+      id: "cp-1",
+      name: "Heuwelkroon parkie",
+      isActive: true,
+    },
+    {
+      id: "cp-2",
+      name: "Old Village Point",
+      isActive: false,
+    },
+  ];
   const items: ItemRecord[] = [
     {
       id: "item-1",
@@ -248,6 +270,17 @@ const createDependencies = (options?: {
       },
     },
   ];
+  const materialImages = new Map<
+    string,
+    {
+      materialTypeId: string;
+      contentType: string;
+      fileName: string | null;
+      fileSizeBytes: number;
+      content: Uint8Array;
+      updatedAt: string;
+    }
+  >();
   const events: Event[] = [];
   const staffUsers: Array<{ id: string; username: string; role: StaffRole; passcodeHash: string }> =
     users.map((user) => ({
@@ -355,6 +388,7 @@ const createDependencies = (options?: {
       day: "2026-03-04",
       materialTypeId: "mat-1",
       materialName: "PET",
+      collectionPointId: "cp-1",
       locationText: "Village A",
       totalWeightKg: 2.9,
       totalPoints: 8.7,
@@ -363,6 +397,7 @@ const createDependencies = (options?: {
       day: "2026-02-20",
       materialTypeId: "mat-1",
       materialName: "PET",
+      collectionPointId: "cp-2",
       locationText: "Village B",
       totalWeightKg: 1.2,
       totalPoints: 3,
@@ -457,6 +492,7 @@ const createDependencies = (options?: {
       day: "2026-03-04",
       itemId: "item-1",
       itemName: "Soap",
+      collectionPointId: "cp-1",
       locationText: "Village A",
       totalQuantity: 5,
       totalPoints: 52.5,
@@ -466,6 +502,7 @@ const createDependencies = (options?: {
       day: "2026-03-05",
       itemId: "item-1",
       itemName: "Soap",
+      collectionPointId: "cp-2",
       locationText: "Unknown",
       totalQuantity: 1,
       totalPoints: 10.5,
@@ -539,6 +576,7 @@ const createDependencies = (options?: {
         phone: event.payload.phone ?? null,
         address: event.payload.address ?? null,
         notes: event.payload.notes ?? null,
+        assignedCollectionPointId: event.payload.assignedCollectionPointId ?? null,
       });
     }
     if (event.eventType === "person.profile_updated") {
@@ -562,6 +600,10 @@ const createDependencies = (options?: {
         if (event.payload.updates.notes !== undefined) {
           existingPerson.notes = event.payload.updates.notes;
         }
+        if (event.payload.updates.assignedCollectionPointId !== undefined) {
+          existingPerson.assignedCollectionPointId =
+            event.payload.updates.assignedCollectionPointId;
+        }
       }
     }
     if (event.eventType === "person.removed") {
@@ -575,7 +617,14 @@ const createDependencies = (options?: {
         id: event.payload.materialTypeId,
         name: event.payload.name,
         pointsPerKg: event.payload.pointsPerKg,
+        imageUpdatedAt: null,
       });
+    }
+    if (event.eventType === "material_type.image_set") {
+      const material = materials.find((entry) => entry.id === event.payload.materialTypeId);
+      if (material !== undefined) {
+        material.imageUpdatedAt = event.occurredAt;
+      }
     }
     if (event.eventType === "item.created") {
       items.push({
@@ -585,6 +634,26 @@ const createDependencies = (options?: {
         costPrice: event.payload.costPrice ?? null,
         sku: event.payload.sku ?? null,
       });
+    }
+    if (event.eventType === "collection_point.created") {
+      collectionPoints.push({
+        id: event.payload.collectionPointId,
+        name: event.payload.name,
+        isActive: true,
+      });
+    }
+    if (event.eventType === "collection_point.updated") {
+      const existingCollectionPoint = collectionPoints.find(
+        (collectionPoint) => collectionPoint.id === event.payload.collectionPointId,
+      );
+      if (existingCollectionPoint !== undefined) {
+        if (event.payload.updates.name !== undefined) {
+          existingCollectionPoint.name = event.payload.updates.name;
+        }
+        if (event.payload.updates.isActive !== undefined) {
+          existingCollectionPoint.isActive = event.payload.updates.isActive;
+        }
+      }
     }
     if (event.eventType === "intake.recorded") {
       ledger.push({
@@ -819,12 +888,29 @@ const createDependencies = (options?: {
         );
       }),
     listMaterials: async () => materials,
+    getMaterialImage: async (materialId) => materialImages.get(materialId) ?? null,
+    upsertMaterialImage: async (materialId, input) => {
+      const updatedAt = new Date().toISOString();
+      const stored = {
+        materialTypeId: materialId,
+        contentType: input.contentType,
+        fileName: input.fileName,
+        fileSizeBytes: input.content.byteLength,
+        content: input.content,
+        updatedAt,
+      };
+      materialImages.set(materialId, stored);
+      return stored;
+    },
+    listCollectionPoints: async () => collectionPoints,
     listItems: async () => items,
     listShopBatchesForItem: async (itemId) =>
       inventoryBatches.filter((batch) => batch.itemId === itemId && batch.quantities.shop > 0),
     getPersonById: async (personId) => people.find((person) => person.id === personId) ?? null,
     getMaterialById: async (materialId) =>
       materials.find((material) => material.id === materialId) ?? null,
+    getCollectionPointById: async (collectionPointId) =>
+      collectionPoints.find((collectionPoint) => collectionPoint.id === collectionPointId) ?? null,
     getItemById: async (itemId) => items.find((item) => item.id === itemId) ?? null,
     getItemByName: async (name) => items.find((item) => item.name === name) ?? null,
     listInventoryBatches: async () => inventoryBatches,
@@ -936,8 +1022,16 @@ const createDependencies = (options?: {
       if (found === undefined) {
         return null;
       }
+      let resolvedLocationName: string | null = null;
+      if (found.eventType === "intake.recorded" || found.eventType === "sale.recorded") {
+        const collectionPoint = collectionPoints.find(
+          (candidate) => candidate.id === found.payload.collectionPointId,
+        );
+        resolvedLocationName = collectionPoint?.name ?? "Heuwelkroon parkie";
+      }
       return {
         event: found,
+        resolvedLocationName,
         linkedConflictIds: ["conflict-open"],
         linkedResolutionEventIds: [],
       };
@@ -1009,16 +1103,19 @@ const createDependencies = (options?: {
         .filter((entry) => entry.personId === personId)
         .reduce((sum, entry) => sumPointValues([sum, entry.deltaPoints]), 0),
     listMaterialsCollectedReport: async (filters) =>
-      materialsReportRows.filter((row) => {
-        const inFrom = filters.fromDate === null || row.day >= filters.fromDate;
-        const inTo = filters.toDate === null || row.day <= filters.toDate;
-        const inMaterial =
-          filters.materialTypeId === null || row.materialTypeId === filters.materialTypeId;
-        const inLocation =
-          filters.locationText === null ||
-          row.locationText.toLowerCase().includes(filters.locationText.toLowerCase());
-        return inFrom && inTo && inMaterial && inLocation;
-      }),
+      materialsReportRows
+        .filter((row) => {
+          const inFrom = filters.fromDate === null || row.day >= filters.fromDate;
+          const inTo = filters.toDate === null || row.day <= filters.toDate;
+          const inMaterial =
+            filters.materialTypeId === null || row.materialTypeId === filters.materialTypeId;
+          const inLocation =
+            filters.collectionPointId === null ||
+            row.collectionPointId === filters.collectionPointId;
+          return inFrom && inTo && inMaterial && inLocation;
+        })
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        .map(({ collectionPointId: _collectionPointId, ...row }) => row),
     listPointsLiabilityReport: async (filters) => {
       const rows = pointsLiabilityReportRows
         .filter((row) => row.balancePoints > 0)
@@ -1058,31 +1155,37 @@ const createDependencies = (options?: {
       const rows = cashflowReportRows.filter((row) => {
         const inFrom = filters.fromDate === null || row.day >= filters.fromDate;
         const inTo = filters.toDate === null || row.day <= filters.toDate;
-        if (filters.locationText === null) {
+        if (filters.collectionPointId === null) {
           return inFrom && inTo;
         }
-        return inFrom && inTo && filters.locationText.toLowerCase().includes("village");
+        return inFrom && inTo && row.day === "2026-03-04";
       });
-      const expenseCategories =
-        filters.locationText === null
-          ? cashflowExpenseCategories
-          : cashflowExpenseCategories.filter((row) => row.category === "Fuel");
+      const expenseCategories = filters.collectionPointId === null ? cashflowExpenseCategories : [];
+      const normalizedRows =
+        filters.collectionPointId === null
+          ? rows
+          : rows.map((row) => ({
+              ...row,
+              expenseCashTotal: 0,
+              netCashflow: row.salesPointsValue,
+              expenseCount: 0,
+            }));
       return {
-        rows,
+        rows: normalizedRows,
         summary: {
-          totalSalesPointsValue: rows.reduce(
+          totalSalesPointsValue: normalizedRows.reduce(
             (sum, row) => sumPointValues([sum, row.salesPointsValue]),
             0,
           ),
-          totalExpenseCash: rows.reduce((sum, row) => sum + row.expenseCashTotal, 0),
+          totalExpenseCash: normalizedRows.reduce((sum, row) => sum + row.expenseCashTotal, 0),
           netCashflow: Number(
             (
-              rows.reduce((sum, row) => sumPointValues([sum, row.salesPointsValue]), 0) -
-              rows.reduce((sum, row) => sum + row.expenseCashTotal, 0)
+              normalizedRows.reduce((sum, row) => sumPointValues([sum, row.salesPointsValue]), 0) -
+              normalizedRows.reduce((sum, row) => sum + row.expenseCashTotal, 0)
             ).toFixed(2),
           ),
-          saleCount: rows.reduce((sum, row) => sum + row.saleCount, 0),
-          expenseCount: rows.reduce((sum, row) => sum + row.expenseCount, 0),
+          saleCount: normalizedRows.reduce((sum, row) => sum + row.saleCount, 0),
+          expenseCount: normalizedRows.reduce((sum, row) => sum + row.expenseCount, 0),
         },
         expenseCategories,
       };
@@ -1108,13 +1211,13 @@ const createDependencies = (options?: {
         const inFrom = filters.fromDate === null || row.day >= filters.fromDate;
         const inTo = filters.toDate === null || row.day <= filters.toDate;
         const inLocation =
-          filters.locationText === null ||
-          row.locationText.toLowerCase().includes(filters.locationText.toLowerCase());
+          filters.collectionPointId === null || row.collectionPointId === filters.collectionPointId;
         const inItem = filters.itemId === null || row.itemId === filters.itemId;
         return inFrom && inTo && inLocation && inItem;
       });
       return {
-        rows,
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        rows: rows.map(({ collectionPointId: _collectionPointId, ...row }) => row),
         summary: {
           totalQuantity: rows.reduce((sum, row) => sum + row.totalQuantity, 0),
           totalPoints: rows.reduce((sum, row) => sumPointValues([sum, row.totalPoints]), 0),
@@ -1299,6 +1402,54 @@ describe("core HTTP endpoints", () => {
     expect(response.body.person.phone).toBe("****67");
   });
 
+  test("POST /people accepts an assigned collection point and returns it", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "user", userPasscode);
+    const response = await supertest(server)
+      .post("/people")
+      .set("authorization", `Bearer ${token}`)
+      .send({ name: "Jane", surname: "Doe", assignedCollectionPointId: "cp-1" });
+
+    expect(response.status).toBe(201);
+    expect(response.body.person.assignedCollectionPointId).toBe("cp-1");
+  });
+
+  test("POST /people allows assigning an inactive collection point", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "user", userPasscode);
+    const response = await supertest(server)
+      .post("/people")
+      .set("authorization", `Bearer ${token}`)
+      .send({ name: "Jane", surname: "Doe", assignedCollectionPointId: "cp-2" });
+
+    expect(response.status).toBe(201);
+    expect(response.body.person.assignedCollectionPointId).toBe("cp-2");
+  });
+
+  test("POST /people returns 404 when assignedCollectionPointId does not exist", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "user", userPasscode);
+    const response = await supertest(server)
+      .post("/people")
+      .set("authorization", `Bearer ${token}`)
+      .send({ name: "Jane", surname: "Doe", assignedCollectionPointId: "does-not-exist" });
+
+    expect(response.status).toBe(404);
+    expect(response.body.error).toBe("COLLECTION_POINT_NOT_FOUND");
+  });
+
+  test("POST /people defaults assignedCollectionPointId to null when omitted", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "user", userPasscode);
+    const response = await supertest(server)
+      .post("/people")
+      .set("authorization", `Bearer ${token}`)
+      .send({ name: "Jane", surname: "Doe" });
+
+    expect(response.status).toBe(201);
+    expect(response.body.person.assignedCollectionPointId).toBeNull();
+  });
+
   test("POST /people keeps null sensitive fields as null in responses", async () => {
     const server = createApiServer(createDependencies());
     const token = await loginAndGetToken(server, "user", userPasscode);
@@ -1352,6 +1503,88 @@ describe("core HTTP endpoints", () => {
     expect(allowed.status).toBe(200);
     expect(allowed.body.person.id).toBe("person-a");
     expect(allowed.body.person.phone).toBe("****89");
+  });
+
+  test("PATCH /people/:personId reassigns the collection point", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const response = await supertest(server)
+      .patch("/people/person-a")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({ updates: { assignedCollectionPointId: "cp-1" } });
+
+    expect(response.status).toBe(200);
+    expect(response.body.person.assignedCollectionPointId).toBe("cp-1");
+  });
+
+  test("PATCH /people/:personId allows reassigning to an inactive collection point", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const response = await supertest(server)
+      .patch("/people/person-a")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({ updates: { assignedCollectionPointId: "cp-2" } });
+
+    expect(response.status).toBe(200);
+    expect(response.body.person.assignedCollectionPointId).toBe("cp-2");
+  });
+
+  test("PATCH /people/:personId returns 404 when assignedCollectionPointId does not exist", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const response = await supertest(server)
+      .patch("/people/person-a")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({ updates: { assignedCollectionPointId: "does-not-exist" } });
+
+    expect(response.status).toBe(404);
+    expect(response.body.error).toBe("COLLECTION_POINT_NOT_FOUND");
+  });
+
+  test("PATCH /people/:personId can clear the assigned collection point", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const assign = await supertest(server)
+      .patch("/people/person-a")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({ updates: { assignedCollectionPointId: "cp-1" } });
+    expect(assign.body.person.assignedCollectionPointId).toBe("cp-1");
+
+    const clear = await supertest(server)
+      .patch("/people/person-a")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({ updates: { assignedCollectionPointId: null } });
+    expect(clear.status).toBe(200);
+    expect(clear.body.person.assignedCollectionPointId).toBeNull();
+  });
+
+  test("deactivating a collection point does not clear existing person assignments", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const assign = await supertest(server)
+      .patch("/people/person-a")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({ updates: { assignedCollectionPointId: "cp-1" } });
+    expect(assign.body.person.assignedCollectionPointId).toBe("cp-1");
+
+    const deactivate = await supertest(server)
+      .patch("/collection-points/cp-1")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({ updates: { isActive: false } });
+    expect(deactivate.body.collectionPoint.isActive).toBe(false);
+
+    const peopleResponse = await supertest(server)
+      .get("/people")
+      .set("authorization", `Bearer ${managerToken}`);
+    const personA = (peopleResponse.body.people as PersonRecord[]).find(
+      (person) => person.id === "person-a",
+    );
+    expect(personA?.assignedCollectionPointId).toBe("cp-1");
   });
 
   test("PATCH /people/:personId returns 404 for unknown person", async () => {
@@ -1511,6 +1744,191 @@ describe("core HTTP endpoints", () => {
     expect(allowed.body.material.name).toBe("PET");
   });
 
+  test("PUT /materials/:materialId/image rejects collector and stores an image for administrator", async () => {
+    const server = createApiServer(createDependencies());
+    const collectorToken = await loginAndGetToken(server, "user", userPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const denied = await supertest(server)
+      .put("/materials/mat-1/image")
+      .set("authorization", `Bearer ${collectorToken}`)
+      .send({
+        contentType: "image/png",
+        fileName: "pet.png",
+        dataBase64: "AQIDBA==",
+      });
+    expect(denied.status).toBe(403);
+
+    const allowed = await supertest(server)
+      .put("/materials/mat-1/image")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({
+        contentType: "image/png",
+        fileName: "pet.png",
+        dataBase64: "AQIDBA==",
+      });
+    expect(allowed.status).toBe(201);
+    expect(allowed.body.materialTypeId).toBe("mat-1");
+    expect(allowed.body.contentType).toBe("image/png");
+    expect(allowed.body.fileSizeBytes).toBe(4);
+  });
+
+  test("GET /materials/:materialId/image returns the uploaded binary and material list exposes imageUpdatedAt", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const uploaded = await supertest(server)
+      .put("/materials/mat-1/image")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({
+        contentType: "image/png",
+        fileName: "pet.png",
+        dataBase64: "AQIDBA==",
+      });
+    expect(uploaded.status).toBe(201);
+
+    const materials = await supertest(server)
+      .get("/materials")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(materials.status).toBe(200);
+    expect(materials.body.materials[0]?.imageUpdatedAt).toBeDefined();
+
+    const image = await supertest(server)
+      .get("/materials/mat-1/image")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(image.status).toBe(200);
+    expect(image.headers["content-type"]).toContain("image/png");
+    expect(Buffer.compare(image.body as Buffer, Buffer.from([1, 2, 3, 4]))).toBe(0);
+  });
+
+  test("GET /materials/:materialId/image returns 404 when no image has been uploaded", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const response = await supertest(server)
+      .get("/materials/mat-1/image")
+      .set("authorization", `Bearer ${managerToken}`);
+
+    expect(response.status).toBe(404);
+    expect(response.body.error).toBe("MATERIAL_IMAGE_NOT_FOUND");
+  });
+
+  test("PUT /materials/:materialId/image returns 404 for an unknown material", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const response = await supertest(server)
+      .put("/materials/no-such-material/image")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({
+        contentType: "image/png",
+        fileName: "pet.png",
+        dataBase64: "AQIDBA==",
+      });
+
+    expect(response.status).toBe(404);
+    expect(response.body.error).toBe("MATERIAL_NOT_FOUND");
+  });
+
+  test("GET /collection-points is available to both collector and manager roles", async () => {
+    const server = createApiServer(createDependencies());
+    const collectorToken = await loginAndGetToken(server, "user", userPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const asCollector = await supertest(server)
+      .get("/collection-points")
+      .set("authorization", `Bearer ${collectorToken}`);
+    expect(asCollector.status).toBe(200);
+    expect(asCollector.body.collectionPoints).toEqual([
+      { id: "cp-1", name: "Heuwelkroon parkie", isActive: true },
+      { id: "cp-2", name: "Old Village Point", isActive: false },
+    ]);
+
+    const asManager = await supertest(server)
+      .get("/collection-points")
+      .set("authorization", `Bearer ${managerToken}`);
+    expect(asManager.status).toBe(200);
+  });
+
+  test("GET /collection-points returns 401 without authorization", async () => {
+    const server = createApiServer(createDependencies());
+    const response = await supertest(server).get("/collection-points");
+    expect(response.status).toBe(401);
+  });
+
+  test("POST /collection-points rejects collector and allows manager", async () => {
+    const server = createApiServer(createDependencies());
+    const collectorToken = await loginAndGetToken(server, "user", userPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const denied = await supertest(server)
+      .post("/collection-points")
+      .set("authorization", `Bearer ${collectorToken}`)
+      .send({ name: "Village B" });
+    expect(denied.status).toBe(403);
+
+    const allowed = await supertest(server)
+      .post("/collection-points")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({ name: "Village B" });
+    expect(allowed.status).toBe(201);
+    expect(allowed.body.collectionPoint.name).toBe("Village B");
+    expect(allowed.body.collectionPoint.isActive).toBe(true);
+  });
+
+  test("POST /collection-points rejects a request with a blank name", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const response = await supertest(server)
+      .post("/collection-points")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({ name: "   " });
+    expect(response.status).toBe(400);
+  });
+
+  test("PATCH /collection-points/:id rejects collector and allows manager to deactivate", async () => {
+    const server = createApiServer(createDependencies());
+    const collectorToken = await loginAndGetToken(server, "user", userPasscode);
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const denied = await supertest(server)
+      .patch("/collection-points/cp-1")
+      .set("authorization", `Bearer ${collectorToken}`)
+      .send({ updates: { isActive: false } });
+    expect(denied.status).toBe(403);
+
+    const allowed = await supertest(server)
+      .patch("/collection-points/cp-1")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({ updates: { isActive: false } });
+    expect(allowed.status).toBe(200);
+    expect(allowed.body.collectionPoint.isActive).toBe(false);
+    expect(allowed.body.collectionPoint.name).toBe("Heuwelkroon parkie");
+  });
+
+  test("PATCH /collection-points/:id returns 404 for an unknown collection point", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const response = await supertest(server)
+      .patch("/collection-points/does-not-exist")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({ updates: { isActive: false } });
+    expect(response.status).toBe(404);
+  });
+
+  test("PATCH /collection-points/:id rejects a request with no update fields", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const response = await supertest(server)
+      .patch("/collection-points/cp-1")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({ updates: {} });
+    expect(response.status).toBe(400);
+  });
+
   test("POST /items rejects shop operator and allows manager", async () => {
     const server = createApiServer(createDependencies());
     const operatorToken = await loginAndGetToken(server, "user", userPasscode);
@@ -1550,6 +1968,67 @@ describe("core HTTP endpoints", () => {
       .set("authorization", `Bearer ${token}`);
     expect(balance.status).toBe(200);
     expect(balance.body.balance.balancePoints).toBe(39.5);
+  });
+
+  test("POST /intakes accepts the old shape with no collectionPointId and persists it as null", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "user", userPasscode);
+
+    const intake = await supertest(server)
+      .post("/intakes")
+      .set("authorization", `Bearer ${token}`)
+      .send({
+        personId: "person-a",
+        lines: [{ materialTypeId: "mat-1", weightKg: 1 }],
+      });
+    expect(intake.status).toBe(201);
+
+    const pull = await supertest(server)
+      .get("/sync/pull?cursor=0&limit=50")
+      .set("authorization", `Bearer ${token}`);
+    const pulled = (
+      pull.body.events as Array<{ eventType: string; payload: { collectionPointId?: unknown } }>
+    ).find((event) => event.eventType === "intake.recorded");
+    expect(pulled?.payload.collectionPointId).toBeNull();
+  });
+
+  test("POST /intakes accepts a collectionPointId and persists it on the intake.recorded event", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "user", userPasscode);
+
+    const intake = await supertest(server)
+      .post("/intakes")
+      .set("authorization", `Bearer ${token}`)
+      .send({
+        personId: "person-a",
+        lines: [{ materialTypeId: "mat-1", weightKg: 1 }],
+        collectionPointId: "cp-1",
+      });
+    expect(intake.status).toBe(201);
+
+    const pull = await supertest(server)
+      .get("/sync/pull?cursor=0&limit=50")
+      .set("authorization", `Bearer ${token}`);
+    const pulled = (
+      pull.body.events as Array<{ eventType: string; payload: { collectionPointId?: unknown } }>
+    ).find((event) => event.eventType === "intake.recorded");
+    expect(pulled?.payload.collectionPointId).toBe("cp-1");
+  });
+
+  test("POST /intakes returns 404 when collectionPointId does not exist", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "user", userPasscode);
+
+    const intake = await supertest(server)
+      .post("/intakes")
+      .set("authorization", `Bearer ${token}`)
+      .send({
+        personId: "person-a",
+        lines: [{ materialTypeId: "mat-1", weightKg: 1 }],
+        collectionPointId: "does-not-exist",
+      });
+    expect(intake.status).toBe(404);
+    expect(intake.body.error).toBe("COLLECTION_POINT_NOT_FOUND");
   });
 
   test("POST /sales blocks insufficient points", async () => {
@@ -1652,6 +2131,91 @@ describe("core HTTP endpoints", () => {
     const sold = rows.find((entry) => entry.status === "sold");
     expect(shop?.totalQuantity).toBe(2);
     expect(sold?.totalQuantity).toBe(7);
+  });
+
+  test("POST /sales accepts the old shape with no collectionPointId and persists it as null", async () => {
+    const dependencies = createDependencies({
+      inventoryBatches: [
+        {
+          inventoryBatchId: "batch-1",
+          itemId: "item-1",
+          quantities: { storage: 0, shop: 5, sold: 0, spoiled: 0, damaged: 0, missing: 0 },
+        },
+      ],
+    });
+    const server = createApiServer(dependencies);
+    const token = await loginAndGetToken(server, "user", userPasscode);
+
+    const sale = await supertest(server)
+      .post("/sales")
+      .set("authorization", `Bearer ${token}`)
+      .send({ personId: "person-a", lines: [{ itemId: "item-1", quantity: 1 }] });
+    expect(sale.status).toBe(201);
+
+    const pull = await supertest(server)
+      .get("/sync/pull?cursor=0&limit=50")
+      .set("authorization", `Bearer ${token}`);
+    const pulled = (
+      pull.body.events as Array<{ eventType: string; payload: { collectionPointId?: unknown } }>
+    ).find((event) => event.eventType === "sale.recorded");
+    expect(pulled?.payload.collectionPointId).toBeNull();
+  });
+
+  test("POST /sales accepts a collectionPointId and persists it on the sale.recorded event", async () => {
+    const dependencies = createDependencies({
+      inventoryBatches: [
+        {
+          inventoryBatchId: "batch-1",
+          itemId: "item-1",
+          quantities: { storage: 0, shop: 5, sold: 0, spoiled: 0, damaged: 0, missing: 0 },
+        },
+      ],
+    });
+    const server = createApiServer(dependencies);
+    const token = await loginAndGetToken(server, "user", userPasscode);
+
+    const sale = await supertest(server)
+      .post("/sales")
+      .set("authorization", `Bearer ${token}`)
+      .send({
+        personId: "person-a",
+        lines: [{ itemId: "item-1", quantity: 1 }],
+        collectionPointId: "cp-1",
+      });
+    expect(sale.status).toBe(201);
+
+    const pull = await supertest(server)
+      .get("/sync/pull?cursor=0&limit=50")
+      .set("authorization", `Bearer ${token}`);
+    const pulled = (
+      pull.body.events as Array<{ eventType: string; payload: { collectionPointId?: unknown } }>
+    ).find((event) => event.eventType === "sale.recorded");
+    expect(pulled?.payload.collectionPointId).toBe("cp-1");
+  });
+
+  test("POST /sales returns 404 when collectionPointId does not exist", async () => {
+    const dependencies = createDependencies({
+      inventoryBatches: [
+        {
+          inventoryBatchId: "batch-1",
+          itemId: "item-1",
+          quantities: { storage: 0, shop: 5, sold: 0, spoiled: 0, damaged: 0, missing: 0 },
+        },
+      ],
+    });
+    const server = createApiServer(dependencies);
+    const token = await loginAndGetToken(server, "user", userPasscode);
+
+    const sale = await supertest(server)
+      .post("/sales")
+      .set("authorization", `Bearer ${token}`)
+      .send({
+        personId: "person-a",
+        lines: [{ itemId: "item-1", quantity: 1 }],
+        collectionPointId: "does-not-exist",
+      });
+    expect(sale.status).toBe(404);
+    expect(sale.body.error).toBe("COLLECTION_POINT_NOT_FOUND");
   });
 
   test("POST /sales rejects when explicit batch does not belong to line item", async () => {
@@ -2219,14 +2783,14 @@ describe("core HTTP endpoints", () => {
 
     const filtered = await supertest(server)
       .get(
-        "/reports/materials-collected?fromDate=2026-03-01&toDate=2026-03-31&locationText=village%20a&materialTypeId=mat-1",
+        "/reports/materials-collected?fromDate=2026-03-01&toDate=2026-03-31&collectionPointId=cp-1&materialTypeId=mat-1",
       )
       .set("authorization", `Bearer ${managerToken}`);
     expect(filtered.status).toBe(200);
     expect(filtered.body.appliedFilters).toEqual({
       fromDate: "2026-03-01",
       toDate: "2026-03-31",
-      locationText: "village a",
+      collectionPointId: "cp-1",
       materialTypeId: "mat-1",
     });
     expect(filtered.body.rows).toEqual([
@@ -2508,7 +3072,7 @@ describe("core HTTP endpoints", () => {
     expect(defaultRange.body.appliedFilters).toEqual({
       fromDate: "2026-02-04",
       toDate: "2026-03-05",
-      locationText: null,
+      collectionPointId: null,
       itemId: null,
     });
   });
@@ -2519,7 +3083,7 @@ describe("core HTTP endpoints", () => {
 
     const response = await supertest(server)
       .get(
-        "/reports/sales?fromDate=2026-03-01&toDate=2026-03-05&locationText=village%20a&itemId=item-1",
+        "/reports/sales?fromDate=2026-03-01&toDate=2026-03-05&collectionPointId=cp-1&itemId=item-1",
       )
       .set("authorization", `Bearer ${managerToken}`);
 
@@ -2527,7 +3091,7 @@ describe("core HTTP endpoints", () => {
     expect(response.body.appliedFilters).toEqual({
       fromDate: "2026-03-01",
       toDate: "2026-03-05",
-      locationText: "village a",
+      collectionPointId: "cp-1",
       itemId: "item-1",
     });
     expect(response.body.rows).toEqual([
@@ -2590,7 +3154,7 @@ describe("core HTTP endpoints", () => {
     expect(defaultRange.body.appliedFilters).toEqual({
       fromDate: "2026-02-04",
       toDate: "2026-03-05",
-      locationText: null,
+      collectionPointId: null,
     });
   });
 
@@ -2599,47 +3163,33 @@ describe("core HTTP endpoints", () => {
     const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const response = await supertest(server)
-      .get("/reports/cashflow?fromDate=2026-03-01&toDate=2026-03-05&locationText=village%20a")
+      .get("/reports/cashflow?fromDate=2026-03-01&toDate=2026-03-05&collectionPointId=cp-1")
       .set("authorization", `Bearer ${managerToken}`);
 
     expect(response.status).toBe(200);
     expect(response.body.appliedFilters).toEqual({
       fromDate: "2026-03-01",
       toDate: "2026-03-05",
-      locationText: "village a",
+      collectionPointId: "cp-1",
     });
     expect(response.body.rows).toEqual([
       {
         day: "2026-03-04",
         salesPointsValue: 52.5,
-        expenseCashTotal: 18.5,
-        netCashflow: 34,
+        expenseCashTotal: 0,
+        netCashflow: 52.5,
         saleCount: 2,
-        expenseCount: 2,
-      },
-      {
-        day: "2026-03-05",
-        salesPointsValue: 10.5,
-        expenseCashTotal: 5.25,
-        netCashflow: 5.25,
-        saleCount: 1,
-        expenseCount: 1,
+        expenseCount: 0,
       },
     ]);
     expect(response.body.summary).toEqual({
-      totalSalesPointsValue: 63,
-      totalExpenseCash: 23.75,
-      netCashflow: 39.25,
-      saleCount: 3,
-      expenseCount: 3,
+      totalSalesPointsValue: 52.5,
+      totalExpenseCash: 0,
+      netCashflow: 52.5,
+      saleCount: 2,
+      expenseCount: 0,
     });
-    expect(response.body.expenseCategories).toEqual([
-      {
-        category: "Fuel",
-        totalCashAmount: 18.5,
-        expenseCount: 2,
-      },
-    ]);
+    expect(response.body.expenseCategories).toEqual([]);
   });
 
   test("POST /inventory/status-changes denies user and applies valid moves for administrator", async () => {
@@ -2763,6 +3313,140 @@ describe("core HTTP endpoints", () => {
     expect(response.body.requests).toHaveLength(1);
     expect(response.body.requests[0]?.requestType).toBe("points");
     expect(response.body.requests[0]?.status).toBe("pending");
+  });
+
+  test("POST /sales/adjustment-requests links a free-text note to an existing sale", async () => {
+    const dependencies = createDependencies({
+      inventoryBatches: [
+        {
+          inventoryBatchId: "batch-1",
+          itemId: "item-1",
+          quantities: { storage: 0, shop: 5, sold: 0, spoiled: 0, damaged: 0, missing: 0 },
+        },
+      ],
+    });
+    const server = createApiServer(dependencies);
+    const token = await loginAndGetToken(server, "user", userPasscode);
+
+    const sale = await supertest(server)
+      .post("/sales")
+      .set("authorization", `Bearer ${token}`)
+      .send({ personId: "person-a", lines: [{ itemId: "item-1", quantity: 1 }] });
+    expect(sale.status).toBe(201);
+
+    const pull = await supertest(server)
+      .get("/sync/pull?cursor=0&limit=50")
+      .set("authorization", `Bearer ${token}`);
+    const saleEvent = (pull.body.events as Array<{ eventType: string; eventId: string }>).find(
+      (event) => event.eventType === "sale.recorded",
+    );
+    expect(saleEvent).toBeDefined();
+
+    const response = await supertest(server)
+      .post("/sales/adjustment-requests")
+      .set("authorization", `Bearer ${token}`)
+      .send({
+        saleEventId: saleEvent?.eventId,
+        personId: "person-a",
+        note: "Item was damaged, please refund the points",
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.requestEventId).toBeDefined();
+
+    const requestPull = await supertest(server)
+      .get("/sync/pull?cursor=0&limit=50")
+      .set("authorization", `Bearer ${token}`);
+    const requestEvent = (
+      requestPull.body.events as Array<{
+        eventType: string;
+        payload: { saleEventId: string; personId: string; note: string };
+      }>
+    ).find((event) => event.eventType === "sale.adjustment_requested");
+    expect(requestEvent?.payload.saleEventId).toBe(saleEvent?.eventId);
+    expect(requestEvent?.payload.personId).toBe("person-a");
+    expect(requestEvent?.payload.note).toBe("Item was damaged, please refund the points");
+  });
+
+  test("POST /sales/adjustment-requests returns 404 when the sale event does not exist", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "user", userPasscode);
+
+    const response = await supertest(server)
+      .post("/sales/adjustment-requests")
+      .set("authorization", `Bearer ${token}`)
+      .send({ saleEventId: "no-such-event", personId: "person-a", note: "Note" });
+
+    expect(response.status).toBe(404);
+    expect(response.body.error).toBe("SALE_NOT_FOUND");
+  });
+
+  test("POST /sales/adjustment-requests returns 404 when the referenced event is not a sale", async () => {
+    const dependencies = createDependencies({
+      inventoryBatches: [
+        {
+          inventoryBatchId: "batch-1",
+          itemId: "item-1",
+          quantities: { storage: 0, shop: 5, sold: 0, spoiled: 0, damaged: 0, missing: 0 },
+        },
+      ],
+    });
+    const server = createApiServer(dependencies);
+    const token = await loginAndGetToken(server, "user", userPasscode);
+
+    const intake = await supertest(server)
+      .post("/intakes")
+      .set("authorization", `Bearer ${token}`)
+      .send({ personId: "person-a", lines: [{ materialTypeId: "mat-1", weightKg: 2 }] });
+    expect(intake.status).toBe(201);
+
+    const pull = await supertest(server)
+      .get("/sync/pull?cursor=0&limit=50")
+      .set("authorization", `Bearer ${token}`);
+    const intakeEvent = (pull.body.events as Array<{ eventType: string; eventId: string }>).find(
+      (event) => event.eventType === "intake.recorded",
+    );
+
+    const response = await supertest(server)
+      .post("/sales/adjustment-requests")
+      .set("authorization", `Bearer ${token}`)
+      .send({ saleEventId: intakeEvent?.eventId, personId: "person-a", note: "Note" });
+
+    expect(response.status).toBe(404);
+    expect(response.body.error).toBe("SALE_NOT_FOUND");
+  });
+
+  test("POST /sales/adjustment-requests rejects a missing or empty note", async () => {
+    const dependencies = createDependencies({
+      inventoryBatches: [
+        {
+          inventoryBatchId: "batch-1",
+          itemId: "item-1",
+          quantities: { storage: 0, shop: 5, sold: 0, spoiled: 0, damaged: 0, missing: 0 },
+        },
+      ],
+    });
+    const server = createApiServer(dependencies);
+    const token = await loginAndGetToken(server, "user", userPasscode);
+
+    const sale = await supertest(server)
+      .post("/sales")
+      .set("authorization", `Bearer ${token}`)
+      .send({ personId: "person-a", lines: [{ itemId: "item-1", quantity: 1 }] });
+    const pull = await supertest(server)
+      .get("/sync/pull?cursor=0&limit=50")
+      .set("authorization", `Bearer ${token}`);
+    const saleEvent = (pull.body.events as Array<{ eventType: string; eventId: string }>).find(
+      (event) => event.eventType === "sale.recorded",
+    );
+    expect(sale.status).toBe(201);
+
+    const response = await supertest(server)
+      .post("/sales/adjustment-requests")
+      .set("authorization", `Bearer ${token}`)
+      .send({ saleEventId: saleEvent?.eventId, personId: "person-a", note: "   " });
+
+    expect(response.status).toBe(400);
   });
 
   test("POST /points/adjustments/apply requires administrator and records apply event", async () => {
@@ -3000,6 +3684,215 @@ describe("core HTTP endpoints", () => {
     ]);
   });
 
+  test("sync push accepts an old free-text locationText on the event envelope and pull preserves it verbatim", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const push = await supertest(server)
+      .post("/sync/push")
+      .set("authorization", `Bearer ${token}`)
+      .send({
+        events: [
+          {
+            eventId: "evt-old-location",
+            eventType: "intake.recorded",
+            occurredAt: "2026-03-05T12:00:00.000Z",
+            actorUserId: users[0]?.id,
+            deviceId: "device-a",
+            schemaVersion: 1,
+            locationText: "Village A",
+            payload: {
+              personId: "person-a",
+              lines: [{ materialTypeId: "mat-1", weightKg: 2, pointsPerKg: 1, pointsAwarded: 2 }],
+              totalPoints: 2,
+            },
+          },
+        ],
+      });
+
+    expect(push.status).toBe(200);
+    expect(push.body.acknowledgements[0].status).toBe("accepted");
+
+    const pull = await supertest(server)
+      .get("/sync/pull?cursor=0&limit=10")
+      .set("authorization", `Bearer ${token}`);
+    const pulled = (pull.body.events as Array<{ eventId: string; locationText?: unknown }>).find(
+      (event) => event.eventId === "evt-old-location",
+    );
+    expect(pulled?.locationText).toBe("Village A");
+  });
+
+  test("sync push accepts locationText: null on the event envelope, matching the current web client shape, and preserves it through pull", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const push = await supertest(server)
+      .post("/sync/push")
+      .set("authorization", `Bearer ${token}`)
+      .send({
+        events: [
+          {
+            eventId: "evt-null-location",
+            eventType: "sale.recorded",
+            occurredAt: "2026-03-05T12:05:00.000Z",
+            actorUserId: users[0]?.id,
+            deviceId: "device-a",
+            schemaVersion: 1,
+            locationText: null,
+            payload: {
+              personId: "person-a",
+              lines: [
+                {
+                  itemId: "item-1",
+                  inventoryBatchId: null,
+                  quantity: 1,
+                  pointsPrice: 5,
+                  lineTotalPoints: 5,
+                },
+              ],
+              totalPoints: 5,
+            },
+          },
+        ],
+      });
+
+    expect(push.status).toBe(200);
+    expect(push.body.acknowledgements[0].status).toBe("accepted");
+
+    const pull = await supertest(server)
+      .get("/sync/pull?cursor=0&limit=10")
+      .set("authorization", `Bearer ${token}`);
+    const pulled = (pull.body.events as Array<{ eventId: string; locationText?: unknown }>).find(
+      (event) => event.eventId === "evt-null-location",
+    );
+    expect(pulled?.locationText).toBeNull();
+  });
+
+  test("sync push accepts an event with no locationText field at all, and pull does not inject a default", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const push = await supertest(server)
+      .post("/sync/push")
+      .set("authorization", `Bearer ${token}`)
+      .send({
+        events: [
+          {
+            eventId: "evt-no-location-field",
+            eventType: "person.created",
+            occurredAt: "2026-03-05T12:10:00.000Z",
+            actorUserId: users[0]?.id,
+            deviceId: "device-a",
+            schemaVersion: 1,
+            payload: {
+              personId: "person-no-location",
+              name: "No",
+              surname: "Location",
+            },
+          },
+        ],
+      });
+
+    expect(push.status).toBe(200);
+    expect(push.body.acknowledgements[0].status).toBe("accepted");
+
+    const pull = await supertest(server)
+      .get("/sync/pull?cursor=0&limit=10")
+      .set("authorization", `Bearer ${token}`);
+    const pulled = (pull.body.events as Array<Record<string, unknown>>).find(
+      (event) => event.eventId === "evt-no-location-field",
+    );
+    expect(pulled).toBeDefined();
+    expect(Object.prototype.hasOwnProperty.call(pulled!, "locationText")).toBe(false);
+  });
+
+  test("sync push accepts an old-shape intake.recorded payload with no collectionPointId and pull preserves its absence", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const push = await supertest(server)
+      .post("/sync/push")
+      .set("authorization", `Bearer ${token}`)
+      .send({
+        events: [
+          {
+            eventId: "evt-old-intake-shape",
+            eventType: "intake.recorded",
+            occurredAt: "2026-03-05T12:15:00.000Z",
+            actorUserId: users[0]?.id,
+            deviceId: "device-a",
+            schemaVersion: 1,
+            locationText: "Village A",
+            payload: {
+              personId: "person-a",
+              lines: [{ materialTypeId: "mat-1", weightKg: 1, pointsPerKg: 1, pointsAwarded: 1 }],
+              totalPoints: 1,
+            },
+          },
+        ],
+      });
+
+    expect(push.status).toBe(200);
+    expect(push.body.acknowledgements[0].status).toBe("accepted");
+
+    const pull = await supertest(server)
+      .get("/sync/pull?cursor=0&limit=10")
+      .set("authorization", `Bearer ${token}`);
+    const pulled = (pull.body.events as Array<Record<string, unknown>>).find(
+      (event) => event.eventId === "evt-old-intake-shape",
+    );
+    expect(pulled).toBeDefined();
+    const payload = pulled?.payload as Record<string, unknown>;
+    expect(Object.prototype.hasOwnProperty.call(payload, "collectionPointId")).toBe(false);
+  });
+
+  test("sync push accepts a new-shape sale.recorded payload with a collectionPointId and pull preserves it verbatim", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "administrator", administratorPasscode);
+
+    const push = await supertest(server)
+      .post("/sync/push")
+      .set("authorization", `Bearer ${token}`)
+      .send({
+        events: [
+          {
+            eventId: "evt-new-sale-shape",
+            eventType: "sale.recorded",
+            occurredAt: "2026-03-05T12:20:00.000Z",
+            actorUserId: users[0]?.id,
+            deviceId: "device-a",
+            schemaVersion: 1,
+            payload: {
+              personId: "person-a",
+              lines: [
+                {
+                  itemId: "item-1",
+                  inventoryBatchId: null,
+                  quantity: 1,
+                  pointsPrice: 1,
+                  lineTotalPoints: 1,
+                },
+              ],
+              totalPoints: 1,
+              collectionPointId: "cp-1",
+            },
+          },
+        ],
+      });
+
+    expect(push.status).toBe(200);
+    expect(push.body.acknowledgements[0].status).toBe("accepted");
+
+    const pull = await supertest(server)
+      .get("/sync/pull?cursor=0&limit=10")
+      .set("authorization", `Bearer ${token}`);
+    const pulled = (pull.body.events as Array<Record<string, unknown>>).find(
+      (event) => event.eventId === "evt-new-sale-shape",
+    );
+    const payload = pulled?.payload as Record<string, unknown>;
+    expect(payload.collectionPointId).toBe("cp-1");
+  });
+
   test("GET /sync/conflicts requires manager role", async () => {
     const server = createApiServer(createDependencies());
     const collectorToken = await loginAndGetToken(server, "user", userPasscode);
@@ -3171,6 +4064,86 @@ describe("core HTTP endpoints", () => {
 
     expect(response.status).toBe(200);
     expect(response.body.event.eventId).toBe(eventId);
+    expect(response.body.resolvedLocationName).toBeNull();
     expect(Array.isArray(response.body.linkedConflictIds)).toBe(true);
+  });
+
+  test("GET /sync/audit/event/:eventId resolves an old-shape intake.recorded event to Heuwelkroon parkie", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+    const eventId = "b6f1a6b0-1e10-4a1a-9f0a-7a2b6a1d0001";
+
+    await supertest(server)
+      .post("/sync/push")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({
+        events: [
+          {
+            eventId,
+            eventType: "intake.recorded",
+            occurredAt: "2026-03-05T12:00:00.000Z",
+            actorUserId: users[0]?.id,
+            deviceId: "device-b",
+            schemaVersion: 1,
+            locationText: "Village A",
+            payload: {
+              personId: "person-a",
+              lines: [{ materialTypeId: "mat-1", weightKg: 1, pointsPerKg: 1, pointsAwarded: 1 }],
+              totalPoints: 1,
+            },
+          },
+        ],
+      });
+
+    const response = await supertest(server)
+      .get(`/sync/audit/event/${eventId}`)
+      .set("authorization", `Bearer ${managerToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.event.locationText).toBe("Village A");
+    expect(response.body.resolvedLocationName).toBe("Heuwelkroon parkie");
+  });
+
+  test("GET /sync/audit/event/:eventId resolves a new-shape sale.recorded event to its real collection point", async () => {
+    const server = createApiServer(createDependencies());
+    const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
+    const eventId = "b6f1a6b0-1e10-4a1a-9f0a-7a2b6a1d0002";
+
+    await supertest(server)
+      .post("/sync/push")
+      .set("authorization", `Bearer ${managerToken}`)
+      .send({
+        events: [
+          {
+            eventId,
+            eventType: "sale.recorded",
+            occurredAt: "2026-03-05T12:05:00.000Z",
+            actorUserId: users[0]?.id,
+            deviceId: "device-b",
+            schemaVersion: 1,
+            payload: {
+              personId: "person-a",
+              lines: [
+                {
+                  itemId: "item-1",
+                  inventoryBatchId: null,
+                  quantity: 1,
+                  pointsPrice: 1,
+                  lineTotalPoints: 1,
+                },
+              ],
+              totalPoints: 1,
+              collectionPointId: "cp-2",
+            },
+          },
+        ],
+      });
+
+    const response = await supertest(server)
+      .get(`/sync/audit/event/${eventId}`)
+      .set("authorization", `Bearer ${managerToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.resolvedLocationName).toBe("Old Village Point");
   });
 });

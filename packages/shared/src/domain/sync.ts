@@ -102,6 +102,13 @@ export type SyncAuditReportResponse = {
 
 export type SyncAuditEventResponse = {
   event: Event;
+  /**
+   * Historical location override for intake.recorded/sale.recorded events: resolves
+   * to the event's collectionPointId's real name when present, or Heuwelkroon parkie
+   * when absent (predating the collection-point model). Null for other event types.
+   * The raw `event.locationText` above is left untouched for audit integrity.
+   */
+  resolvedLocationName: string | null;
   linkedConflictIds: string[];
   linkedResolutionEventIds: string[];
 };

@@ -11,6 +11,8 @@ type ProjectorHarness = {
   materialUpdate: jest.Mock;
   itemUpsert: jest.Mock;
   itemUpdate: jest.Mock;
+  collectionPointUpsert: jest.Mock;
+  collectionPointUpdate: jest.Mock;
 };
 
 const createHarness = (): ProjectorHarness => {
@@ -20,6 +22,8 @@ const createHarness = (): ProjectorHarness => {
   const materialUpdate = jest.fn(async () => undefined);
   const itemUpsert = jest.fn(async () => undefined);
   const itemUpdate = jest.fn(async () => undefined);
+  const collectionPointUpsert = jest.fn(async () => undefined);
+  const collectionPointUpdate = jest.fn(async () => undefined);
   const executor = {
     person: {
       upsert: personUpsert,
@@ -33,6 +37,10 @@ const createHarness = (): ProjectorHarness => {
       upsert: itemUpsert,
       update: itemUpdate,
     },
+    collectionPoint: {
+      upsert: collectionPointUpsert,
+      update: collectionPointUpdate,
+    },
   } as unknown as ProjectorExecutor;
   return {
     executor,
@@ -42,6 +50,8 @@ const createHarness = (): ProjectorHarness => {
     materialUpdate,
     itemUpsert,
     itemUpdate,
+    collectionPointUpsert,
+    collectionPointUpdate,
   };
 };
 
@@ -90,6 +100,67 @@ describe("projectEventToReadModels", () => {
 
     expect(harness.personUpsert).toHaveBeenCalledTimes(1);
     expect(harness.personUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  test("projects person create with an assigned collection point and reassignment on update", async () => {
+    const harness = createHarness();
+
+    const created: Event = {
+      ...baseFields,
+      eventType: "person.created",
+      payload: {
+        personId: "person-1",
+        name: "Jane",
+        surname: "Doe",
+        assignedCollectionPointId: "cp-1",
+      },
+    };
+    const updated: Event = {
+      ...baseFields,
+      eventType: "person.profile_updated",
+      payload: {
+        personId: "person-1",
+        updates: {
+          assignedCollectionPointId: "cp-2",
+        },
+      },
+    };
+
+    await projectEventToReadModels(harness.executor, created);
+    await projectEventToReadModels(harness.executor, updated);
+
+    const upsertCall = harness.personUpsert.mock.calls[0]?.[0] as {
+      create: { assignedCollectionPointId: string | null };
+      update: { assignedCollectionPointId: string | null };
+    };
+    expect(upsertCall.create.assignedCollectionPointId).toBe("cp-1");
+    expect(upsertCall.update.assignedCollectionPointId).toBe("cp-1");
+    expect(harness.personUpdate).toHaveBeenCalledWith({
+      where: { id: "person-1" },
+      data: { assignedCollectionPointId: "cp-2" },
+    });
+  });
+
+  test("projects person profile update clearing the assigned collection point", async () => {
+    const harness = createHarness();
+
+    const updated: Event = {
+      ...baseFields,
+      eventType: "person.profile_updated",
+      payload: {
+        personId: "person-1",
+        updates: {
+          assignedCollectionPointId: null,
+        },
+      },
+    };
+
+    await projectEventToReadModels(harness.executor, updated);
+
+    expect(harness.personUpdate).toHaveBeenCalledWith({
+      where: { id: "person-1" },
+      data: { assignedCollectionPointId: null },
+    });
   });
 
   test("projects person removed — sets removedAt on the person record", async () => {
@@ -143,6 +214,66 @@ describe("projectEventToReadModels", () => {
 
     expect(harness.materialUpsert).toHaveBeenCalledTimes(1);
     expect(harness.materialUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  test("projects collection point create and rename", async () => {
+    const harness = createHarness();
+
+    const created: Event = {
+      ...baseFields,
+      eventType: "collection_point.created",
+      payload: {
+        collectionPointId: "cp-1",
+        name: "Heuwelkroon parkie",
+      },
+    };
+    const updated: Event = {
+      ...baseFields,
+      eventType: "collection_point.updated",
+      payload: {
+        collectionPointId: "cp-1",
+        updates: {
+          name: "Heuwelkroon parkie (renamed)",
+        },
+      },
+    };
+
+    await projectEventToReadModels(harness.executor, created);
+    await projectEventToReadModels(harness.executor, updated);
+
+    expect(harness.collectionPointUpsert).toHaveBeenCalledTimes(1);
+    expect(harness.collectionPointUpsert).toHaveBeenCalledWith({
+      where: { id: "cp-1" },
+      update: { name: "Heuwelkroon parkie" },
+      create: { id: "cp-1", name: "Heuwelkroon parkie" },
+    });
+    expect(harness.collectionPointUpdate).toHaveBeenCalledTimes(1);
+    expect(harness.collectionPointUpdate).toHaveBeenCalledWith({
+      where: { id: "cp-1" },
+      data: { name: "Heuwelkroon parkie (renamed)" },
+    });
+  });
+
+  test("projects collection point deactivation via update", async () => {
+    const harness = createHarness();
+
+    const updated: Event = {
+      ...baseFields,
+      eventType: "collection_point.updated",
+      payload: {
+        collectionPointId: "cp-1",
+        updates: {
+          isActive: false,
+        },
+      },
+    };
+
+    await projectEventToReadModels(harness.executor, updated);
+
+    expect(harness.collectionPointUpdate).toHaveBeenCalledWith({
+      where: { id: "cp-1" },
+      data: { isActive: false },
+    });
   });
 
   test("projects item create and update", async () => {
@@ -376,5 +507,7 @@ describe("projectEventToReadModels", () => {
     expect(harness.materialUpdate).not.toHaveBeenCalled();
     expect(harness.itemUpsert).not.toHaveBeenCalled();
     expect(harness.itemUpdate).not.toHaveBeenCalled();
+    expect(harness.collectionPointUpsert).not.toHaveBeenCalled();
+    expect(harness.collectionPointUpdate).not.toHaveBeenCalled();
   });
 });

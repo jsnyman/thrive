@@ -26,7 +26,7 @@ describe("createReportsClient", () => {
         appliedFilters: {
           fromDate: "2026-03-01",
           toDate: "2026-03-31",
-          locationText: "Village A",
+          collectionPointId: "cp-1",
           materialTypeId: "mat-1",
         },
       }),
@@ -36,14 +36,14 @@ describe("createReportsClient", () => {
     const report = await client.getMaterialsCollectedReport({
       fromDate: "2026-03-01",
       toDate: "2026-03-31",
-      locationText: "Village A",
+      collectionPointId: "cp-1",
       materialTypeId: "mat-1",
     });
 
     expect(report.rows).toHaveLength(1);
     expect(report.rows[0]?.materialName).toBe("PET");
     expect(fetchFn.mock.calls[0]?.[0]).toBe(
-      "/api/reports/materials-collected?fromDate=2026-03-01&toDate=2026-03-31&locationText=Village+A&materialTypeId=mat-1",
+      "/api/reports/materials-collected?fromDate=2026-03-01&toDate=2026-03-31&collectionPointId=cp-1&materialTypeId=mat-1",
     );
   });
 
@@ -66,7 +66,7 @@ describe("createReportsClient", () => {
           appliedFilters: {
             fromDate: "2026-03-01",
             toDate: "2026-03-31",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         }),
@@ -306,7 +306,7 @@ describe("createReportsClient", () => {
         appliedFilters: {
           fromDate: "2026-03-01",
           toDate: "2026-03-31",
-          locationText: "Village A",
+          collectionPointId: "cp-1",
           itemId: "item-1",
         },
       }),
@@ -316,14 +316,14 @@ describe("createReportsClient", () => {
     const report = await client.getSalesReport({
       fromDate: "2026-03-01",
       toDate: "2026-03-31",
-      locationText: "Village A",
+      collectionPointId: "cp-1",
       itemId: "item-1",
     });
 
     expect(report.rows[0]?.itemName).toBe("Soap");
     expect(report.summary.totalPoints).toBe(52.5);
     expect(fetchFn.mock.calls[0]?.[0]).toBe(
-      "/api/reports/sales?fromDate=2026-03-01&toDate=2026-03-31&locationText=Village+A&itemId=item-1",
+      "/api/reports/sales?fromDate=2026-03-01&toDate=2026-03-31&collectionPointId=cp-1&itemId=item-1",
     );
   });
 
@@ -352,7 +352,7 @@ describe("createReportsClient", () => {
           appliedFilters: {
             fromDate: "2026-03-01",
             toDate: "2026-03-31",
-            locationText: null,
+            collectionPointId: null,
             itemId: null,
           },
         }),
@@ -395,7 +395,7 @@ describe("createReportsClient", () => {
         appliedFilters: {
           fromDate: "2026-03-01",
           toDate: "2026-03-31",
-          locationText: "Village A",
+          collectionPointId: "cp-1",
         },
       }),
     );
@@ -404,13 +404,13 @@ describe("createReportsClient", () => {
     const report = await client.getCashflowReport({
       fromDate: "2026-03-01",
       toDate: "2026-03-31",
-      locationText: "Village A",
+      collectionPointId: "cp-1",
     });
 
     expect(report.rows[0]?.salesPointsValue).toBe(52.5);
     expect(report.expenseCategories[0]?.category).toBe("Fuel");
     expect(fetchFn.mock.calls[0]?.[0]).toBe(
-      "/api/reports/cashflow?fromDate=2026-03-01&toDate=2026-03-31&locationText=Village+A",
+      "/api/reports/cashflow?fromDate=2026-03-01&toDate=2026-03-31&collectionPointId=cp-1",
     );
   });
 
@@ -441,7 +441,7 @@ describe("createReportsClient", () => {
           appliedFilters: {
             fromDate: null,
             toDate: null,
-            locationText: null,
+            collectionPointId: null,
           },
         }),
       );

@@ -44,15 +44,16 @@ model StaffUser {
 }
 
 model Person {
-  id        String    @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  name      String
-  surname   String
-  idNumber  String?   @map("id_number")
-  phone     String?
-  address   String?
-  notes     String?
-  createdAt DateTime  @default(now()) @db.Timestamptz(6) @map("created_at")
-  removedAt DateTime? @db.Timestamptz(6) @map("removed_at")
+  id                        String    @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  name                      String
+  surname                   String
+  idNumber                  String?   @map("id_number")
+  phone                     String?
+  address                   String?
+  notes                     String?
+  assignedCollectionPointId String?   @db.Uuid @map("assigned_collection_point_id")
+  createdAt                 DateTime  @default(now()) @db.Timestamptz(6) @map("created_at")
+  removedAt                 DateTime? @db.Timestamptz(6) @map("removed_at")
 
   @@map("person")
 }
@@ -64,6 +65,17 @@ model MaterialType {
   createdAt   DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
 
   @@map("material_type")
+}
+
+model MaterialImage {
+  materialTypeId String   @id @db.Uuid @map("material_type_id")
+  contentType    String   @map("content_type")
+  fileName       String?  @map("file_name")
+  byteSize       Int      @map("byte_size")
+  content        Bytes
+  updatedAt      DateTime @default(now()) @db.Timestamptz(6) @map("updated_at")
+
+  @@map("material_image")
 }
 
 model Item {
@@ -78,6 +90,15 @@ model Item {
   @@map("item")
 }
 
+model CollectionPoint {
+  id        String   @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  name      String   @unique
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+
+  @@map("collection_point")
+}
+
 enum StaffRole {
   user
   administrator
@@ -89,8 +110,11 @@ enum EventType {
   person_removed                 @map("person.removed")
   material_type_created          @map("material_type.created")
   material_type_updated          @map("material_type.updated")
+  material_type_image_set        @map("material_type.image_set")
   item_created                   @map("item.created")
   item_updated                   @map("item.updated")
+  collection_point_created       @map("collection_point.created")
+  collection_point_updated       @map("collection_point.updated")
   staff_user_created             @map("staff_user.created")
   staff_user_role_changed        @map("staff_user.role_changed")
   intake_recorded                @map("intake.recorded")
@@ -103,6 +127,7 @@ enum EventType {
   inventory_adjustment_applied   @map("inventory.adjustment_applied")
   points_adjustment_requested    @map("points.adjustment_requested")
   points_adjustment_applied      @map("points.adjustment_applied")
+  sale_adjustment_requested      @map("sale.adjustment_requested")
   conflict_detected              @map("conflict.detected")
   conflict_resolved              @map("conflict.resolved")
 }

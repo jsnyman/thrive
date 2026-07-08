@@ -1,4 +1,5 @@
 import type {
+  CollectionPointId,
   ConflictId,
   DeviceId,
   EventId,
@@ -21,8 +22,11 @@ export type EventType =
   | "person.removed"
   | "material_type.created"
   | "material_type.updated"
+  | "material_type.image_set"
   | "item.created"
   | "item.updated"
+  | "collection_point.created"
+  | "collection_point.updated"
   | "staff_user.created"
   | "staff_user.role_changed"
   | "intake.recorded"
@@ -35,6 +39,7 @@ export type EventType =
   | "inventory.adjustment_applied"
   | "points.adjustment_requested"
   | "points.adjustment_applied"
+  | "sale.adjustment_requested"
   | "conflict.detected"
   | "conflict.resolved";
 
@@ -47,6 +52,7 @@ export type PersonCreatedPayload = {
   address?: string | null;
   notes?: string | null;
   locationText?: string | null;
+  assignedCollectionPointId?: CollectionPointId | null;
 };
 
 export type PersonProfileUpdates = {
@@ -56,6 +62,7 @@ export type PersonProfileUpdates = {
   phone?: string | null;
   address?: string | null;
   notes?: string | null;
+  assignedCollectionPointId?: CollectionPointId | null;
 };
 
 export type PersonProfileUpdatedPayload = {
@@ -84,6 +91,13 @@ export type MaterialTypeUpdatedPayload = {
   updates: MaterialTypeUpdates;
 };
 
+export type MaterialTypeImageSetPayload = {
+  materialTypeId: MaterialTypeId;
+  contentType: string;
+  fileName?: string | null;
+  fileSizeBytes: number;
+};
+
 export type ItemCreatedPayload = {
   itemId: ItemId;
   name: string;
@@ -102,6 +116,21 @@ export type ItemUpdates = {
 export type ItemUpdatedPayload = {
   itemId: ItemId;
   updates: ItemUpdates;
+};
+
+export type CollectionPointCreatedPayload = {
+  collectionPointId: CollectionPointId;
+  name: string;
+};
+
+export type CollectionPointUpdates = {
+  name?: string;
+  isActive?: boolean;
+};
+
+export type CollectionPointUpdatedPayload = {
+  collectionPointId: CollectionPointId;
+  updates: CollectionPointUpdates;
 };
 
 export type StaffUserCreatedPayload = {
@@ -128,6 +157,7 @@ export type IntakeRecordedPayload = {
   lines: IntakeLine[];
   totalPoints: number;
   locationText?: string | null;
+  collectionPointId?: CollectionPointId | null;
 };
 
 export type SaleLine = {
@@ -143,6 +173,7 @@ export type SaleRecordedPayload = {
   lines: SaleLine[];
   totalPoints: number;
   locationText?: string | null;
+  collectionPointId?: CollectionPointId | null;
 };
 
 export type ProcurementLine = {
@@ -221,6 +252,12 @@ export type PointsAdjustmentAppliedPayload = {
   notes?: string | null;
 };
 
+export type SaleAdjustmentRequestedPayload = {
+  saleEventId: EventId;
+  personId: PersonId;
+  note: string;
+};
+
 export type ConflictDetectedPayload = {
   conflictId: ConflictId;
   entityType:
@@ -250,8 +287,11 @@ export type EventPayloadMap = {
   "person.removed": PersonRemovedPayload;
   "material_type.created": MaterialTypeCreatedPayload;
   "material_type.updated": MaterialTypeUpdatedPayload;
+  "material_type.image_set": MaterialTypeImageSetPayload;
   "item.created": ItemCreatedPayload;
   "item.updated": ItemUpdatedPayload;
+  "collection_point.created": CollectionPointCreatedPayload;
+  "collection_point.updated": CollectionPointUpdatedPayload;
   "staff_user.created": StaffUserCreatedPayload;
   "staff_user.role_changed": StaffUserRoleChangedPayload;
   "intake.recorded": IntakeRecordedPayload;
@@ -264,6 +304,7 @@ export type EventPayloadMap = {
   "inventory.adjustment_applied": InventoryAdjustmentAppliedPayload;
   "points.adjustment_requested": PointsAdjustmentRequestedPayload;
   "points.adjustment_applied": PointsAdjustmentAppliedPayload;
+  "sale.adjustment_requested": SaleAdjustmentRequestedPayload;
   "conflict.detected": ConflictDetectedPayload;
   "conflict.resolved": ConflictResolvedPayload;
 };

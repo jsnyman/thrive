@@ -17,6 +17,7 @@ import type {
 import type { PrismaClient } from "@prisma/client";
 import { refreshProjections } from "../projections/refresh";
 import { createEventStore, type AppendEventResult } from "./event-store";
+import { HEUWELKROON_PARKIE_NAME, resolveHistoricalLocationName } from "./historical-location";
 import { projectEventToReadModels } from "./project-event";
 import {
   applyAcceptedIncomingEvent,
@@ -37,12 +38,23 @@ type PersonRecord = {
   address?: string | null;
   notes?: string | null;
   balancePoints?: number;
+  assignedCollectionPointId?: string | null;
 };
 
 type MaterialRecord = {
   id: string;
   name: string;
   pointsPerKg: number;
+  imageUpdatedAt?: string | null;
+};
+
+type MaterialImageRecord = {
+  materialTypeId: string;
+  contentType: string;
+  fileName: string | null;
+  fileSizeBytes: number;
+  content: Uint8Array;
+  updatedAt: string;
 };
 
 type ItemRecord = {
@@ -51,6 +63,12 @@ type ItemRecord = {
   pointsPrice: number;
   costPrice?: number | null;
   sku?: string | null;
+};
+
+type CollectionPointRecord = {
+  id: string;
+  name: string;
+  isActive: boolean;
 };
 
 type InventoryStatus = "storage" | "shop" | "sold" | "spoiled" | "damaged" | "missing";
@@ -87,7 +105,7 @@ type LedgerEntryRecord = {
 type MaterialsCollectedReportFilter = {
   fromDate: string | null;
   toDate: string | null;
-  locationText: string | null;
+  collectionPointId: string | null;
   materialTypeId: string | null;
 };
 
@@ -103,7 +121,7 @@ type MaterialsCollectedReportRow = {
 type SalesReportFilter = {
   fromDate: string | null;
   toDate: string | null;
-  locationText: string | null;
+  collectionPointId: string | null;
   itemId: string | null;
 };
 
@@ -129,7 +147,7 @@ type SalesReportResult = {
 type CashflowReportFilter = {
   fromDate: string | null;
   toDate: string | null;
-  locationText: string | null;
+  collectionPointId: string | null;
 };
 
 type CashflowReportRow = {
@@ -338,6 +356,7 @@ type MaterialsCollectedReportQueryRow = {
   day: Date;
   material_type_id: string;
   material_name: string;
+  collection_point_id: string | null;
   location_text: string;
   total_weight_kg: unknown;
   total_points: unknown;
@@ -354,7 +373,7 @@ type PointsLiabilityReportQueryRow = {
 
 type CoreTransactionExecutor = Pick<
   PrismaClient,
-  "$executeRawUnsafe" | "$queryRawUnsafe" | "person" | "materialType" | "item"
+  "$executeRawUnsafe" | "$queryRawUnsafe" | "person" | "materialType" | "item" | "collectionPoint"
 >;
 
 type ConflictCursorParts = {
@@ -567,10 +586,12 @@ const toPersonRecord = (person: {
   phone: string | null;
   address: string | null;
   notes: string | null;
+  assignedCollectionPointId: string | null;
 }): PersonRecord => ({
   id: person.id,
   name: person.name,
   surname: person.surname,
+  assignedCollectionPointId: person.assignedCollectionPointId,
   idNumber: person.idNumber,
   phone: person.phone,
   address: person.address,
@@ -581,10 +602,25 @@ const toMaterialRecord = (material: {
   id: string;
   name: string;
   pointsPerKg: unknown;
+  imageUpdatedAt?: Date | string | null;
 }): MaterialRecord => ({
   id: material.id,
   name: material.name,
   pointsPerKg: toPointNumber(material.pointsPerKg),
+  imageUpdatedAt:
+    material.imageUpdatedAt === undefined || material.imageUpdatedAt === null
+      ? null
+      : new Date(material.imageUpdatedAt).toISOString(),
+});
+
+const toCollectionPointRecord = (collectionPoint: {
+  id: string;
+  name: string;
+  isActive: boolean;
+}): CollectionPointRecord => ({
+  id: collectionPoint.id,
+  name: collectionPoint.name,
+  isActive: collectionPoint.isActive,
 });
 
 const toItemRecord = (item: {
@@ -694,11 +730,13 @@ export const createCoreRepository = (prisma: PrismaClient) => {
       phone: string | null;
       address: string | null;
       notes: string | null;
+      assigned_collection_point_id: string | null;
       balance_points: unknown;
     };
     const rows = await prisma.$queryRawUnsafe<PersonWithBalanceRow[]>(
       `
         select p.id, p.name, p.surname, p.id_number, p.phone, p.address, p.notes,
+               p.assigned_collection_point_id,
                coalesce(b.balance_points, 0)::numeric(12,1) as balance_points
         from person p
         left join mv_points_balances b on b.person_id = p.id::text
@@ -715,17 +753,43 @@ export const createCoreRepository = (prisma: PrismaClient) => {
       phone: row.phone,
       address: row.address,
       notes: row.notes,
+      assignedCollectionPointId: row.assigned_collection_point_id,
       balancePoints: toPointNumber(row.balance_points),
     }));
   };
 
   const listMaterials = async (): Promise<MaterialRecord[]> => {
-    const rows = await prisma.materialType.findMany({
+    const [rows, images] = await Promise.all([
+      prisma.materialType.findMany({
+        orderBy: {
+          createdAt: "desc",
+        },
+      }),
+      prisma.materialImage.findMany({
+        select: {
+          materialTypeId: true,
+          updatedAt: true,
+        },
+      }),
+    ]);
+    const imageUpdatedAtById = new Map(
+      images.map((image) => [image.materialTypeId, image.updatedAt] as const),
+    );
+    return rows.map((row) =>
+      toMaterialRecord({
+        ...row,
+        imageUpdatedAt: imageUpdatedAtById.get(row.id) ?? null,
+      }),
+    );
+  };
+
+  const listCollectionPoints = async (): Promise<CollectionPointRecord[]> => {
+    const rows = await prisma.collectionPoint.findMany({
       orderBy: {
         createdAt: "desc",
       },
     });
-    return rows.map(toMaterialRecord);
+    return rows.map(toCollectionPointRecord);
   };
 
   const listItems = async (): Promise<ItemRecord[]> => {
@@ -1026,7 +1090,84 @@ export const createCoreRepository = (prisma: PrismaClient) => {
     if (row === null) {
       return null;
     }
-    return toMaterialRecord(row);
+    const image = await prisma.materialImage.findUnique({
+      where: {
+        materialTypeId,
+      },
+      select: {
+        updatedAt: true,
+      },
+    });
+    return toMaterialRecord({
+      ...row,
+      imageUpdatedAt: image?.updatedAt ?? null,
+    });
+  };
+
+  const getMaterialImage = async (materialTypeId: string): Promise<MaterialImageRecord | null> => {
+    const row = await prisma.materialImage.findUnique({
+      where: {
+        materialTypeId,
+      },
+    });
+    if (row === null) {
+      return null;
+    }
+    return {
+      materialTypeId: row.materialTypeId,
+      contentType: row.contentType,
+      fileName: row.fileName,
+      fileSizeBytes: row.byteSize,
+      content: row.content,
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  };
+
+  const upsertMaterialImage = async (
+    materialTypeId: string,
+    input: { contentType: string; fileName: string | null; content: Uint8Array },
+  ): Promise<MaterialImageRecord> => {
+    const row = await prisma.materialImage.upsert({
+      where: {
+        materialTypeId,
+      },
+      update: {
+        contentType: input.contentType,
+        fileName: input.fileName,
+        byteSize: input.content.byteLength,
+        content: Buffer.from(input.content),
+        updatedAt: new Date(),
+      },
+      create: {
+        materialTypeId,
+        contentType: input.contentType,
+        fileName: input.fileName,
+        byteSize: input.content.byteLength,
+        content: Buffer.from(input.content),
+      },
+    });
+    return {
+      materialTypeId: row.materialTypeId,
+      contentType: row.contentType,
+      fileName: row.fileName,
+      fileSizeBytes: row.byteSize,
+      content: row.content,
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  };
+
+  const getCollectionPointById = async (
+    collectionPointId: string,
+  ): Promise<CollectionPointRecord | null> => {
+    const row = await prisma.collectionPoint.findUnique({
+      where: {
+        id: collectionPointId,
+      },
+    });
+    if (row === null) {
+      return null;
+    }
+    return toCollectionPointRecord(row);
   };
 
   const getItemById = async (itemId: string): Promise<ItemRecord | null> => {
@@ -1260,9 +1401,9 @@ export const createCoreRepository = (prisma: PrismaClient) => {
       params.push(filters.toDate);
       conditions.push(`day <= $${String(params.length)}::date`);
     }
-    if (filters.locationText !== null) {
-      params.push(`%${filters.locationText.toLowerCase()}%`);
-      conditions.push(`lower(location_text) like $${String(params.length)}`);
+    if (filters.collectionPointId !== null) {
+      params.push(filters.collectionPointId);
+      conditions.push(`collection_point_id = $${String(params.length)}`);
     }
     if (filters.materialTypeId !== null) {
       params.push(filters.materialTypeId);
@@ -1294,8 +1435,22 @@ export const createCoreRepository = (prisma: PrismaClient) => {
     }));
   };
 
+  const resolveHistoricalCollectionPointId = (
+    collectionPointId: string | null | undefined,
+    collectionPointNameById: ReadonlyMap<string, string>,
+    collectionPoints: readonly CollectionPointRecord[],
+  ): string | null => {
+    if (typeof collectionPointId === "string" && collectionPointNameById.has(collectionPointId)) {
+      return collectionPointId;
+    }
+    const fallback = collectionPoints.find(
+      (candidate) => candidate.name === HEUWELKROON_PARKIE_NAME,
+    );
+    return fallback?.id ?? null;
+  };
+
   const listSalesReport = async (filters: SalesReportFilter): Promise<SalesReportResult> => {
-    const [rows, items] = await Promise.all([
+    const [rows, items, collectionPoints] = await Promise.all([
       prisma.$queryRaw<SalesReportEventRow[]>`
         select event_id, occurred_at, location_text, payload
         from event
@@ -1303,8 +1458,14 @@ export const createCoreRepository = (prisma: PrismaClient) => {
         order by occurred_at desc, event_id desc
       `,
       listItems(),
+      listCollectionPoints(),
     ]);
     const itemNameById = new Map(items.map((item) => [item.id, item.name] as const));
+    const collectionPointNameById = new Map(
+      collectionPoints.map(
+        (collectionPoint) => [collectionPoint.id, collectionPoint.name] as const,
+      ),
+    );
     const grouped = new Map<
       string,
       {
@@ -1315,20 +1476,25 @@ export const createCoreRepository = (prisma: PrismaClient) => {
 
     for (const eventRow of rows) {
       const day = eventRow.occurred_at.toISOString().slice(0, 10);
-      const eventLocationText = eventRow.location_text ?? "Unknown";
+      const payload = eventRow.payload as Record<string, unknown>;
+      const collectionPointId = resolveHistoricalCollectionPointId(
+        typeof payload["collectionPointId"] === "string" ? payload["collectionPointId"] : null,
+        collectionPointNameById,
+        collectionPoints,
+      );
+      const eventLocationText = resolveHistoricalLocationName(
+        collectionPointId,
+        collectionPointNameById,
+      );
       if (filters.fromDate !== null && day < filters.fromDate) {
         continue;
       }
       if (filters.toDate !== null && day > filters.toDate) {
         continue;
       }
-      if (
-        filters.locationText !== null &&
-        !eventLocationText.toLowerCase().includes(filters.locationText.toLowerCase())
-      ) {
+      if (filters.collectionPointId !== null && collectionPointId !== filters.collectionPointId) {
         continue;
       }
-      const payload = eventRow.payload as Record<string, unknown>;
       const linesRaw = payload["lines"];
       if (!Array.isArray(linesRaw)) {
         continue;
@@ -1402,12 +1568,20 @@ export const createCoreRepository = (prisma: PrismaClient) => {
   const listCashflowReport = async (
     filters: CashflowReportFilter,
   ): Promise<CashflowReportResult> => {
-    const rows = await prisma.$queryRaw<CashflowReportEventRow[]>`
-      select event_id, event_type::text as event_type, occurred_at, location_text, payload
-      from event
-      where event_type in ('sale.recorded', 'expense.recorded')
-      order by occurred_at desc, event_id desc
-    `;
+    const [rows, collectionPoints] = await Promise.all([
+      prisma.$queryRaw<CashflowReportEventRow[]>`
+        select event_id, event_type::text as event_type, occurred_at, location_text, payload
+        from event
+        where event_type in ('sale.recorded', 'expense.recorded')
+        order by occurred_at desc, event_id desc
+      `,
+      listCollectionPoints(),
+    ]);
+    const collectionPointNameById = new Map(
+      collectionPoints.map(
+        (collectionPoint) => [collectionPoint.id, collectionPoint.name] as const,
+      ),
+    );
     const dayTotals = new Map<
       string,
       {
@@ -1433,12 +1607,23 @@ export const createCoreRepository = (prisma: PrismaClient) => {
       if (filters.toDate !== null && day > filters.toDate) {
         continue;
       }
-      if (filters.locationText !== null) {
-        const eventLocation = eventRow.location_text;
-        if (
-          eventLocation === null ||
-          !eventLocation.toLowerCase().includes(filters.locationText.toLowerCase())
-        ) {
+      const payload = eventRow.payload as Record<string, unknown>;
+      // Expenses are global (not collection-point-specific), so their location stays
+      // the raw envelope value (always null) — this is what makes a location filter
+      // hide global expenses. Sales resolve through the historical override so old
+      // sale.recorded events (no collectionPointId) report as Heuwelkroon parkie.
+      const effectiveCollectionPointId =
+        eventRow.event_type === "sale.recorded"
+          ? resolveHistoricalCollectionPointId(
+              typeof payload["collectionPointId"] === "string"
+                ? (payload["collectionPointId"] as string)
+                : null,
+              collectionPointNameById,
+              collectionPoints,
+            )
+          : null;
+      if (filters.collectionPointId !== null) {
+        if (effectiveCollectionPointId !== filters.collectionPointId) {
           continue;
         }
       }
@@ -1448,7 +1633,6 @@ export const createCoreRepository = (prisma: PrismaClient) => {
         saleCount: 0,
         expenseCount: 0,
       };
-      const payload = eventRow.payload as Record<string, unknown>;
       if (eventRow.event_type === "sale.recorded") {
         const totalPoints = payload["totalPoints"];
         if (typeof totalPoints !== "number" || !Number.isFinite(totalPoints)) {
@@ -2849,6 +3033,20 @@ export const createCoreRepository = (prisma: PrismaClient) => {
       payload: row.payload as Event["payload"],
     } as Event;
 
+    let resolvedLocationName: string | null = null;
+    if (event.eventType === "intake.recorded" || event.eventType === "sale.recorded") {
+      const collectionPoints = await listCollectionPoints();
+      const collectionPointNameById = new Map(
+        collectionPoints.map(
+          (collectionPoint) => [collectionPoint.id, collectionPoint.name] as const,
+        ),
+      );
+      resolvedLocationName = resolveHistoricalLocationName(
+        event.payload.collectionPointId ?? null,
+        collectionPointNameById,
+      );
+    }
+
     const linkedConflictRows = await prisma.$queryRawUnsafe<{ conflict_id: string }[]>(
       `
         select distinct e.payload ->> 'conflictId' as conflict_id
@@ -2893,6 +3091,7 @@ export const createCoreRepository = (prisma: PrismaClient) => {
 
     return {
       event,
+      resolvedLocationName,
       linkedConflictIds: linkedConflictRows
         .map((rowItem) => rowItem.conflict_id)
         .filter((value): value is string => typeof value === "string"),
@@ -2903,12 +3102,16 @@ export const createCoreRepository = (prisma: PrismaClient) => {
   return {
     listPeople,
     listMaterials,
+    listCollectionPoints,
     listItems,
     listInventoryBatches,
     listShopBatchesForItem,
     listInventoryStatusSummary,
     getPersonById,
     getMaterialById,
+    getMaterialImage,
+    upsertMaterialImage,
+    getCollectionPointById,
     getItemById,
     getItemByName,
     getInventoryBatchState,

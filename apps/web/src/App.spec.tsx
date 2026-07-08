@@ -79,6 +79,10 @@ const openManagerPanel = async (view: RenderResult, buttonName: string): Promise
   if (view.queryByRole("button", { name: buttonName }) === null) {
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
   }
+  if (view.queryByRole("button", { name: buttonName }) === null) {
+    const landingLinkName = buttonName.replace(/^Open /, "");
+    await userEvent.click(view.getByRole("button", { name: landingLinkName }));
+  }
   await userEvent.click(view.getByRole("button", { name: buttonName }));
 };
 
@@ -200,7 +204,8 @@ describe("App person registry", () => {
     expect(view.queryByText("Navigation")).not.toBeInTheDocument();
     expect(view.getByText("Person")).toBeInTheDocument();
     expect(view.getByText("Collection")).toBeInTheDocument();
-    expect(view.getByText("Shop")).toBeInTheDocument();
+    expect(view.getByText("Sales")).toBeInTheDocument();
+    expect(view.getByText("Administration")).toBeInTheDocument();
     expect(view.getByText("Adjustments")).toBeInTheDocument();
     expect(view.getByRole("button", { name: "Sync Now" })).toBeInTheDocument();
     expect(view.getByRole("button", { name: "Logout" })).toBeInTheDocument();
@@ -355,6 +360,101 @@ describe("App person registry", () => {
     expect(view.queryByText("8001015009087")).not.toBeInTheDocument();
     expect(view.queryByText("0821234567")).not.toBeInTheDocument();
   }, 20000);
+
+  test("Search People shows a hint and no results below the 3-letter threshold, without querying the server", async () => {
+    stubResizeObserver();
+    let peopleCallCount = 0;
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) {
+        peopleCallCount += 1;
+        return jsonResponse({
+          people: [{ id: "person-1", name: "Jane", surname: "Doe" }],
+        });
+      }
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+    const callsAfterLoad = peopleCallCount;
+
+    await userEvent.type(view.getByLabelText("Search"), "ja");
+    await userEvent.click(view.getAllByRole("button", { name: "Search" })[1]!);
+
+    expect(view.getByText("Type at least 3 characters to search.")).toBeInTheDocument();
+    expect(view.queryByText("Jane Doe")).not.toBeInTheDocument();
+    expect(peopleCallCount).toBe(callsAfterLoad);
+  });
+
+  test("Search People runs a global search once the 3-letter threshold is met", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people?search=")) {
+        return jsonResponse({
+          people: [{ id: "person-1", name: "Jane", surname: "Doe" }],
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.type(view.getByLabelText("Search"), "jan");
+    await userEvent.click(view.getAllByRole("button", { name: "Search" })[1]!);
+
+    await waitFor(() => {
+      expect(view.getByText("Jane Doe")).toBeInTheDocument();
+    });
+    expect(view.queryByText("Type at least 3 characters to search.")).not.toBeInTheDocument();
+  });
 
   test("edit flow queues update event and refreshes list", async () => {
     stubResizeObserver();
@@ -764,6 +864,11 @@ describe("App person registry", () => {
           token: "token-1",
         });
       }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
       if (url.includes("/people")) {
         return jsonResponse({
           people: [
@@ -771,6 +876,7 @@ describe("App person registry", () => {
               id: "person-1",
               name: "Jane",
               surname: "Doe",
+              assignedCollectionPointId: "cp-1",
             },
           ],
         });
@@ -884,11 +990,23 @@ describe("App person registry", () => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
     await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
-    await userEvent.type(view.getByLabelText("Weight Kg 1"), "2.9");
-    await userEvent.click(view.getByRole("button", { name: "Add Line" }));
-    await userEvent.click(view.getByRole("textbox", { name: "Material 2" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
+
+    await userEvent.type(view.getByLabelText("Search person"), "Jane");
+    await userEvent.click(view.getByRole("button", { name: "Jane Doe" }));
+
+    await userEvent.click(view.getByRole("textbox", { name: "Material" }));
+    await userEvent.click(view.getByRole("option", { name: "PET (3.2 pts/kg)" }));
+    await userEvent.type(view.getByLabelText("Weight (kg)"), "2.9");
+    await userEvent.click(view.getByRole("button", { name: "Add to Collection" }));
+
+    await userEvent.click(view.getByRole("textbox", { name: "Material" }));
     await userEvent.click(view.getByRole("option", { name: "Glass (2.1 pts/kg)" }));
-    await userEvent.type(view.getByLabelText("Weight Kg 2"), "1.5");
+    await userEvent.type(view.getByLabelText("Weight (kg)"), "1.5");
+    await userEvent.click(view.getByRole("button", { name: "Add to Collection" }));
 
     await userEvent.click(view.getByRole("button", { name: "Record Intake" }));
 
@@ -917,6 +1035,9 @@ describe("App person registry", () => {
     expect(body.events[0]?.eventType).toBe("intake.recorded");
     expect(body.events[0]?.payload.lines).toHaveLength(2);
     expect(body.events[0]?.payload.totalPoints).toBe(12.3);
+    expect(
+      (body.events[0]?.payload as { collectionPointId?: string | null }).collectionPointId,
+    ).toBe("cp-1");
   });
 
   function makeIntakeFetchMock(): ReturnType<typeof vi.fn<typeof fetch>> {
@@ -928,9 +1049,16 @@ describe("App person registry", () => {
           token: "token-1",
         });
       }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
       if (url.includes("/people")) {
         return jsonResponse({
-          people: [{ id: "person-1", name: "Jane", surname: "Doe" }],
+          people: [
+            { id: "person-1", name: "Jane", surname: "Doe", assignedCollectionPointId: "cp-1" },
+          ],
         });
       }
       if (url.includes("/materials")) {
@@ -982,20 +1110,106 @@ describe("App person registry", () => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
     await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
 
-    await userEvent.type(view.getByLabelText("Weight Kg 1"), "abc");
-    await userEvent.click(view.getByRole("button", { name: "Record Intake" }));
+    await userEvent.type(view.getByLabelText("Search person"), "Jane");
+    await userEvent.click(view.getByRole("button", { name: "Jane Doe" }));
+
+    await userEvent.click(view.getByRole("textbox", { name: "Material" }));
+    await userEvent.click(view.getByRole("option", { name: "PET (3.0 pts/kg)" }));
+    await userEvent.type(view.getByLabelText("Weight (kg)"), "abc");
+    await userEvent.click(view.getByRole("button", { name: "Add to Collection" }));
     await waitFor(() => {
       expect(view.getByText("Each line weight must be greater than 0")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Record Intake" }));
+    await waitFor(() => {
+      expect(view.getByText("Add at least one intake line")).toBeInTheDocument();
     });
     await expect(queue.pendingCount()).resolves.toBe(0);
   });
 
-  test("intake allows multiple lines with the same material (multiple bags)", async () => {
+  test("intake accumulates repeated entries of the same material into a single total (multiple bags)", async () => {
     stubResizeObserver();
     const queue = createEventQueue(createMemoryEventQueueStore());
     const syncStateStore = createMemorySyncStateStore();
-    vi.stubGlobal("fetch", makeIntakeFetchMock());
+    let capturedPushBody: unknown = null;
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({
+          people: [
+            { id: "person-1", name: "Jane", surname: "Doe", assignedCollectionPointId: "cp-1" },
+          ],
+        });
+      }
+      if (url.includes("/materials")) {
+        return jsonResponse({
+          materials: [
+            { id: "mat-1", name: "PET", pointsPerKg: 3 },
+            { id: "mat-2", name: "Glass", pointsPerKg: 2 },
+          ],
+        });
+      }
+      if (url.includes("/inventory/status-summary")) {
+        return jsonResponse({ summary: [{ status: "storage", totalQuantity: 10 }] });
+      }
+      if (url.includes("/inventory/batches")) {
+        return jsonResponse({
+          batches: [
+            {
+              inventoryBatchId: "batch-1",
+              itemId: "item-1",
+              quantities: { storage: 10, shop: 0, sold: 0, spoiled: 0, damaged: 0, missing: 0 },
+            },
+          ],
+        });
+      }
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      if (url.includes("/sync/push")) {
+        if (typeof init?.body === "string") {
+          capturedPushBody = JSON.parse(init.body) as unknown;
+        }
+        return jsonResponse({
+          acknowledgements: extractEventIdsFromPushBody(capturedPushBody).map((eventId) => ({
+            eventId,
+            status: "accepted" as const,
+          })),
+          latestCursor: "cursor-1",
+        });
+      }
+      if (url.includes("/sync/pull")) return jsonResponse({ events: [], nextCursor: "cursor-1" });
+      if (url.includes("/sync/status")) {
+        return jsonResponse({
+          latestCursor: "cursor-1",
+          projectionRefreshedAt: "2026-07-08T08:00:00.000Z",
+          projectionCursor: "cursor-1",
+        });
+      }
+      if (url.includes("/ledger/person-1/balance")) {
+        return jsonResponse({ balance: { personId: "person-1", balancePoints: 0 } });
+      }
+      if (url.includes("/ledger/person-1/entries")) {
+        return jsonResponse({ entries: [] });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     const view = render(
       <MantineProvider>
@@ -1011,20 +1225,38 @@ describe("App person registry", () => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
     await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
 
-    // Both lines default to the first material (PET) — same material, two bags
-    await userEvent.type(view.getByLabelText("Weight Kg 1"), "1.5");
-    await userEvent.click(view.getByRole("button", { name: "Add Line" }));
-    await userEvent.type(view.getByLabelText("Weight Kg 2"), "2.0");
+    await userEvent.type(view.getByLabelText("Search person"), "Jane");
+    await userEvent.click(view.getByRole("button", { name: "Jane Doe" }));
+
+    // Two bags of the same material (PET) — both entries accumulate into one total
+    await userEvent.click(view.getByRole("textbox", { name: "Material" }));
+    await userEvent.click(view.getByRole("option", { name: "PET (3.0 pts/kg)" }));
+    await userEvent.type(view.getByLabelText("Weight (kg)"), "1.5");
+    await userEvent.click(view.getByRole("button", { name: "Add to Collection" }));
+    await userEvent.type(view.getByLabelText("Weight (kg)"), "2.0");
+    await userEvent.click(view.getByRole("button", { name: "Add to Collection" }));
+
+    expect(view.getByText("PET: 3.5 kg — 10.5 pts")).toBeInTheDocument();
+    expect(view.queryByText(/^PET: 1\.5 kg/)).not.toBeInTheDocument();
 
     await userEvent.click(view.getByRole("button", { name: "Record Intake" }));
 
-    // Duplicate-material validation must not fire
-    expect(view.queryByText("Duplicate materials are not allowed")).not.toBeInTheDocument();
-    // Event is enqueued (sync may fail in test env, but enqueue happens before sync)
     await waitFor(async () => {
-      await expect(queue.pendingCount()).resolves.toBeGreaterThanOrEqual(1);
+      await expect(queue.pendingCount()).resolves.toBe(0);
     });
+
+    const body = capturedPushBody as {
+      events: Array<{ payload: { lines: Array<{ materialTypeId: string; weightKg: number }> } }>;
+    };
+    expect(body.events).toHaveLength(1);
+    expect(body.events[0]?.payload.lines).toHaveLength(1);
+    expect(body.events[0]?.payload.lines[0]?.materialTypeId).toBe("mat-1");
+    expect(body.events[0]?.payload.lines[0]?.weightKg).toBe(3.5);
   });
 
   test("intake validation blocks missing person", async () => {
@@ -1042,6 +1274,11 @@ describe("App person registry", () => {
             role: "administrator",
           },
           token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
         });
       }
       if (url.includes("/people")) {
@@ -1076,6 +1313,10 @@ describe("App person registry", () => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
     await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
 
     await userEvent.click(view.getByRole("button", { name: "Record Intake" }));
     await waitFor(() => {
@@ -1085,7 +1326,7 @@ describe("App person registry", () => {
     await expect(queue.pendingCount()).resolves.toBe(0);
   });
 
-  test("intake validation blocks empty line set", async () => {
+  test("intake validation blocks submit with no material entries added", async () => {
     stubResizeObserver();
     const queue = createEventQueue(createMemoryEventQueueStore());
     const syncStateStore = createMemorySyncStateStore();
@@ -1102,6 +1343,11 @@ describe("App person registry", () => {
           token: "token-1",
         });
       }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
       if (url.includes("/people")) {
         return jsonResponse({
           people: [
@@ -1109,6 +1355,7 @@ describe("App person registry", () => {
               id: "person-1",
               name: "Jane",
               surname: "Doe",
+              assignedCollectionPointId: "cp-1",
             },
           ],
         });
@@ -1169,8 +1416,14 @@ describe("App person registry", () => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
     await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
 
-    await userEvent.click(view.getByRole("button", { name: "Remove Line" }));
+    await userEvent.type(view.getByLabelText("Search person"), "Jane");
+    await userEvent.click(view.getByRole("button", { name: "Jane Doe" }));
+
     await userEvent.click(view.getByRole("button", { name: "Record Intake" }));
     await waitFor(() => {
       expect(view.getByText("Add at least one intake line")).toBeInTheDocument();
@@ -1195,6 +1448,11 @@ describe("App person registry", () => {
           token: "token-1",
         });
       }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
       if (url.includes("/people")) {
         return jsonResponse({
           people: [
@@ -1202,6 +1460,7 @@ describe("App person registry", () => {
               id: "person-1",
               name: "Jane",
               surname: "Doe",
+              assignedCollectionPointId: "cp-1",
             },
           ],
         });
@@ -1216,6 +1475,11 @@ describe("App person registry", () => {
       }
       if (url.includes("/inventory/batches")) {
         return jsonResponse({ batches: [] });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Village A", isActive: true }],
+        });
       }
       if (url.includes("/sync/conflicts")) {
         return jsonResponse({ conflicts: [], nextCursor: null });
@@ -1257,6 +1521,10 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
 
     await waitFor(() => {
       expect(view.getByText("Balance: 12.0")).toBeInTheDocument();
@@ -1359,6 +1627,7 @@ describe("App person registry", () => {
     await waitFor(() => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
+    await userEvent.click(view.getByRole("button", { name: "Open Adjustments" }));
     await userEvent.click(view.getByRole("button", { name: "Adjust inventory" }));
     await userEvent.click(view.getAllByLabelText("Item")[0]!);
     await userEvent.click(await view.findByRole("option", { name: "Plastic Bottles" }));
@@ -1453,6 +1722,7 @@ describe("App person registry", () => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
 
+    await userEvent.click(view.getByRole("button", { name: "Open Adjustments" }));
     await userEvent.click(view.getByRole("button", { name: "Adjust inventory" }));
 
     // Select item-2 (Cardboard) — only batch-2 should appear in the batch dropdown
@@ -1548,6 +1818,7 @@ describe("App person registry", () => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
 
+    await userEvent.click(view.getByRole("button", { name: "Open Adjustments" }));
     await userEvent.click(view.getByRole("button", { name: "Request inventory adjustment" }));
     await userEvent.type(view.getByLabelText("Quantity"), "1");
     await userEvent.type(view.getByLabelText("Reason"), "damage");
@@ -1648,6 +1919,7 @@ describe("App person registry", () => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
 
+    await userEvent.click(view.getByRole("button", { name: "Open Adjustments" }));
     await userEvent.click(view.getByRole("button", { name: "Request points adjustment" }));
     await userEvent.type(view.getByLabelText("Adjustment Points"), "2.5");
     await userEvent.type(view.getByLabelText("Adjustment Reason"), "manual correction");
@@ -1661,6 +1933,62 @@ describe("App person registry", () => {
     expect(body.personId).toBe("person-1");
     expect(body.deltaPoints).toBe(2.5);
     expect(body.reason).toBe("manual correction");
+  });
+
+  test("adjustments landing shows role-appropriate links and Back returns from a detail view", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/adjustments/requests")) return jsonResponse({ requests: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Open Adjustments" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Adjustments", level: 4 })).toBeInTheDocument();
+    });
+    expect(view.getByRole("button", { name: "Adjust points" })).toBeInTheDocument();
+    expect(view.getByRole("button", { name: "Adjust inventory" })).toBeInTheDocument();
+    expect(
+      view.queryByRole("button", { name: "Request points adjustment" }),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(view.getByRole("button", { name: "Adjust points" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Adjust Points" })).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Back to Adjustments" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Adjustments", level: 4 })).toBeInTheDocument();
+    });
+    expect(view.queryByRole("heading", { name: "Adjust Points" })).not.toBeInTheDocument();
   });
 
   test("sale flow enqueues FIFO-expanded lines, syncs, and refreshes ledger", async () => {
@@ -1681,6 +2009,11 @@ describe("App person registry", () => {
           token: "token-1",
         });
       }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
       if (url.includes("/people")) {
         return jsonResponse({
           people: [
@@ -1688,6 +2021,7 @@ describe("App person registry", () => {
               id: "person-1",
               name: "Jane",
               surname: "Doe",
+              assignedCollectionPointId: "cp-1",
             },
           ],
         });
@@ -1804,10 +2138,16 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Record Sale" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Sale" })).toBeInTheDocument();
     });
+    await userEvent.type(view.getByLabelText("Search person"), "Jane");
+    await userEvent.click(view.getByRole("button", { name: "Jane Doe" }));
     await userEvent.type(view.getByLabelText("Quantity 1"), "3");
     await userEvent.click(view.getAllByRole("button", { name: "Record Sale" }).slice(-1)[0]!);
 
@@ -1836,6 +2176,9 @@ describe("App person registry", () => {
     expect(pushBody.events[0]?.payload.lines[0]?.quantity).toBe(2);
     expect(pushBody.events[0]?.payload.lines[1]?.inventoryBatchId).toBe("batch-2");
     expect(pushBody.events[0]?.payload.lines[1]?.quantity).toBe(1);
+    expect(
+      (pushBody.events[0]?.payload as { collectionPointId?: string | null }).collectionPointId,
+    ).toBe("cp-1");
   });
 
   test("sale form returns immediately before sync completes", async () => {
@@ -1857,9 +2200,16 @@ describe("App person registry", () => {
           token: "token-1",
         });
       }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
       if (url.includes("/people")) {
         return jsonResponse({
-          people: [{ id: "person-1", name: "Jane", surname: "Doe" }],
+          people: [
+            { id: "person-1", name: "Jane", surname: "Doe", assignedCollectionPointId: "cp-1" },
+          ],
         });
       }
       if (url.includes("/materials")) {
@@ -1928,10 +2278,16 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Record Sale" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Sale" })).toBeInTheDocument();
     });
+    await userEvent.type(view.getByLabelText("Search person"), "Jane");
+    await userEvent.click(view.getByRole("button", { name: "Jane Doe" }));
     await userEvent.type(view.getByLabelText("Quantity 1"), "1");
     await userEvent.click(view.getAllByRole("button", { name: "Record Sale" }).slice(-1)[0]!);
 
@@ -2058,7 +2414,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
-    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
@@ -2190,7 +2546,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
-    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
     });
@@ -2273,7 +2629,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
-    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
     });
@@ -2311,7 +2667,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
-    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
     });
@@ -2356,7 +2712,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
-    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
     });
@@ -2397,7 +2753,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
-    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
     });
@@ -2439,7 +2795,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
-    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
     });
@@ -2566,7 +2922,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
-    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
     await waitFor(() => {
       expect(view.getByText(/Village Supplier/)).toBeInTheDocument();
     });
@@ -2675,7 +3031,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
-    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
     await waitFor(() => {
       expect(view.getByText(/Village Supplier/)).toBeInTheDocument();
     });
@@ -2763,7 +3119,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
-    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
 
     await waitFor(() => {
       expect(view.getByText(/Village Supplier/)).toBeInTheDocument();
@@ -2840,7 +3196,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
-    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
 
     await waitFor(() => {
       expect(
@@ -2872,7 +3228,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Username"), "administrator");
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
-    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
     });
@@ -2923,6 +3279,93 @@ describe("App person registry", () => {
     expect(pushBody.events[0]?.payload.cashTotal).toBe(11);
   });
 
+  test("procurement line collapses to a summary when a new line is added, and Edit re-expands it", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    const capturedPushBodyRef = { value: null as unknown };
+    vi.stubGlobal(
+      "fetch",
+      makeProcurementSyncFetchMock(capturedPushBodyRef, [
+        { id: "item-1", name: "Soap", pointsPrice: 10 },
+      ]),
+    );
+
+    const view = render(
+      <MantineProvider>
+        <App queue={queue} syncStateStore={syncStateStore} />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
+    });
+
+    await userEvent.type(view.getByLabelText("Item Name 1"), "Soap");
+    await userEvent.type(view.getByLabelText("Quantity 1"), "2");
+    await userEvent.type(view.getByLabelText("Procurement Price 1"), "6");
+
+    await userEvent.click(view.getByRole("button", { name: "Add Procurement Line" }));
+
+    await waitFor(() => {
+      expect(view.queryByLabelText("Item Name 1")).not.toBeInTheDocument();
+    });
+    expect(view.getByText("Soap")).toBeInTheDocument();
+    expect(view.getByText(/Cost per unit: 3\.00/)).toBeInTheDocument();
+    expect(view.getByLabelText("Item Name 2")).toBeInTheDocument();
+
+    await userEvent.click(view.getByRole("button", { name: "Edit" }));
+
+    await waitFor(() => {
+      expect(view.getByLabelText("Item Name 1")).toBeInTheDocument();
+    });
+    expect(view.getByLabelText("Item Name 1")).toHaveValue("Soap");
+  });
+
+  test("removing the currently-expanded procurement line expands the previous remaining line", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    const capturedPushBodyRef = { value: null as unknown };
+    vi.stubGlobal(
+      "fetch",
+      makeProcurementSyncFetchMock(capturedPushBodyRef, [
+        { id: "item-1", name: "Soap", pointsPrice: 10 },
+      ]),
+    );
+
+    const view = render(
+      <MantineProvider>
+        <App queue={queue} syncStateStore={syncStateStore} />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
+    });
+
+    await userEvent.type(view.getByLabelText("Item Name 1"), "Soap");
+    await userEvent.click(view.getByRole("button", { name: "Add Procurement Line" }));
+    await waitFor(() => {
+      expect(view.getByLabelText("Item Name 2")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Remove Procurement Line" }));
+
+    await waitFor(() => {
+      expect(view.getByLabelText("Item Name 1")).toBeInTheDocument();
+    });
+    expect(view.getByLabelText("Item Name 1")).toHaveValue("Soap");
+  });
+
   function makeShopNavFetchMock(
     role: "administrator" | "user",
   ): ReturnType<typeof vi.fn<typeof fetch>> {
@@ -2932,6 +3375,11 @@ describe("App person registry", () => {
         return jsonResponse({
           user: { id: "user-1", username: role, role },
           token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
         });
       }
       if (url.includes("/people")) return jsonResponse({ people: [] });
@@ -2962,7 +3410,7 @@ describe("App person registry", () => {
     });
 
     expect(view.getByRole("button", { name: "Record Sale" })).toBeInTheDocument();
-    expect(view.getByRole("button", { name: "Record Procurement" })).toBeInTheDocument();
+    expect(view.getByRole("button", { name: "Procurement" })).toBeInTheDocument();
     expect(view.getByRole("button", { name: "Record Expense" })).toBeInTheDocument();
   });
 
@@ -2984,7 +3432,8 @@ describe("App person registry", () => {
     });
 
     expect(view.getByRole("button", { name: "Record Sale" })).toBeInTheDocument();
-    expect(view.queryByRole("button", { name: "Record Procurement" })).not.toBeInTheDocument();
+    expect(view.queryByText("Administration")).not.toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "Procurement" })).not.toBeInTheDocument();
     expect(view.queryByRole("button", { name: "Record Expense" })).not.toBeInTheDocument();
   });
 
@@ -3006,6 +3455,10 @@ describe("App person registry", () => {
     });
 
     await userEvent.click(view.getByRole("button", { name: "Record Sale" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Sale" })).toBeInTheDocument();
@@ -3031,7 +3484,7 @@ describe("App person registry", () => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
 
-    await userEvent.click(view.getByRole("button", { name: "Record Procurement" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
@@ -3066,6 +3519,451 @@ describe("App person registry", () => {
     expect(view.queryByRole("heading", { name: "Record Procurement" })).not.toBeInTheDocument();
   });
 
+  test("re-entering the same locked section does not re-prompt for a collection point", async () => {
+    stubResizeObserver();
+    vi.stubGlobal("fetch", makeShopNavFetchMock("administrator"));
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
+    await waitFor(() => {
+      expect(view.getByText("Collection point: Heuwelkroon parkie")).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(view.queryByText("Select collection point")).not.toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+
+    expect(view.queryByText("Select collection point")).not.toBeInTheDocument();
+    expect(view.getByText("Collection point: Heuwelkroon parkie")).toBeInTheDocument();
+  });
+
+  test("switching from Collection to Sales starts a fresh section session prompt", async () => {
+    stubResizeObserver();
+    vi.stubGlobal("fetch", makeShopNavFetchMock("administrator"));
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
+
+    await userEvent.click(view.getByRole("button", { name: "Record Sale" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
+
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Record Sale" })).toBeInTheDocument();
+    });
+  });
+
+  test("exiting a section clears the locked collection point and returns to the main registry view", async () => {
+    stubResizeObserver();
+    vi.stubGlobal("fetch", makeShopNavFetchMock("administrator"));
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
+    await waitFor(() => {
+      expect(view.getByText("Collection point: Heuwelkroon parkie")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Exit to main menu" }));
+
+    expect(view.queryByText(/Collection point:/)).not.toBeInTheDocument();
+
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+  });
+
+  test("collection point prompt excludes inactive collection points", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [
+            { id: "cp-1", name: "Heuwelkroon parkie", isActive: true },
+            { id: "cp-2", name: "Old Village Point", isActive: false },
+          ],
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+
+    expect(view.getByRole("button", { name: "Heuwelkroon parkie" })).toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "Old Village Point" })).not.toBeInTheDocument();
+  });
+
+  test("blocks Collection/Sales section entry when collection points cannot be refreshed", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({ error: "SERVICE_UNAVAILABLE" }, 500);
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+
+    await waitFor(() => {
+      expect(
+        view.getByText(/Collection points could not be refreshed\. Section entry is blocked/),
+      ).toBeInTheDocument();
+    });
+    expect(view.queryByText("Select collection point")).not.toBeInTheDocument();
+    expect(view.queryByRole("heading", { name: "Record Intake" })).not.toBeInTheDocument();
+  });
+
+  test("collection flow shows a placeholder when the selected material has no image", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({
+          people: [
+            {
+              id: "person-1",
+              name: "Jane",
+              surname: "Doe",
+              assignedCollectionPointId: "cp-1",
+            },
+          ],
+        });
+      }
+      if (url.includes("/materials")) {
+        return jsonResponse({
+          materials: [
+            {
+              id: "mat-1",
+              name: "PET",
+              pointsPerKg: 3.2,
+              imageUpdatedAt: null,
+            },
+          ],
+        });
+      }
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Record Intake" })).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("textbox", { name: "Material" }));
+    await userEvent.click(view.getByRole("option", { name: /PET/ }));
+
+    expect(view.getByText("No material image available")).toBeInTheDocument();
+  });
+
+  test("collection flow renders the material image once it loads successfully", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({
+          people: [
+            {
+              id: "person-1",
+              name: "Jane",
+              surname: "Doe",
+              assignedCollectionPointId: "cp-1",
+            },
+          ],
+        });
+      }
+      if (url.includes("/materials/mat-1/image")) {
+        return new Response("fake-image-bytes", {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        });
+      }
+      if (url.includes("/materials")) {
+        return jsonResponse({
+          materials: [
+            {
+              id: "mat-1",
+              name: "PET",
+              pointsPerKg: 3.2,
+              imageUpdatedAt: "2026-07-08T10:00:00.000Z",
+            },
+          ],
+        });
+      }
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Record Intake" })).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("textbox", { name: "Material" }));
+    await userEvent.click(view.getByRole("option", { name: /PET/ }));
+
+    await waitFor(() => {
+      expect(view.getByAltText("PET material image")).toBeInTheDocument();
+    });
+    expect(view.queryByText("No material image available")).not.toBeInTheDocument();
+  });
+
+  test("collection flow falls back to a placeholder when the material image fails to load", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({
+          people: [
+            {
+              id: "person-1",
+              name: "Jane",
+              surname: "Doe",
+              assignedCollectionPointId: "cp-1",
+            },
+          ],
+        });
+      }
+      if (url.includes("/materials/mat-1/image")) {
+        return jsonResponse({ error: "MATERIAL_IMAGE_NOT_FOUND" }, 404);
+      }
+      if (url.includes("/materials")) {
+        return jsonResponse({
+          materials: [
+            {
+              id: "mat-1",
+              name: "PET",
+              pointsPerKg: 3.2,
+              // Metadata claims an image exists, but the binary is unavailable
+              // (e.g. deleted out from under a stale materials list) - the
+              // fetch below will 404 and the UI must fall back to a placeholder.
+              imageUpdatedAt: "2026-07-08T10:00:00.000Z",
+            },
+          ],
+        });
+      }
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Record Intake" })).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("textbox", { name: "Material" }));
+    await userEvent.click(view.getByRole("option", { name: /PET/ }));
+
+    await waitFor(() => {
+      expect(view.getByText("No material image available")).toBeInTheDocument();
+    });
+    expect(view.queryByAltText("PET material image")).not.toBeInTheDocument();
+  });
+
   test("procurement panel is hidden for non-administrator", async () => {
     stubResizeObserver();
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
@@ -3094,6 +3992,11 @@ describe("App person registry", () => {
       }
       if (url.includes("/inventory/batches")) {
         return jsonResponse({ batches: [] });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Village A", isActive: true }],
+        });
       }
       if (url.includes("/sync/conflicts")) {
         return jsonResponse({ conflicts: [], nextCursor: null });
@@ -3138,6 +4041,65 @@ describe("App person registry", () => {
     ).not.toBeInTheDocument();
   });
 
+  test("reports landing lists all report types and shows only the selected one until Reports is clicked again", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Reports", level: 4 })).toBeInTheDocument();
+    });
+    expect(view.getByRole("button", { name: "Materials Collected Report" })).toBeInTheDocument();
+    expect(view.getByRole("button", { name: "Cashflow Report" })).toBeInTheDocument();
+    expect(
+      view.queryByRole("heading", { name: "Materials Collected Report" }),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(view.getByRole("button", { name: "Sales Report" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Sales Report" })).toBeInTheDocument();
+    });
+    expect(
+      view.queryByRole("heading", { name: "Materials Collected Report" }),
+    ).not.toBeInTheDocument();
+    expect(view.queryByRole("heading", { name: "Reports", level: 4 })).not.toBeInTheDocument();
+
+    await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Reports", level: 4 })).toBeInTheDocument();
+    });
+    expect(view.queryByRole("heading", { name: "Sales Report" })).not.toBeInTheDocument();
+  });
+
   test("materials report panel loads for manager and runs default request", async () => {
     stubResizeObserver();
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
@@ -3160,6 +4122,11 @@ describe("App person registry", () => {
           materials: [{ id: "mat-1", name: "PET", pointsPerKg: 3 }],
         });
       }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Village A", isActive: true }],
+        });
+      }
       if (url.includes("/items")) {
         return jsonResponse({ items: [] });
       }
@@ -3178,7 +4145,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -3197,6 +4164,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Materials Collected Report" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Materials Collected Report" })).toBeInTheDocument();
@@ -3261,6 +4229,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Materials Collected Report" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Materials Collected Report" })).toBeInTheDocument();
@@ -3309,7 +4278,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -3328,6 +4297,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Materials Collected Report" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Materials Collected Report" })).toBeInTheDocument();
@@ -3374,6 +4344,11 @@ describe("App person registry", () => {
           materials: [{ id: "mat-1", name: "PET", pointsPerKg: 3 }],
         });
       }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Village A", isActive: true }],
+        });
+      }
       if (url.includes("/items")) {
         return jsonResponse({ items: [] });
       }
@@ -3383,12 +4358,17 @@ describe("App person registry", () => {
       if (url.includes("/inventory/batches")) {
         return jsonResponse({ batches: [] });
       }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Village A", isActive: true }],
+        });
+      }
       if (url.includes("/sync/conflicts")) {
         return jsonResponse({ conflicts: [], nextCursor: null });
       }
       if (
         url.includes(
-          "/reports/materials-collected?fromDate=2026-03-01&toDate=2026-03-09&locationText=Village+A",
+          "/reports/materials-collected?fromDate=2026-03-01&toDate=2026-03-09&collectionPointId=cp-1",
         )
       ) {
         return jsonResponse({
@@ -3405,7 +4385,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-03-01",
             toDate: "2026-03-09",
-            locationText: "Village A",
+            collectionPointId: "cp-1",
             materialTypeId: null,
           },
         });
@@ -3416,7 +4396,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -3435,6 +4415,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Materials Collected Report" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Materials Collected Report" })).toBeInTheDocument();
@@ -3445,14 +4426,14 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("From Date"), "2026-03-01");
     await userEvent.clear(view.getByLabelText("To Date"));
     await userEvent.type(view.getByLabelText("To Date"), "2026-03-09");
-    await userEvent.type(view.getByLabelText("Location"), "Village A");
+    await userEvent.selectOptions(view.getByLabelText("Collection Point"), "cp-1");
     await userEvent.click(view.getByRole("button", { name: "Run Report" }));
 
     await waitFor(() => {
       expect(
         fetchMock.mock.calls.some((call) =>
           String(call[0]).includes(
-            "/reports/materials-collected?fromDate=2026-03-01&toDate=2026-03-09&locationText=Village+A",
+            "/reports/materials-collected?fromDate=2026-03-01&toDate=2026-03-09&collectionPointId=cp-1",
           ),
         ),
       ).toBe(true);
@@ -3497,7 +4478,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -3535,6 +4516,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Points Liability Report" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Points Liability Report" })).toBeInTheDocument();
@@ -3584,7 +4566,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -3627,6 +4609,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Points Liability Report" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Points Liability Report" })).toBeInTheDocument();
@@ -3685,7 +4668,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -3738,6 +4721,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Inventory Status Report" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Inventory Status Report" })).toBeInTheDocument();
@@ -3787,7 +4771,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -3831,6 +4815,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Inventory Status Report" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Inventory Status Report" })).toBeInTheDocument();
@@ -3878,7 +4863,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -3947,6 +4932,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Inventory Status Change Log" }));
 
     await waitFor(() => {
       expect(
@@ -4007,7 +4993,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -4077,6 +5063,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Inventory Status Change Log" }));
 
     await waitFor(() => {
       expect(
@@ -4146,7 +5133,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -4208,7 +5195,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             itemId: null,
           },
         });
@@ -4227,6 +5214,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Sales Report" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Sales Report" })).toBeInTheDocument();
@@ -4281,7 +5269,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -4322,9 +5310,14 @@ describe("App person registry", () => {
           rows: [],
         });
       }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Village A", isActive: true }],
+        });
+      }
       if (
         url.includes(
-          "/reports/sales?fromDate=2026-03-01&toDate=2026-03-09&locationText=Village+A&itemId=item-1",
+          "/reports/sales?fromDate=2026-03-01&toDate=2026-03-09&collectionPointId=cp-1&itemId=item-1",
         )
       ) {
         return jsonResponse({
@@ -4337,7 +5330,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-03-01",
             toDate: "2026-03-09",
-            locationText: "Village A",
+            collectionPointId: "cp-1",
             itemId: "item-1",
           },
         });
@@ -4353,7 +5346,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             itemId: null,
           },
         });
@@ -4372,6 +5365,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Sales Report" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Sales Report" })).toBeInTheDocument();
@@ -4384,14 +5378,14 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Sales To Date"), "2026-03-09");
     await userEvent.click(view.getByRole("textbox", { name: "Sales Item" }));
     await userEvent.click(view.getByRole("option", { name: "Soap" }));
-    await userEvent.type(view.getByLabelText("Sales Location"), "Village A");
+    await userEvent.selectOptions(view.getByLabelText("Sales Collection Point"), "cp-1");
     await userEvent.click(view.getByRole("button", { name: "Run Report" }));
 
     await waitFor(() => {
       expect(
         fetchMock.mock.calls.some((call) =>
           String(call[0]).includes(
-            "/reports/sales?fromDate=2026-03-01&toDate=2026-03-09&locationText=Village+A&itemId=item-1",
+            "/reports/sales?fromDate=2026-03-01&toDate=2026-03-09&collectionPointId=cp-1&itemId=item-1",
           ),
         ),
       ).toBe(true);
@@ -4438,7 +5432,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -4479,6 +5473,11 @@ describe("App person registry", () => {
           rows: [],
         });
       }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Village A", isActive: true }],
+        });
+      }
       if (url.includes("/reports/sales")) {
         return jsonResponse({
           rows: [],
@@ -4490,7 +5489,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             itemId: null,
           },
         });
@@ -4524,7 +5523,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
           },
         });
       }
@@ -4542,6 +5541,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Cashflow Report" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Cashflow Report" })).toBeInTheDocument();
@@ -4588,6 +5588,11 @@ describe("App person registry", () => {
       if (url.includes("/inventory/batches")) {
         return jsonResponse({ batches: [] });
       }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Village A", isActive: true }],
+        });
+      }
       if (url.includes("/sync/conflicts")) {
         return jsonResponse({ conflicts: [], nextCursor: null });
       }
@@ -4597,7 +5602,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -4649,14 +5654,14 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             itemId: null,
           },
         });
       }
       if (
         url.includes(
-          "/reports/cashflow?fromDate=2026-03-01&toDate=2026-03-09&locationText=Village+A",
+          "/reports/cashflow?fromDate=2026-03-01&toDate=2026-03-09&collectionPointId=cp-1",
         )
       ) {
         return jsonResponse({
@@ -4672,7 +5677,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-03-01",
             toDate: "2026-03-09",
-            locationText: "Village A",
+            collectionPointId: "cp-1",
           },
         });
       }
@@ -4690,7 +5695,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
           },
         });
       }
@@ -4708,6 +5713,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Cashflow Report" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Cashflow Report" })).toBeInTheDocument();
@@ -4718,14 +5724,21 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Cashflow From Date"), "2026-03-01");
     await userEvent.clear(view.getByLabelText("Cashflow To Date"));
     await userEvent.type(view.getByLabelText("Cashflow To Date"), "2026-03-09");
-    await userEvent.type(view.getByLabelText("Cashflow Location"), "Village A");
+    await waitFor(() => {
+      expect(
+        Array.from(
+          (view.getByLabelText("Cashflow Collection Point") as HTMLSelectElement).options,
+        ).some((option) => option.value === "cp-1"),
+      ).toBe(true);
+    });
+    await userEvent.selectOptions(view.getByLabelText("Cashflow Collection Point"), "cp-1");
     await userEvent.click(view.getByRole("button", { name: "Run Report" }));
 
     await waitFor(() => {
       expect(
         fetchMock.mock.calls.some((call) =>
           String(call[0]).includes(
-            "/reports/cashflow?fromDate=2026-03-01&toDate=2026-03-09&locationText=Village+A",
+            "/reports/cashflow?fromDate=2026-03-01&toDate=2026-03-09&collectionPointId=cp-1",
           ),
         ),
       ).toBe(true);
@@ -4810,7 +5823,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -4853,7 +5866,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             itemId: null,
           },
         });
@@ -4872,7 +5885,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
           },
         });
       }
@@ -4900,6 +5913,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Integrity and Reconciliation" }));
 
     await waitFor(() => {
       expect(
@@ -4968,7 +5982,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -5020,7 +6034,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             itemId: null,
           },
         });
@@ -5054,7 +6068,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
           },
         });
       }
@@ -5087,6 +6101,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Cashflow Report" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Cashflow Report" })).toBeInTheDocument();
@@ -5962,5 +6977,1390 @@ describe("App person registry", () => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
     expect(view.queryByRole("button", { name: "Manage Items" })).not.toBeInTheDocument();
+  });
+
+  test("registering a person inside a Collection session defaults their assigned location to the session point", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    let capturedPushBody: unknown = null;
+
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      if (url.includes("/sync/push")) {
+        if (typeof init?.body === "string") {
+          capturedPushBody = JSON.parse(init.body) as unknown;
+        }
+        return jsonResponse({
+          acknowledgements: extractEventIdsFromPushBody(capturedPushBody).map((eventId) => ({
+            eventId,
+            status: "accepted" as const,
+          })),
+          latestCursor: "cursor-1",
+        });
+      }
+      if (url.includes("/sync/pull")) return jsonResponse({ events: [], nextCursor: "cursor-1" });
+      if (url.includes("/sync/status")) {
+        return jsonResponse({
+          latestCursor: "cursor-1",
+          projectionRefreshedAt: "2026-07-08T08:00:00.000Z",
+          projectionCursor: "cursor-1",
+        });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App queue={queue} syncStateStore={syncStateStore} />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
+    await waitFor(() => {
+      expect(view.getByText("Collection point: Heuwelkroon parkie")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Create" }));
+    await userEvent.type(view.getByLabelText("Name"), "Jane");
+    await userEvent.type(view.getByLabelText("Surname"), "Doe");
+    await userEvent.click(view.getByRole("button", { name: "Save Person" }));
+
+    await waitFor(() => {
+      expect(view.getByText("Pending events: 0")).toBeInTheDocument();
+    });
+
+    const pushBody = capturedPushBody as {
+      events: Array<{ eventType: string; payload: { assignedCollectionPointId: string | null } }>;
+    };
+    expect(pushBody.events).toHaveLength(1);
+    expect(pushBody.events[0]?.eventType).toBe("person.created");
+    expect(pushBody.events[0]?.payload.assignedCollectionPointId).toBe("cp-1");
+  });
+
+  test("creating a person outside any Collection/Sales session leaves the assigned location unset", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    let capturedPushBody: unknown = null;
+
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      if (url.includes("/sync/push")) {
+        if (typeof init?.body === "string") {
+          capturedPushBody = JSON.parse(init.body) as unknown;
+        }
+        return jsonResponse({
+          acknowledgements: extractEventIdsFromPushBody(capturedPushBody).map((eventId) => ({
+            eventId,
+            status: "accepted" as const,
+          })),
+          latestCursor: "cursor-1",
+        });
+      }
+      if (url.includes("/sync/pull")) return jsonResponse({ events: [], nextCursor: "cursor-1" });
+      if (url.includes("/sync/status")) {
+        return jsonResponse({
+          latestCursor: "cursor-1",
+          projectionRefreshedAt: "2026-07-08T08:00:00.000Z",
+          projectionCursor: "cursor-1",
+        });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App queue={queue} syncStateStore={syncStateStore} />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Create" }));
+    await userEvent.type(view.getByLabelText("Name"), "Jane");
+    await userEvent.type(view.getByLabelText("Surname"), "Doe");
+    await userEvent.click(view.getByRole("button", { name: "Save Person" }));
+
+    await waitFor(() => {
+      expect(view.getByText("Pending events: 0")).toBeInTheDocument();
+    });
+
+    const pushBody = capturedPushBody as {
+      events: Array<{ eventType: string; payload: { assignedCollectionPointId: string | null } }>;
+    };
+    expect(pushBody.events).toHaveLength(1);
+    expect(pushBody.events[0]?.payload.assignedCollectionPointId).toBeNull();
+  });
+
+  test("selecting a person whose assigned location differs from the session point shows a mismatch prompt, and confirming updates it", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    let capturedPushBody: unknown = null;
+
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [
+            { id: "cp-1", name: "Heuwelkroon parkie", isActive: true },
+            { id: "cp-2", name: "Old Village Point", isActive: true },
+          ],
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({
+          people: [
+            { id: "person-0", name: "Alice", surname: "Zulu", assignedCollectionPointId: "cp-1" },
+            { id: "person-1", name: "Jane", surname: "Doe", assignedCollectionPointId: "cp-2" },
+          ],
+        });
+      }
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      if (url.includes("/sync/push")) {
+        if (typeof init?.body === "string") {
+          capturedPushBody = JSON.parse(init.body) as unknown;
+        }
+        return jsonResponse({
+          acknowledgements: extractEventIdsFromPushBody(capturedPushBody).map((eventId) => ({
+            eventId,
+            status: "accepted" as const,
+          })),
+          latestCursor: "cursor-1",
+        });
+      }
+      if (url.includes("/sync/pull")) return jsonResponse({ events: [], nextCursor: "cursor-1" });
+      if (url.includes("/sync/status")) {
+        return jsonResponse({
+          latestCursor: "cursor-1",
+          projectionRefreshedAt: "2026-07-08T08:00:00.000Z",
+          projectionCursor: "cursor-1",
+        });
+      }
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App queue={queue} syncStateStore={syncStateStore} />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
+    await waitFor(() => {
+      expect(view.getByText("Collection point: Heuwelkroon parkie")).toBeInTheDocument();
+    });
+
+    await userEvent.type(view.getByLabelText("Search person"), "Jane");
+    await userEvent.click(view.getByRole("button", { name: "Search other locations" }));
+    await userEvent.click(view.getByRole("button", { name: "Jane Doe — Old Village Point" }));
+
+    await waitFor(() => {
+      expect(view.getByText("Update assigned location?")).toBeInTheDocument();
+    });
+    expect(
+      view.getByText(
+        "Jane Doe is currently assigned to Old Village Point, which differs from this session's collection point (Heuwelkroon parkie). Update their assigned location?",
+      ),
+    ).toBeInTheDocument();
+
+    await userEvent.click(view.getByRole("button", { name: "Update location" }));
+
+    await waitFor(() => {
+      expect(view.queryByText("Update assigned location?")).not.toBeInTheDocument();
+    });
+
+    const pushBody = capturedPushBody as {
+      events: Array<{
+        eventType: string;
+        payload: { personId: string; updates: { assignedCollectionPointId: string } };
+      }>;
+    };
+    expect(pushBody.events).toHaveLength(1);
+    expect(pushBody.events[0]?.eventType).toBe("person.profile_updated");
+    expect(pushBody.events[0]?.payload.personId).toBe("person-1");
+    expect(pushBody.events[0]?.payload.updates.assignedCollectionPointId).toBe("cp-1");
+  });
+
+  test("dismissing the location mismatch prompt with Not now leaves the person selected for the transaction", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({
+          people: [
+            { id: "person-0", name: "Alice", surname: "Zulu", assignedCollectionPointId: "cp-1" },
+            { id: "person-1", name: "Jane", surname: "Doe", assignedCollectionPointId: null },
+          ],
+        });
+      }
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
+    await waitFor(() => {
+      expect(view.getByText("Collection point: Heuwelkroon parkie")).toBeInTheDocument();
+    });
+
+    await userEvent.type(view.getByLabelText("Search person"), "Jane");
+    await userEvent.click(view.getByRole("button", { name: "Search other locations" }));
+    await userEvent.click(view.getByRole("button", { name: "Jane Doe — Unassigned" }));
+
+    await waitFor(() => {
+      expect(view.getByText("Update assigned location?")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Not now" }));
+
+    await waitFor(() => {
+      expect(view.queryByText("Update assigned location?")).not.toBeInTheDocument();
+    });
+    expect(view.getByText("Jane Doe — Assigned location: Unassigned")).toBeInTheDocument();
+  });
+
+  test("editing is blocked while a collection draft with an entered weight is in progress for that person", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({
+          people: [
+            { id: "person-1", name: "Jane", surname: "Doe", assignedCollectionPointId: "cp-1" },
+          ],
+        });
+      }
+      if (url.includes("/materials")) {
+        return jsonResponse({ materials: [{ id: "mat-1", name: "PET", pointsPerKg: 3 }] });
+      }
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
+    await waitFor(() => {
+      expect(view.getByText("Collection point: Heuwelkroon parkie")).toBeInTheDocument();
+    });
+
+    await userEvent.type(view.getByLabelText("Search person"), "Jane");
+    await userEvent.click(view.getByRole("button", { name: "Jane Doe" }));
+    await userEvent.type(view.getByLabelText("Weight (kg)"), "1.5");
+
+    await userEvent.click(view.getByRole("button", { name: "Search" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Search People" })).toBeInTheDocument();
+    });
+
+    const editButton = view.getByRole("button", { name: "Edit" });
+    expect(editButton).toBeDisabled();
+    expect(editButton).toHaveAttribute(
+      "title",
+      "This person has a transaction in progress and cannot be edited right now.",
+    );
+  });
+
+  test("Edit Person panel shows the selected person's assigned collection point", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({
+          people: [
+            { id: "person-1", name: "Jane", surname: "Doe", assignedCollectionPointId: "cp-1" },
+          ],
+        });
+      }
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
+    await waitFor(() => {
+      expect(view.getByText("Collection point: Heuwelkroon parkie")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Exit to main menu" }));
+
+    await waitFor(() => {
+      expect(view.getByText("Jane Doe")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Edit" }));
+
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Edit Person" })).toBeInTheDocument();
+    });
+    expect(view.getByText("Assigned location: Heuwelkroon parkie")).toBeInTheDocument();
+  });
+
+  function makeCollectionSearchFetchMock(
+    people: Array<{
+      id: string;
+      name: string;
+      surname: string;
+      assignedCollectionPointId: string | null;
+    }>,
+  ): ReturnType<typeof vi.fn<typeof fetch>> {
+    return vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+  }
+
+  async function enterCollectionSession(view: RenderResult): Promise<void> {
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
+    await waitFor(() => {
+      expect(view.getByText("Collection point: Heuwelkroon parkie")).toBeInTheDocument();
+    });
+  }
+
+  test("collection person search shows no suggestions below the 3-letter threshold", async () => {
+    stubResizeObserver();
+    vi.stubGlobal(
+      "fetch",
+      makeCollectionSearchFetchMock([
+        { id: "person-1", name: "Jane", surname: "Doe", assignedCollectionPointId: "cp-1" },
+      ]),
+    );
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+    await enterCollectionSession(view);
+
+    await userEvent.type(view.getByLabelText("Search person"), "Ja");
+    expect(view.getByText("Type at least 3 characters to search.")).toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "Jane Doe" })).not.toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "Search other locations" })).not.toBeInTheDocument();
+
+    await userEvent.type(view.getByLabelText("Search person"), "n");
+    expect(view.getByRole("button", { name: "Jane Doe" })).toBeInTheDocument();
+  });
+
+  test("collection person search scopes suggestions to the session collection point and hides the broader-search option when local matches exist", async () => {
+    stubResizeObserver();
+    vi.stubGlobal(
+      "fetch",
+      makeCollectionSearchFetchMock([
+        { id: "person-1", name: "Jane", surname: "Doe", assignedCollectionPointId: "cp-1" },
+        { id: "person-2", name: "Jane", surname: "Smith", assignedCollectionPointId: "cp-2" },
+      ]),
+    );
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+    await enterCollectionSession(view);
+
+    await userEvent.type(view.getByLabelText("Search person"), "Jane");
+
+    expect(view.getByRole("button", { name: "Jane Doe" })).toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "Jane Smith" })).not.toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "Search other locations" })).not.toBeInTheDocument();
+  });
+
+  test("collection material entries can be removed independently, leaving other entries and totals intact", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({
+          people: [
+            { id: "person-1", name: "Jane", surname: "Doe", assignedCollectionPointId: "cp-1" },
+          ],
+        });
+      }
+      if (url.includes("/materials")) {
+        return jsonResponse({
+          materials: [
+            { id: "mat-1", name: "PET", pointsPerKg: 3 },
+            { id: "mat-2", name: "Glass", pointsPerKg: 2 },
+          ],
+        });
+      }
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+    await enterCollectionSession(view);
+
+    await userEvent.type(view.getByLabelText("Search person"), "Jane");
+    await userEvent.click(view.getByRole("button", { name: "Jane Doe" }));
+
+    await userEvent.click(view.getByRole("textbox", { name: "Material" }));
+    await userEvent.click(view.getByRole("option", { name: "PET (3.0 pts/kg)" }));
+    await userEvent.type(view.getByLabelText("Weight (kg)"), "2");
+    await userEvent.click(view.getByRole("button", { name: "Add to Collection" }));
+
+    await userEvent.click(view.getByRole("textbox", { name: "Material" }));
+    await userEvent.click(view.getByRole("option", { name: "Glass (2.0 pts/kg)" }));
+    await userEvent.type(view.getByLabelText("Weight (kg)"), "5");
+    await userEvent.click(view.getByRole("button", { name: "Add to Collection" }));
+
+    expect(view.getByText("PET: 2 kg — 6.0 pts")).toBeInTheDocument();
+    expect(view.getByText("Glass: 5 kg — 10.0 pts")).toBeInTheDocument();
+    expect(view.getByText("Total preview points: 16.0")).toBeInTheDocument();
+
+    await userEvent.click(view.getByRole("button", { name: "Remove PET" }));
+
+    expect(view.queryByText(/^PET:/)).not.toBeInTheDocument();
+    expect(view.getByText("Glass: 5 kg — 10.0 pts")).toBeInTheDocument();
+    expect(view.getByText("Total preview points: 10.0")).toBeInTheDocument();
+  });
+
+  test("sale person search scopes suggestions to the session collection point", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({
+          people: [
+            { id: "person-0", name: "Alice", surname: "Zulu", assignedCollectionPointId: "cp-1" },
+            { id: "person-1", name: "Jane", surname: "Doe", assignedCollectionPointId: "cp-2" },
+            {
+              id: "person-2",
+              name: "Jane",
+              surname: "Smith",
+              assignedCollectionPointId: "cp-1",
+            },
+          ],
+        });
+      }
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Record Sale" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
+    await waitFor(() => {
+      expect(view.getByText("Collection point: Heuwelkroon parkie")).toBeInTheDocument();
+    });
+
+    await userEvent.type(view.getByLabelText("Search person"), "Jane");
+
+    expect(view.getByRole("button", { name: "Jane Smith" })).toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "Jane Doe" })).not.toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "Search other locations" })).not.toBeInTheDocument();
+
+    await userEvent.click(view.getByRole("button", { name: "Jane Smith" }));
+    expect(
+      view.getByText("Jane Smith — Assigned location: Heuwelkroon parkie"),
+    ).toBeInTheDocument();
+  });
+
+  test("drafting an adjustment note and completing checkout links a sale adjustment request", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    let capturedAdjustmentBody: unknown = null;
+    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue(
+      "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    );
+
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({
+          people: [
+            { id: "person-1", name: "Jane", surname: "Doe", assignedCollectionPointId: "cp-1" },
+          ],
+        });
+      }
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) {
+        return jsonResponse({ items: [{ id: "item-1", name: "Soap", pointsPrice: 5 }] });
+      }
+      if (url.includes("/inventory/status-summary")) {
+        return jsonResponse({ summary: [{ status: "shop", totalQuantity: 5 }] });
+      }
+      if (url.includes("/inventory/batches")) {
+        return jsonResponse({
+          batches: [
+            {
+              inventoryBatchId: "batch-1",
+              itemId: "item-1",
+              quantities: { storage: 0, shop: 5, sold: 0, spoiled: 0, damaged: 0, missing: 0 },
+            },
+          ],
+        });
+      }
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      if (url.includes("/sales/adjustment-requests")) {
+        if (typeof init?.body === "string") {
+          capturedAdjustmentBody = JSON.parse(init.body) as unknown;
+        }
+        return jsonResponse({ requestEventId: "request-1" }, 201);
+      }
+      if (url.includes("/sync/push")) {
+        return jsonResponse({ acknowledgements: [], latestCursor: "cursor-1" });
+      }
+      if (url.includes("/sync/pull")) return jsonResponse({ events: [], nextCursor: "cursor-1" });
+      if (url.includes("/sync/status")) {
+        return jsonResponse({
+          latestCursor: "cursor-1",
+          projectionRefreshedAt: "2026-07-08T08:00:00.000Z",
+          projectionCursor: "cursor-1",
+        });
+      }
+      if (url.includes("/ledger/person-1/balance")) {
+        return jsonResponse({ balance: { personId: "person-1", balancePoints: 0 } });
+      }
+      if (url.includes("/ledger/person-1/entries")) return jsonResponse({ entries: [] });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App queue={queue} syncStateStore={syncStateStore} />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await userEvent.click(view.getByRole("button", { name: "Record Sale" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Record Sale" })).toBeInTheDocument();
+    });
+
+    await userEvent.type(view.getByLabelText("Search person"), "Jane");
+    await userEvent.click(view.getByRole("button", { name: "Jane Doe" }));
+    await userEvent.type(
+      view.getByLabelText("Points / inventory adjustment request (optional)"),
+      "Item was scratched, please refund points",
+    );
+    await userEvent.type(view.getByLabelText("Quantity 1"), "1");
+    await userEvent.click(view.getAllByRole("button", { name: "Record Sale" }).slice(-1)[0]!);
+
+    await waitFor(() => {
+      expect(view.getByText("Adjustment request recorded.")).toBeInTheDocument();
+    });
+
+    expect(capturedAdjustmentBody).toEqual({
+      saleEventId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      personId: "person-1",
+      note: "Item was scratched, please refund points",
+    });
+    expect(view.queryByLabelText("Points / inventory adjustment request (optional)")).toHaveValue(
+      "",
+    );
+  });
+
+  test("retries a sale adjustment request after it initially fails", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    let adjustmentAttempts = 0;
+    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue(
+      "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+    );
+
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({
+          people: [
+            { id: "person-1", name: "Jane", surname: "Doe", assignedCollectionPointId: "cp-1" },
+          ],
+        });
+      }
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) {
+        return jsonResponse({ items: [{ id: "item-1", name: "Soap", pointsPrice: 5 }] });
+      }
+      if (url.includes("/inventory/status-summary")) {
+        return jsonResponse({ summary: [{ status: "shop", totalQuantity: 5 }] });
+      }
+      if (url.includes("/inventory/batches")) {
+        return jsonResponse({
+          batches: [
+            {
+              inventoryBatchId: "batch-1",
+              itemId: "item-1",
+              quantities: { storage: 0, shop: 5, sold: 0, spoiled: 0, damaged: 0, missing: 0 },
+            },
+          ],
+        });
+      }
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      if (url.includes("/sales/adjustment-requests")) {
+        adjustmentAttempts += 1;
+        if (adjustmentAttempts === 1) {
+          return jsonResponse({ error: "SALE_NOT_FOUND" }, 404);
+        }
+        return jsonResponse({ requestEventId: "request-1" }, 201);
+      }
+      if (url.includes("/sync/push")) {
+        return jsonResponse({ acknowledgements: [], latestCursor: "cursor-1" });
+      }
+      if (url.includes("/sync/pull")) return jsonResponse({ events: [], nextCursor: "cursor-1" });
+      if (url.includes("/sync/status")) {
+        return jsonResponse({
+          latestCursor: "cursor-1",
+          projectionRefreshedAt: "2026-07-08T08:00:00.000Z",
+          projectionCursor: "cursor-1",
+        });
+      }
+      if (url.includes("/ledger/person-1/balance")) {
+        return jsonResponse({ balance: { personId: "person-1", balancePoints: 0 } });
+      }
+      if (url.includes("/ledger/person-1/entries")) return jsonResponse({ entries: [] });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App queue={queue} syncStateStore={syncStateStore} />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await userEvent.click(view.getByRole("button", { name: "Record Sale" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Record Sale" })).toBeInTheDocument();
+    });
+
+    await userEvent.type(view.getByLabelText("Search person"), "Jane");
+    await userEvent.click(view.getByRole("button", { name: "Jane Doe" }));
+    await userEvent.type(
+      view.getByLabelText("Points / inventory adjustment request (optional)"),
+      "Item was scratched, please refund points",
+    );
+    await userEvent.type(view.getByLabelText("Quantity 1"), "1");
+    await userEvent.click(view.getAllByRole("button", { name: "Record Sale" }).slice(-1)[0]!);
+
+    await waitFor(() => {
+      expect(
+        view.getByText("Adjustment request could not be saved: SALE_NOT_FOUND"),
+      ).toBeInTheDocument();
+    });
+    expect(view.queryByText("Adjustment request recorded.")).not.toBeInTheDocument();
+    // The sale itself still stands even though the adjustment request failed.
+    await expect(queue.pendingCount()).resolves.toBe(1);
+
+    await userEvent.click(view.getByRole("button", { name: "Retry adjustment request" }));
+
+    await waitFor(() => {
+      expect(view.getByText("Adjustment request recorded.")).toBeInTheDocument();
+    });
+    expect(adjustmentAttempts).toBe(2);
+  });
+
+  test("collection points admin lists points alphabetically and creates a new one", async () => {
+    stubResizeObserver();
+    let collectionPoints = [
+      { id: "cp-2", name: "Zebra Point", isActive: true },
+      { id: "cp-1", name: "Alpha Point", isActive: false },
+    ];
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points") && method === "POST") {
+        const created = { id: "cp-3", name: "New Point", isActive: true };
+        collectionPoints = [...collectionPoints, created];
+        return jsonResponse({ collectionPoint: created }, 201);
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({ collectionPoints });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Collection Points" }));
+    await waitFor(() => {
+      expect(view.getByText("Alpha Point")).toBeInTheDocument();
+    });
+    expect(view.getByText("Zebra Point")).toBeInTheDocument();
+    expect(view.getByText("Inactive")).toBeInTheDocument();
+
+    const names = view
+      .getAllByText(/Point$/)
+      .map((element) => element.textContent)
+      .filter((text): text is string => text !== null);
+    expect(names.indexOf("Alpha Point")).toBeLessThan(names.indexOf("Zebra Point"));
+
+    await userEvent.click(view.getByRole("button", { name: "New Collection Point" }));
+    await userEvent.type(view.getByLabelText("Name"), "New Point");
+    await userEvent.click(view.getByRole("button", { name: "Save Collection Point" }));
+
+    await waitFor(() => {
+      expect(view.getByText("New Point")).toBeInTheDocument();
+    });
+  });
+
+  test("collection points admin edits a point's name and active status", async () => {
+    stubResizeObserver();
+    let collectionPoints = [{ id: "cp-1", name: "Old Name", isActive: true }];
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points/cp-1") && method === "PATCH") {
+        collectionPoints = [{ id: "cp-1", name: "New Name", isActive: false }];
+        return jsonResponse({ collectionPoint: collectionPoints[0] });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({ collectionPoints });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Collection Points" }));
+    await waitFor(() => {
+      expect(view.getByText("Old Name")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Edit" }));
+    await userEvent.clear(view.getByLabelText("Name"));
+    await userEvent.type(view.getByLabelText("Name"), "New Name");
+    await userEvent.click(view.getByRole("textbox", { name: "Status" }));
+    await userEvent.click(view.getByRole("option", { name: "Inactive" }));
+    await userEvent.click(view.getByRole("button", { name: "Save Changes" }));
+
+    await waitFor(() => {
+      expect(view.getByText("New Name")).toBeInTheDocument();
+    });
+    expect(view.getByText("Inactive")).toBeInTheDocument();
+  });
+
+  test("collection points and collected materials admin nav are hidden for non-administrator users", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-2", username: "staff", role: "user" },
+          token: "token-2",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "staff");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+    expect(view.queryByRole("button", { name: "Collection Points" })).not.toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "Collected Materials" })).not.toBeInTheDocument();
+  });
+
+  test("collected materials admin lists materials and creates a new one", async () => {
+    stubResizeObserver();
+    let materials = [{ id: "mat-1", name: "PET", pointsPerKg: 3, imageUpdatedAt: null }];
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials") && method === "POST") {
+        const created = { id: "mat-2", name: "Glass", pointsPerKg: 2, imageUpdatedAt: null };
+        materials = [...materials, created];
+        return jsonResponse({ material: created }, 201);
+      }
+      if (url.includes("/materials")) return jsonResponse({ materials });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Collected Materials" }));
+    await waitFor(() => {
+      expect(view.getByText("PET")).toBeInTheDocument();
+    });
+    expect(view.getByText("No image uploaded")).toBeInTheDocument();
+
+    await userEvent.click(view.getByRole("button", { name: "New Material" }));
+    await userEvent.type(view.getByLabelText("Name"), "Glass");
+    await userEvent.type(view.getByLabelText("Points per kg"), "2");
+    await userEvent.click(view.getByRole("button", { name: "Save Material" }));
+
+    await waitFor(() => {
+      expect(view.getByText("Glass")).toBeInTheDocument();
+    });
+  });
+
+  test("collected materials admin uploads an image for a material", async () => {
+    stubResizeObserver();
+    let materials: Array<{
+      id: string;
+      name: string;
+      pointsPerKg: number;
+      imageUpdatedAt: string | null;
+    }> = [{ id: "mat-1", name: "PET", pointsPerKg: 3, imageUpdatedAt: null }];
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials/mat-1/image") && method === "PUT") {
+        materials = [
+          { id: "mat-1", name: "PET", pointsPerKg: 3, imageUpdatedAt: "2026-07-08T10:00:00.000Z" },
+        ];
+        return jsonResponse(
+          {
+            materialTypeId: "mat-1",
+            contentType: "image/png",
+            fileName: "pet.png",
+            fileSizeBytes: 4,
+            updatedAt: "2026-07-08T10:00:00.000Z",
+          },
+          201,
+        );
+      }
+      if (url.includes("/materials/mat-1/image")) {
+        return new Response("fake-image-bytes", {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        });
+      }
+      if (url.includes("/materials")) return jsonResponse({ materials });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Collected Materials" }));
+    await waitFor(() => {
+      expect(view.getByText("PET")).toBeInTheDocument();
+    });
+
+    const file = new File(["fake-image-bytes"], "pet.png", { type: "image/png" });
+    const fileInput = view.container.querySelector<HTMLInputElement>('input[type="file"]');
+    if (fileInput === null) {
+      throw new Error("Expected a file input for image upload");
+    }
+    await userEvent.upload(fileInput, file);
+
+    await waitFor(() => {
+      expect(view.getByAltText("PET material image")).toBeInTheDocument();
+    });
+    expect(view.queryByText("No image uploaded")).not.toBeInTheDocument();
+  });
+
+  test("users screen lists staff and adds a new user", async () => {
+    stubResizeObserver();
+    let users: Array<{ id: string; username: string; role: "user" | "administrator" }> = [
+      { id: "user-1", username: "administrator", role: "administrator" },
+    ];
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      if (url.includes("/adjustments/requests")) return jsonResponse({ requests: [] });
+      if (url.includes("/users") && method === "POST") {
+        const created = { id: "user-2", username: "newstaff", role: "user" as const };
+        users = [...users, created];
+        return jsonResponse({ user: created }, 201);
+      }
+      if (url.includes("/users")) return jsonResponse({ users });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Users" }));
+    await waitFor(() => {
+      expect(view.getAllByText("administrator (administrator)").length).toBeGreaterThan(0);
+    });
+    expect(view.queryByRole("button", { name: "Rename and edit user" })).not.toBeInTheDocument();
+
+    await userEvent.click(view.getByRole("button", { name: "Add" }));
+    await userEvent.type(view.getByLabelText("Username"), "newstaff");
+    await userEvent.type(view.getByLabelText("Passcode"), "5678");
+    await userEvent.click(view.getByRole("button", { name: "Add new user" }));
+
+    await waitFor(() => {
+      expect(view.getByText("newstaff (user)")).toBeInTheDocument();
+    });
+  });
+
+  test("users screen edits an existing user's role and passcode inline", async () => {
+    stubResizeObserver();
+    let users: Array<{ id: string; username: string; role: "user" | "administrator" }> = [
+      { id: "user-2", username: "staffmember", role: "user" },
+    ];
+    let capturedUpdateBody: unknown = null;
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      if (url.includes("/adjustments/requests")) return jsonResponse({ requests: [] });
+      if (url.includes("/users/user-2") && method === "PATCH") {
+        if (typeof init?.body === "string") {
+          capturedUpdateBody = JSON.parse(init.body) as unknown;
+        }
+        const updated = { id: "user-2", username: "renamedstaff", role: "administrator" as const };
+        users = [updated];
+        return jsonResponse({ user: updated });
+      }
+      if (url.includes("/users")) return jsonResponse({ users });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Users" }));
+    await waitFor(() => {
+      expect(view.getByText("staffmember (user)")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Edit" }));
+    await waitFor(() => {
+      expect(view.getByText("Editing: staffmember")).toBeInTheDocument();
+    });
+
+    await userEvent.clear(view.getByLabelText("Username"));
+    await userEvent.type(view.getByLabelText("Username"), "renamedstaff");
+    await userEvent.click(view.getByRole("textbox", { name: "Role" }));
+    await userEvent.click(view.getByRole("option", { name: "administrator" }));
+    await userEvent.type(view.getByLabelText("New passcode (optional)"), "newpass1");
+    await userEvent.click(view.getByRole("button", { name: "Save Changes" }));
+
+    await waitFor(() => {
+      expect(view.getByText("renamedstaff (administrator)")).toBeInTheDocument();
+    });
+    expect(capturedUpdateBody).toEqual({
+      username: "renamedstaff",
+      role: "administrator",
+      passcode: "newpass1",
+    });
   });
 });

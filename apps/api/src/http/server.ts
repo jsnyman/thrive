@@ -46,6 +46,7 @@ type PersonRecord = {
   address?: string | null;
   notes?: string | null;
   balancePoints?: number;
+  assignedCollectionPointId?: string | null;
 };
 
 type PersonCreateInput = {
@@ -56,6 +57,7 @@ type PersonCreateInput = {
   address?: string | null;
   notes?: string | null;
   locationText?: string | null;
+  assignedCollectionPointId?: string | null;
 };
 
 type PersonUpdateInput = {
@@ -66,6 +68,7 @@ type PersonUpdateInput = {
     phone?: string | null;
     address?: string | null;
     notes?: string | null;
+    assignedCollectionPointId?: string | null;
   };
   locationText?: string | null;
 };
@@ -74,6 +77,7 @@ type MaterialRecord = {
   id: string;
   name: string;
   pointsPerKg: number;
+  imageUpdatedAt?: string | null;
 };
 
 type MaterialCreateInput = {
@@ -82,12 +86,46 @@ type MaterialCreateInput = {
   locationText?: string | null;
 };
 
+type MaterialImageRecord = {
+  materialTypeId: string;
+  contentType: string;
+  fileName: string | null;
+  fileSizeBytes: number;
+  content: Uint8Array;
+  updatedAt: string;
+};
+
+type MaterialImageUploadInput = {
+  contentType: string;
+  fileName?: string | null;
+  dataBase64: string;
+};
+
 type ItemRecord = {
   id: string;
   name: string;
   pointsPrice: number;
   costPrice?: number | null;
   sku?: string | null;
+};
+
+type CollectionPointRecord = {
+  id: string;
+  name: string;
+  isActive: boolean;
+};
+
+type CollectionPointCreateInput = {
+  name: string;
+  locationText?: string | null;
+};
+
+type CollectionPointUpdateInput = {
+  updates: {
+    name?: string;
+    isActive?: boolean;
+  };
+  locationText?: string | null;
 };
 
 type InventoryStatus = "storage" | "shop" | "sold" | "spoiled" | "damaged" | "missing";
@@ -159,6 +197,12 @@ type PointsAdjustmentRequestInput = {
   locationText?: string | null;
 };
 
+type SaleAdjustmentRequestInput = {
+  saleEventId: string;
+  personId: string;
+  note: string;
+};
+
 type AdjustmentRequestType = "points" | "inventory";
 type AdjustmentRequestStatus = "pending" | "approved" | "rejected";
 
@@ -219,6 +263,7 @@ type IntakeCreateInput = {
     weightKg: number;
   }>;
   locationText?: string | null;
+  collectionPointId?: string | null;
 };
 
 type SaleCreateInput = {
@@ -229,6 +274,7 @@ type SaleCreateInput = {
     quantity: number;
   }>;
   locationText?: string | null;
+  collectionPointId?: string | null;
 };
 
 type ProcurementCreateInput = {
@@ -315,7 +361,7 @@ type LedgerEntryRecord = {
 type MaterialsCollectedReportFilter = {
   fromDate: string | null;
   toDate: string | null;
-  locationText: string | null;
+  collectionPointId: string | null;
   materialTypeId: string | null;
 };
 
@@ -331,7 +377,7 @@ type MaterialsCollectedReportRow = {
 type SalesReportFilter = {
   fromDate: string | null;
   toDate: string | null;
-  locationText: string | null;
+  collectionPointId: string | null;
   itemId: string | null;
 };
 
@@ -357,7 +403,7 @@ type SalesReportResult = {
 type CashflowReportFilter = {
   fromDate: string | null;
   toDate: string | null;
-  locationText: string | null;
+  collectionPointId: string | null;
 };
 
 type CashflowReportRow = {
@@ -457,12 +503,19 @@ type ApiServerDependencies = {
   getStaffUserByUsername: (username: string) => Promise<StaffUserRecord | null>;
   listPeople: (search?: string) => Promise<PersonRecord[]>;
   listMaterials: () => Promise<MaterialRecord[]>;
+  getMaterialImage: (materialId: string) => Promise<MaterialImageRecord | null>;
+  upsertMaterialImage: (
+    materialId: string,
+    input: { contentType: string; fileName: string | null; content: Uint8Array },
+  ) => Promise<MaterialImageRecord>;
+  listCollectionPoints: () => Promise<CollectionPointRecord[]>;
   listItems: () => Promise<ItemRecord[]>;
   listInventoryBatches: () => Promise<InventoryBatchStateRecord[]>;
   listShopBatchesForItem: (itemId: string) => Promise<InventoryBatchStateRecord[]>;
   listInventoryStatusSummary: () => Promise<InventoryStatusSummaryRecord[]>;
   getPersonById: (personId: string) => Promise<PersonRecord | null>;
   getMaterialById: (materialId: string) => Promise<MaterialRecord | null>;
+  getCollectionPointById: (collectionPointId: string) => Promise<CollectionPointRecord | null>;
   getItemById: (itemId: string) => Promise<ItemRecord | null>;
   getItemByName: (name: string) => Promise<ItemRecord | null>;
   getInventoryBatchState: (inventoryBatchId: string) => Promise<InventoryBatchStateRecord | null>;
@@ -553,12 +606,24 @@ type JsonBodyResult =
   | { ok: true; value: unknown }
   | { ok: false; error: "INVALID_JSON" | "BODY_TOO_LARGE" };
 
-const MAX_BODY_BYTES = 64 * 1024;
+const MAX_BODY_BYTES = 2 * 1024 * 1024;
 
 const sendJson = (res: ServerResponse, statusCode: number, payload: unknown): void => {
   res.statusCode = statusCode;
   res.setHeader("content-type", "application/json; charset=utf-8");
   res.end(JSON.stringify(payload));
+};
+
+const sendBinary = (
+  res: ServerResponse,
+  statusCode: number,
+  payload: Uint8Array,
+  contentType: string,
+): void => {
+  res.statusCode = statusCode;
+  res.setHeader("content-type", contentType);
+  res.setHeader("content-length", Buffer.byteLength(payload));
+  res.end(Buffer.from(payload));
 };
 
 const getHeader = (req: IncomingMessage, name: string): string | undefined => {
@@ -595,6 +660,18 @@ const readJsonBody = async (req: IncomingMessage): Promise<JsonBodyResult> => {
     return { ok: true, value: parsed };
   } catch {
     return { ok: false, error: "INVALID_JSON" };
+  }
+};
+
+const decodeBase64Bytes = (value: string): Uint8Array | null => {
+  try {
+    const buffer = Buffer.from(value, "base64");
+    if (buffer.byteLength === 0) {
+      return null;
+    }
+    return new Uint8Array(buffer);
+  } catch {
+    return null;
   }
 };
 
@@ -671,6 +748,7 @@ const toPersonResponse = (person: PersonRecord): PersonRecord => ({
   phone: maskSensitiveValue(person.phone),
   address: person.address ?? null,
   notes: person.notes ?? null,
+  assignedCollectionPointId: person.assignedCollectionPointId ?? null,
   ...(person.balancePoints !== undefined ? { balancePoints: person.balancePoints } : {}),
 });
 
@@ -686,6 +764,7 @@ const parsePersonCreateRequest = (body: unknown): PersonCreateInput | null => {
   const address = parseNullableString(record["address"]);
   const notes = parseNullableString(record["notes"]);
   const locationText = parseNullableString(record["locationText"]);
+  const assignedCollectionPointId = parseNullableString(record["assignedCollectionPointId"]);
   if (idNumber === undefined && record["idNumber"] !== undefined) {
     return null;
   }
@@ -701,6 +780,12 @@ const parsePersonCreateRequest = (body: unknown): PersonCreateInput | null => {
   if (locationText === undefined && record["locationText"] !== undefined) {
     return null;
   }
+  if (
+    assignedCollectionPointId === undefined &&
+    record["assignedCollectionPointId"] !== undefined
+  ) {
+    return null;
+  }
   return {
     name,
     surname,
@@ -709,6 +794,7 @@ const parsePersonCreateRequest = (body: unknown): PersonCreateInput | null => {
     address: address ?? null,
     notes: notes ?? null,
     locationText: locationText ?? null,
+    assignedCollectionPointId: assignedCollectionPointId ?? null,
   };
 };
 
@@ -730,7 +816,15 @@ const parsePersonUpdateRequest = (body: unknown): PersonUpdateInput | null => {
   if (updateKeys.length === 0) {
     return null;
   }
-  const allowedKeys = ["name", "surname", "idNumber", "phone", "address", "notes"];
+  const allowedKeys = [
+    "name",
+    "surname",
+    "idNumber",
+    "phone",
+    "address",
+    "notes",
+    "assignedCollectionPointId",
+  ];
   const hasInvalidKey = updateKeys.some((key) => !allowedKeys.includes(key));
   if (hasInvalidKey) {
     return null;
@@ -780,6 +874,84 @@ const parsePersonUpdateRequest = (body: unknown): PersonUpdateInput | null => {
     }
     updates.notes = notes ?? null;
   }
+  if ("assignedCollectionPointId" in updatesRecord) {
+    const assignedCollectionPointId = parseNullableString(
+      updatesRecord["assignedCollectionPointId"],
+    );
+    if (
+      assignedCollectionPointId === undefined &&
+      updatesRecord["assignedCollectionPointId"] !== undefined
+    ) {
+      return null;
+    }
+    updates.assignedCollectionPointId = assignedCollectionPointId ?? null;
+  }
+
+  return {
+    updates,
+    locationText: locationText ?? null,
+  };
+};
+
+const parseCollectionPointCreateRequest = (body: unknown): CollectionPointCreateInput | null => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+  const record = body as Record<string, unknown>;
+  const name = record["name"];
+  const locationText = parseNullableString(record["locationText"]);
+  if (typeof name !== "string" || name.trim().length === 0) {
+    return null;
+  }
+  if (locationText === undefined && record["locationText"] !== undefined) {
+    return null;
+  }
+  return {
+    name,
+    locationText: locationText ?? null,
+  };
+};
+
+const parseCollectionPointUpdateRequest = (body: unknown): CollectionPointUpdateInput | null => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+  const record = body as Record<string, unknown>;
+  const updatesRaw = record["updates"];
+  const locationText = parseNullableString(record["locationText"]);
+  if (locationText === undefined && record["locationText"] !== undefined) {
+    return null;
+  }
+  if (typeof updatesRaw !== "object" || updatesRaw === null || Array.isArray(updatesRaw)) {
+    return null;
+  }
+  const updatesRecord = updatesRaw as Record<string, unknown>;
+  const updateKeys = Object.keys(updatesRecord);
+  if (updateKeys.length === 0) {
+    return null;
+  }
+  const allowedKeys = ["name", "isActive"];
+  const hasInvalidKey = updateKeys.some((key) => !allowedKeys.includes(key));
+  if (hasInvalidKey) {
+    return null;
+  }
+
+  const updates: CollectionPointUpdateInput["updates"] = {};
+
+  if ("name" in updatesRecord) {
+    const name = updatesRecord["name"];
+    if (typeof name !== "string" || name.trim().length === 0) {
+      return null;
+    }
+    updates.name = name;
+  }
+  if ("isActive" in updatesRecord) {
+    const isActive = updatesRecord["isActive"];
+    if (typeof isActive !== "boolean") {
+      return null;
+    }
+    updates.isActive = isActive;
+  }
 
   return {
     updates,
@@ -809,6 +981,30 @@ const parseMaterialCreateRequest = (body: unknown): MaterialCreateInput | null =
     name,
     pointsPerKg: normalizedPointsPerKg,
     locationText: locationText ?? null,
+  };
+};
+
+const parseMaterialImageUploadRequest = (body: unknown): MaterialImageUploadInput | null => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+  const record = body as Record<string, unknown>;
+  const contentType = record["contentType"];
+  const dataBase64 = record["dataBase64"];
+  const fileName = parseNullableString(record["fileName"]);
+  if (typeof contentType !== "string" || contentType.trim().length === 0) {
+    return null;
+  }
+  if (typeof dataBase64 !== "string" || dataBase64.trim().length === 0) {
+    return null;
+  }
+  if (fileName === undefined && record["fileName"] !== undefined) {
+    return null;
+  }
+  return {
+    contentType,
+    fileName: fileName ?? null,
+    dataBase64,
   };
 };
 
@@ -856,6 +1052,7 @@ const parseIntakeCreateRequest = (body: unknown): IntakeCreateInput | null => {
   const personId = record["personId"];
   const lines = record["lines"];
   const locationText = parseNullableString(record["locationText"]);
+  const collectionPointId = parseNullableString(record["collectionPointId"]);
   if (typeof personId !== "string" || personId.trim().length === 0) {
     return null;
   }
@@ -884,10 +1081,14 @@ const parseIntakeCreateRequest = (body: unknown): IntakeCreateInput | null => {
   if (locationText === undefined && record["locationText"] !== undefined) {
     return null;
   }
+  if (collectionPointId === undefined && record["collectionPointId"] !== undefined) {
+    return null;
+  }
   return {
     personId,
     lines: parsedLines,
     locationText: locationText ?? null,
+    collectionPointId: collectionPointId ?? null,
   };
 };
 
@@ -899,6 +1100,7 @@ const parseSaleCreateRequest = (body: unknown): SaleCreateInput | null => {
   const personId = record["personId"];
   const lines = record["lines"];
   const locationText = parseNullableString(record["locationText"]);
+  const collectionPointId = parseNullableString(record["collectionPointId"]);
   if (typeof personId !== "string" || personId.trim().length === 0) {
     return null;
   }
@@ -936,10 +1138,14 @@ const parseSaleCreateRequest = (body: unknown): SaleCreateInput | null => {
   if (locationText === undefined && record["locationText"] !== undefined) {
     return null;
   }
+  if (collectionPointId === undefined && record["collectionPointId"] !== undefined) {
+    return null;
+  }
   return {
     personId,
     lines: parsedLines,
     locationText: locationText ?? null,
+    collectionPointId: collectionPointId ?? null,
   };
 };
 
@@ -1314,6 +1520,26 @@ const parsePointsAdjustmentRequest = (body: unknown): PointsAdjustmentRequestInp
   };
 };
 
+const parseSaleAdjustmentRequest = (body: unknown): SaleAdjustmentRequestInput | null => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+  const record = body as Record<string, unknown>;
+  const saleEventId = record["saleEventId"];
+  const personId = record["personId"];
+  const note = record["note"];
+  if (typeof saleEventId !== "string" || saleEventId.trim().length === 0) {
+    return null;
+  }
+  if (typeof personId !== "string" || personId.trim().length === 0) {
+    return null;
+  }
+  if (typeof note !== "string" || note.trim().length === 0) {
+    return null;
+  }
+  return { saleEventId, personId, note };
+};
+
 const parsePointsAdjustmentApplyRequest = (body: unknown): PointsAdjustmentApplyInput | null => {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return null;
@@ -1601,14 +1827,16 @@ const parseMaterialsCollectedReportFilter = (
 ): MaterialsCollectedReportFilter | null => {
   const fromDateRaw = parsedUrl.searchParams.get("fromDate");
   const toDateRaw = parsedUrl.searchParams.get("toDate");
-  const locationTextRaw = parsedUrl.searchParams.get("locationText");
+  const collectionPointIdRaw = parsedUrl.searchParams.get("collectionPointId");
   const materialTypeIdRaw = parsedUrl.searchParams.get("materialTypeId");
 
   const fromDate =
     fromDateRaw !== null && fromDateRaw.trim().length > 0 ? fromDateRaw.trim() : null;
   const toDate = toDateRaw !== null && toDateRaw.trim().length > 0 ? toDateRaw.trim() : null;
-  const locationText =
-    locationTextRaw !== null && locationTextRaw.trim().length > 0 ? locationTextRaw.trim() : null;
+  const collectionPointId =
+    collectionPointIdRaw !== null && collectionPointIdRaw.trim().length > 0
+      ? collectionPointIdRaw.trim()
+      : null;
   const materialTypeId =
     materialTypeIdRaw !== null && materialTypeIdRaw.trim().length > 0
       ? materialTypeIdRaw.trim()
@@ -1641,7 +1869,7 @@ const parseMaterialsCollectedReportFilter = (
   return {
     fromDate: normalizedFromDate,
     toDate: normalizedToDate,
-    locationText,
+    collectionPointId,
     materialTypeId,
   };
 };
@@ -1657,14 +1885,16 @@ const parsePointsLiabilityReportFilter = (parsedUrl: URL): PointsLiabilityReport
 const parseSalesReportFilter = (parsedUrl: URL, now: Date): SalesReportFilter | null => {
   const fromDateRaw = parsedUrl.searchParams.get("fromDate");
   const toDateRaw = parsedUrl.searchParams.get("toDate");
-  const locationTextRaw = parsedUrl.searchParams.get("locationText");
+  const collectionPointIdRaw = parsedUrl.searchParams.get("collectionPointId");
   const itemIdRaw = parsedUrl.searchParams.get("itemId");
 
   const fromDate =
     fromDateRaw !== null && fromDateRaw.trim().length > 0 ? fromDateRaw.trim() : null;
   const toDate = toDateRaw !== null && toDateRaw.trim().length > 0 ? toDateRaw.trim() : null;
-  const locationText =
-    locationTextRaw !== null && locationTextRaw.trim().length > 0 ? locationTextRaw.trim() : null;
+  const collectionPointId =
+    collectionPointIdRaw !== null && collectionPointIdRaw.trim().length > 0
+      ? collectionPointIdRaw.trim()
+      : null;
   const itemId = itemIdRaw !== null && itemIdRaw.trim().length > 0 ? itemIdRaw.trim() : null;
 
   if (fromDate !== null && !isIsoDateOnly(fromDate)) {
@@ -1691,7 +1921,7 @@ const parseSalesReportFilter = (parsedUrl: URL, now: Date): SalesReportFilter | 
   return {
     fromDate: normalizedFromDate,
     toDate: normalizedToDate,
-    locationText,
+    collectionPointId,
     itemId,
   };
 };
@@ -1699,13 +1929,15 @@ const parseSalesReportFilter = (parsedUrl: URL, now: Date): SalesReportFilter | 
 const parseCashflowReportFilter = (parsedUrl: URL, now: Date): CashflowReportFilter | null => {
   const fromDateRaw = parsedUrl.searchParams.get("fromDate");
   const toDateRaw = parsedUrl.searchParams.get("toDate");
-  const locationTextRaw = parsedUrl.searchParams.get("locationText");
+  const collectionPointIdRaw = parsedUrl.searchParams.get("collectionPointId");
 
   const fromDate =
     fromDateRaw !== null && fromDateRaw.trim().length > 0 ? fromDateRaw.trim() : null;
   const toDate = toDateRaw !== null && toDateRaw.trim().length > 0 ? toDateRaw.trim() : null;
-  const locationText =
-    locationTextRaw !== null && locationTextRaw.trim().length > 0 ? locationTextRaw.trim() : null;
+  const collectionPointId =
+    collectionPointIdRaw !== null && collectionPointIdRaw.trim().length > 0
+      ? collectionPointIdRaw.trim()
+      : null;
 
   if (fromDate !== null && !isIsoDateOnly(fromDate)) {
     return null;
@@ -1731,7 +1963,7 @@ const parseCashflowReportFilter = (parsedUrl: URL, now: Date): CashflowReportFil
   return {
     fromDate: normalizedFromDate,
     toDate: normalizedToDate,
-    locationText,
+    collectionPointId,
   };
 };
 
@@ -1996,6 +2228,18 @@ const handlePeopleCreate = async (
     sendJson(res, 400, { error: "BAD_REQUEST" });
     return;
   }
+  if (
+    request.assignedCollectionPointId !== null &&
+    request.assignedCollectionPointId !== undefined
+  ) {
+    const collectionPoint = await dependencies.getCollectionPointById(
+      request.assignedCollectionPointId,
+    );
+    if (collectionPoint === null) {
+      sendJson(res, 404, { error: "COLLECTION_POINT_NOT_FOUND" });
+      return;
+    }
+  }
 
   const personId = randomUUID();
   const event: Event = {
@@ -2010,6 +2254,7 @@ const handlePeopleCreate = async (
       address: request.address ?? null,
       notes: request.notes ?? null,
       locationText: request.locationText ?? null,
+      assignedCollectionPointId: request.assignedCollectionPointId ?? null,
     },
   };
 
@@ -2052,6 +2297,18 @@ const handlePeopleUpdate = async (
   if (request === null) {
     sendJson(res, 400, { error: "BAD_REQUEST" });
     return;
+  }
+  if (
+    request.updates.assignedCollectionPointId !== null &&
+    request.updates.assignedCollectionPointId !== undefined
+  ) {
+    const collectionPoint = await dependencies.getCollectionPointById(
+      request.updates.assignedCollectionPointId,
+    );
+    if (collectionPoint === null) {
+      sendJson(res, 404, { error: "COLLECTION_POINT_NOT_FOUND" });
+      return;
+    }
   }
 
   const event: Event = {
@@ -2181,6 +2438,189 @@ const handleMaterialsCreate = async (
     return;
   }
   sendJson(res, 201, { material });
+};
+
+const handleMaterialImageUpsert = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+  materialTypeId: string,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "item.manage");
+  if (actor === null) {
+    return;
+  }
+  const material = await dependencies.getMaterialById(materialTypeId);
+  if (material === null) {
+    sendJson(res, 404, { error: "MATERIAL_NOT_FOUND" });
+    return;
+  }
+  const bodyResult = await readJsonBody(req);
+  if (!bodyResult.ok) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const request = parseMaterialImageUploadRequest(bodyResult.value);
+  if (request === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const content = decodeBase64Bytes(request.dataBase64);
+  if (content === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+
+  const stored = await dependencies.upsertMaterialImage(materialTypeId, {
+    contentType: request.contentType,
+    fileName: request.fileName ?? null,
+    content,
+  });
+  const event: Event = {
+    ...toBaseEventFields(dependencies, actor, req, null),
+    eventType: "material_type.image_set",
+    payload: {
+      materialTypeId,
+      contentType: stored.contentType,
+      fileName: stored.fileName,
+      fileSizeBytes: stored.fileSizeBytes,
+    },
+  };
+  const appendResult = await dependencies.appendEventAndProject(event);
+  if (appendResult.status !== "accepted") {
+    sendJson(res, 400, { error: "BAD_REQUEST", reason: appendResult.reason ?? null });
+    return;
+  }
+
+  sendJson(res, 201, {
+    materialTypeId: stored.materialTypeId,
+    contentType: stored.contentType,
+    fileName: stored.fileName,
+    fileSizeBytes: stored.fileSizeBytes,
+    updatedAt: stored.updatedAt,
+  });
+};
+
+const handleMaterialImageGet = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+  materialTypeId: string,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "person.update");
+  if (actor === null) {
+    return;
+  }
+  const image = await dependencies.getMaterialImage(materialTypeId);
+  if (image === null) {
+    sendJson(res, 404, { error: "MATERIAL_IMAGE_NOT_FOUND" });
+    return;
+  }
+  sendBinary(res, 200, image.content, image.contentType);
+};
+
+const handleCollectionPointsList = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "collection_point.read");
+  if (actor === null) {
+    return;
+  }
+  const collectionPoints = await dependencies.listCollectionPoints();
+  sendJson(res, 200, { collectionPoints });
+};
+
+const handleCollectionPointsCreate = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "collection_point.manage");
+  if (actor === null) {
+    return;
+  }
+  const bodyResult = await readJsonBody(req);
+  if (!bodyResult.ok) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const request = parseCollectionPointCreateRequest(bodyResult.value);
+  if (request === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+
+  const collectionPointId = randomUUID();
+  const event: Event = {
+    ...toBaseEventFields(dependencies, actor, req, request.locationText),
+    eventType: "collection_point.created",
+    payload: {
+      collectionPointId,
+      name: request.name,
+    },
+  };
+
+  const appendResult = await dependencies.appendEventAndProject(event);
+  if (appendResult.status !== "accepted") {
+    sendJson(res, 400, { error: "BAD_REQUEST", reason: appendResult.reason ?? null });
+    return;
+  }
+  const collectionPoint = await dependencies.getCollectionPointById(collectionPointId);
+  if (collectionPoint === null) {
+    sendJson(res, 500, { error: "INTERNAL_SERVER_ERROR" });
+    return;
+  }
+  sendJson(res, 201, { collectionPoint });
+};
+
+const handleCollectionPointsUpdate = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+  collectionPointId: string,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "collection_point.manage");
+  if (actor === null) {
+    return;
+  }
+  const collectionPoint = await dependencies.getCollectionPointById(collectionPointId);
+  if (collectionPoint === null) {
+    sendJson(res, 404, { error: "COLLECTION_POINT_NOT_FOUND" });
+    return;
+  }
+  const bodyResult = await readJsonBody(req);
+  if (!bodyResult.ok) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const request = parseCollectionPointUpdateRequest(bodyResult.value);
+  if (request === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+
+  const event: Event = {
+    ...toBaseEventFields(dependencies, actor, req, request.locationText),
+    eventType: "collection_point.updated",
+    payload: {
+      collectionPointId,
+      updates: request.updates,
+    },
+  };
+  const appendResult = await dependencies.appendEventAndProject(event);
+  if (appendResult.status !== "accepted") {
+    sendJson(res, 400, { error: "BAD_REQUEST", reason: appendResult.reason ?? null });
+    return;
+  }
+
+  const updated = await dependencies.getCollectionPointById(collectionPointId);
+  if (updated === null) {
+    sendJson(res, 500, { error: "INTERNAL_SERVER_ERROR" });
+    return;
+  }
+  sendJson(res, 200, { collectionPoint: updated });
 };
 
 const handleItemsList = async (
@@ -2403,6 +2843,58 @@ const handlePointsAdjustmentRequest = async (
       deltaPoints: request.deltaPoints,
       reason: request.reason,
       notes: request.notes ?? null,
+    },
+  };
+  const appendResult = await dependencies.appendEventAndProject(event);
+  if (appendResult.status !== "accepted") {
+    sendJson(res, 400, { error: "BAD_REQUEST", reason: appendResult.reason ?? null });
+    return;
+  }
+  sendJson(res, 201, {
+    requestEventId: event.eventId,
+  });
+};
+
+const handleSaleAdjustmentRequest = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "sale.adjustment.request");
+  if (actor === null) {
+    return;
+  }
+  const bodyResult = await readJsonBody(req);
+  if (!bodyResult.ok) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const request = parseSaleAdjustmentRequest(bodyResult.value);
+  if (request === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const person = await dependencies.getPersonById(request.personId);
+  if (person === null) {
+    sendJson(res, 404, { error: "PERSON_NOT_FOUND" });
+    return;
+  }
+  const saleAudit = await dependencies.getSyncAuditEvent(request.saleEventId);
+  if (
+    saleAudit === null ||
+    saleAudit.event.eventType !== "sale.recorded" ||
+    saleAudit.event.payload.personId !== request.personId
+  ) {
+    sendJson(res, 404, { error: "SALE_NOT_FOUND" });
+    return;
+  }
+  const event: Event = {
+    ...toBaseEventFields(dependencies, actor, req),
+    eventType: "sale.adjustment_requested",
+    payload: {
+      saleEventId: request.saleEventId,
+      personId: request.personId,
+      note: request.note,
     },
   };
   const appendResult = await dependencies.appendEventAndProject(event);
@@ -2661,6 +3153,13 @@ const handleIntakeCreate = async (
     sendJson(res, 404, { error: "PERSON_NOT_FOUND" });
     return;
   }
+  if (request.collectionPointId !== null && request.collectionPointId !== undefined) {
+    const collectionPoint = await dependencies.getCollectionPointById(request.collectionPointId);
+    if (collectionPoint === null) {
+      sendJson(res, 404, { error: "COLLECTION_POINT_NOT_FOUND" });
+      return;
+    }
+  }
 
   const lines: Array<{
     materialTypeId: string;
@@ -2693,6 +3192,7 @@ const handleIntakeCreate = async (
       lines,
       totalPoints,
       locationText: request.locationText ?? null,
+      collectionPointId: request.collectionPointId ?? null,
     },
   };
 
@@ -2839,6 +3339,13 @@ const handleSaleCreate = async (
     sendJson(res, 404, { error: "PERSON_NOT_FOUND" });
     return;
   }
+  if (request.collectionPointId !== null && request.collectionPointId !== undefined) {
+    const collectionPoint = await dependencies.getCollectionPointById(request.collectionPointId);
+    if (collectionPoint === null) {
+      sendJson(res, 404, { error: "COLLECTION_POINT_NOT_FOUND" });
+      return;
+    }
+  }
 
   const allocation = await buildSaleAllocatedLines(dependencies, request);
   if (!allocation.ok) {
@@ -2866,6 +3373,7 @@ const handleSaleCreate = async (
       lines,
       totalPoints,
       locationText: request.locationText ?? null,
+      collectionPointId: request.collectionPointId ?? null,
     },
   };
 
@@ -3621,6 +4129,40 @@ const routeRequest = async (
     return;
   }
 
+  const materialImageMatch = pathname.match(/^\/materials\/([^/]+)\/image$/);
+  if (materialImageMatch !== null) {
+    const materialTypeId = materialImageMatch[1];
+    if (materialTypeId !== undefined) {
+      if (method === "PUT") {
+        await handleMaterialImageUpsert(req, res, dependencies, materialTypeId);
+        return;
+      }
+      if (method === "GET") {
+        await handleMaterialImageGet(req, res, dependencies, materialTypeId);
+        return;
+      }
+    }
+  }
+
+  if (method === "GET" && pathname === "/collection-points") {
+    await handleCollectionPointsList(req, res, dependencies);
+    return;
+  }
+
+  if (method === "POST" && pathname === "/collection-points") {
+    await handleCollectionPointsCreate(req, res, dependencies);
+    return;
+  }
+
+  const collectionPointUpdateMatch = pathname.match(/^\/collection-points\/([^/]+)$/);
+  if (method === "PATCH" && collectionPointUpdateMatch !== null) {
+    const collectionPointId = collectionPointUpdateMatch[1];
+    if (collectionPointId !== undefined) {
+      await handleCollectionPointsUpdate(req, res, dependencies, collectionPointId);
+      return;
+    }
+  }
+
   if (method === "GET" && pathname === "/items") {
     await handleItemsList(req, res, dependencies);
     return;
@@ -3682,6 +4224,11 @@ const routeRequest = async (
 
   if (method === "POST" && pathname === "/points/adjustments/requests") {
     await handlePointsAdjustmentRequest(req, res, dependencies);
+    return;
+  }
+
+  if (method === "POST" && pathname === "/sales/adjustment-requests") {
+    await handleSaleAdjustmentRequest(req, res, dependencies);
     return;
   }
 
