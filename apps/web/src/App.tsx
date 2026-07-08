@@ -170,14 +170,13 @@ type NavViewKey =
   | "shop-sale"
   | "shop-procurement"
   | "shop-expense"
+  | "adjustments"
   | "adjustments-points-request"
   | "adjustments-inventory-request"
   | "adjustments-points-apply"
   | "adjustments-inventory-apply"
   | "reporting"
   | "users-list"
-  | "users-create"
-  | "users-edit"
   | "items-manage"
   | "collection-points-manage"
   | "materials-manage";
@@ -201,6 +200,16 @@ const createClosedManagerPanels = (): Record<ManagerPanelKey, boolean> => ({
   salesReport: false,
   cashflowReport: false,
 });
+
+const REPORT_PANEL_LABELS: Record<ManagerPanelKey, string> = {
+  reconciliation: "Integrity and Reconciliation",
+  materialsReport: "Materials Collected Report",
+  pointsLiability: "Points Liability Report",
+  inventoryStatusReport: "Inventory Status Report",
+  inventoryStatusLog: "Inventory Status Change Log",
+  salesReport: "Sales Report",
+  cashflowReport: "Cashflow Report",
+};
 
 const formatCurrencyValue = (value: number): string => value.toFixed(2);
 
@@ -715,6 +724,9 @@ export const App = ({
   const [procurementLines, setProcurementLines] = useState<ProcurementDraftLine[]>(() => [
     createProcurementDraftLine(),
   ]);
+  const [expandedProcurementLineId, setExpandedProcurementLineId] = useState<string | null>(
+    () => procurementLines[0]?.lineId ?? null,
+  );
   const [procurementSupplierName, setProcurementSupplierName] = useState<string>("");
   const [procurementTripDistanceKm, setProcurementTripDistanceKm] = useState<string>("");
   const [procurementDate, setProcurementDate] = useState<string>(() =>
@@ -846,6 +858,7 @@ export const App = ({
     useState<Record<ManagerPanelKey, boolean>>(createClosedManagerPanels);
   const [loadedManagerPanels, setLoadedManagerPanels] =
     useState<Record<ManagerPanelKey, boolean>>(createClosedManagerPanels);
+  const [activeReportPanel, setActiveReportPanel] = useState<ManagerPanelKey | null>(null);
 
   const [ledgerPersonId, setLedgerPersonId] = useState<string | null>(null);
   const [ledgerBalance, setLedgerBalance] = useState<LedgerBalance | null>(null);
@@ -900,6 +913,7 @@ export const App = ({
   const [staffUsers, setStaffUsers] = useState<StaffUserRecord[]>([]);
   const [staffUsersLoading, setStaffUsersLoading] = useState<boolean>(false);
   const [staffUsersError, setStaffUsersError] = useState<string | null>(null);
+  const [usersCreateMode, setUsersCreateMode] = useState<boolean>(false);
   const [createUserUsername, setCreateUserUsername] = useState<string>("");
   const [createUserRole, setCreateUserRole] = useState<"user" | "administrator">("user");
   const [createUserPasscode, setCreateUserPasscode] = useState<string>("");
@@ -1797,7 +1811,9 @@ export const App = ({
     setLedgerPersonId(null);
     setSalePersonId(null);
     setSaleLines([createSaleDraftLine()]);
-    setProcurementLines([createProcurementDraftLine()]);
+    const logoutProcurementLine = createProcurementDraftLine();
+    setProcurementLines([logoutProcurementLine]);
+    setExpandedProcurementLineId(logoutProcurementLine.lineId);
     setProcurementSupplierName("");
     setProcurementTripDistanceKm("");
     setProcurementDate(new Date().toISOString().slice(0, 10));
@@ -2642,14 +2658,9 @@ export const App = ({
           await Promise.all([loadInventory(), loadProcurements(), loadItems()]);
         },
       });
-      setProcurementLines([createProcurementDraftLine()]);
-      setProcurementSupplierName("");
-      setProcurementTripDistanceKm("");
-      setProcurementDate(new Date().toISOString().slice(0, 10));
-      return;
-      await sync.syncNow();
-      await Promise.all([loadInventory(), loadProcurements()]);
-      setProcurementLines([createProcurementDraftLine()]);
+      const nextProcurementLine = createProcurementDraftLine();
+      setProcurementLines([nextProcurementLine]);
+      setExpandedProcurementLineId(nextProcurementLine.lineId);
       setProcurementSupplierName("");
       setProcurementTripDistanceKm("");
       setProcurementDate(new Date().toISOString().slice(0, 10));
@@ -2658,6 +2669,20 @@ export const App = ({
       setProcurementError(message);
     } finally {
       setProcurementPending(false);
+    }
+  };
+
+  const handleAddProcurementLine = (): void => {
+    const nextLine = createProcurementDraftLine();
+    setProcurementLines((previous) => [...previous, nextLine]);
+    setExpandedProcurementLineId(nextLine.lineId);
+  };
+
+  const handleRemoveProcurementLine = (lineId: string): void => {
+    const remaining = procurementLines.filter((entry) => entry.lineId !== lineId);
+    setProcurementLines(remaining);
+    if (expandedProcurementLineId === lineId) {
+      setExpandedProcurementLineId(remaining[0]?.lineId ?? null);
     }
   };
 
@@ -3164,6 +3189,7 @@ export const App = ({
       setCreateUserUsername("");
       setCreateUserPasscode("");
       setCreateUserRole("user");
+      setUsersCreateMode(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setCreateUserError(message);
@@ -3195,6 +3221,7 @@ export const App = ({
       });
       await loadStaffUsers();
       setEditUserPasscode("");
+      setEditUserId(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setEditUserError(message);
@@ -3402,49 +3429,15 @@ export const App = ({
                 <Badge color="red">{String(pendingAdjustmentCount)}</Badge>
               ) : null}
             </Group>
-            {canManageInventory ? (
-              <>
-                <Button
-                  className="navActionButton"
-                  variant={activeView === "adjustments-points-apply" ? "filled" : "light"}
-                  onClick={() => {
-                    setActiveView("adjustments-points-apply");
-                  }}
-                >
-                  Adjust points
-                </Button>
-                <Button
-                  className="navActionButton"
-                  variant={activeView === "adjustments-inventory-apply" ? "filled" : "light"}
-                  onClick={() => {
-                    setActiveView("adjustments-inventory-apply");
-                  }}
-                >
-                  Adjust inventory
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button
-                  className="navActionButton"
-                  variant={activeView === "adjustments-points-request" ? "filled" : "light"}
-                  onClick={() => {
-                    setActiveView("adjustments-points-request");
-                  }}
-                >
-                  Request points adjustment
-                </Button>
-                <Button
-                  className="navActionButton"
-                  variant={activeView === "adjustments-inventory-request" ? "filled" : "light"}
-                  onClick={() => {
-                    setActiveView("adjustments-inventory-request");
-                  }}
-                >
-                  Request inventory adjustment
-                </Button>
-              </>
-            )}
+            <Button
+              className="navActionButton"
+              variant={activeView.startsWith("adjustments") ? "filled" : "light"}
+              onClick={() => {
+                setActiveView("adjustments");
+              }}
+            >
+              Open Adjustments
+            </Button>
           </Stack>
           {canViewReports ? (
             <Stack className="navGroup" gap="xs">
@@ -3454,6 +3447,7 @@ export const App = ({
                 variant={activeView === "reporting" ? "filled" : "light"}
                 onClick={() => {
                   setActiveView("reporting");
+                  setActiveReportPanel(null);
                 }}
               >
                 Reports
@@ -3468,27 +3462,11 @@ export const App = ({
                 variant={activeView === "users-list" ? "filled" : "light"}
                 onClick={() => {
                   setActiveView("users-list");
+                  setUsersCreateMode(false);
+                  setEditUserId(null);
                 }}
               >
-                List all
-              </Button>
-              <Button
-                className="navActionButton"
-                variant={activeView === "users-create" ? "filled" : "light"}
-                onClick={() => {
-                  setActiveView("users-create");
-                }}
-              >
-                Add new user
-              </Button>
-              <Button
-                className="navActionButton"
-                variant={activeView === "users-edit" ? "filled" : "light"}
-                onClick={() => {
-                  setActiveView("users-edit");
-                }}
-              >
-                Rename and edit user
+                Users
               </Button>
             </Stack>
           ) : null}
@@ -3540,7 +3518,7 @@ export const App = ({
                           ? "Collection Points"
                           : activeView === "materials-manage"
                             ? "Collected Materials"
-                            : activeView.startsWith("adjustments-")
+                            : activeView.startsWith("adjustments")
                               ? "Adjustments"
                               : activeView === "reporting"
                                 ? "Reports"
@@ -4182,6 +4160,44 @@ export const App = ({
                         unitCostDerived !== null && hasValidMarkup
                           ? roundUpToNearest10Cents(unitCostDerived * (1 + markup / 100))
                           : null;
+                      if (line.lineId !== expandedProcurementLineId) {
+                        return (
+                          <Card key={line.lineId} withBorder radius="md" padding="sm">
+                            <Group justify="space-between">
+                              <Stack gap={2}>
+                                <Text size="sm" fw={500}>
+                                  {line.itemName.trim().length > 0
+                                    ? line.itemName
+                                    : `Line ${String(index + 1)}`}
+                                </Text>
+                                <Text size="xs" c="dimmed">
+                                  {`Cost per unit: ${unitCostDerived !== null ? unitCostDerived.toFixed(2) : "-"} | Selling price: ${sellingPriceDerived !== null ? sellingPriceDerived.toFixed(2) : "-"}`}
+                                </Text>
+                              </Stack>
+                              <Group gap="xs">
+                                <Button
+                                  size="xs"
+                                  variant="default"
+                                  onClick={() => {
+                                    setExpandedProcurementLineId(line.lineId);
+                                  }}
+                                >
+                                  Edit
+                                </Button>
+                                <Button
+                                  size="xs"
+                                  variant="default"
+                                  onClick={() => {
+                                    handleRemoveProcurementLine(line.lineId);
+                                  }}
+                                >
+                                  Remove
+                                </Button>
+                              </Group>
+                            </Group>
+                          </Card>
+                        );
+                      }
                       return (
                         <Card key={line.lineId} withBorder radius="md" padding="sm">
                           <Stack gap="xs">
@@ -4254,9 +4270,7 @@ export const App = ({
                               variant="default"
                               size="xs"
                               onClick={() => {
-                                setProcurementLines((previous) =>
-                                  previous.filter((entry) => entry.lineId !== line.lineId),
-                                );
+                                handleRemoveProcurementLine(line.lineId);
                               }}
                             >
                               Remove Procurement Line
@@ -4265,16 +4279,7 @@ export const App = ({
                         </Card>
                       );
                     })}
-                    <Button
-                      variant="light"
-                      size="xs"
-                      onClick={() => {
-                        setProcurementLines((previous) => [
-                          ...previous,
-                          createProcurementDraftLine(),
-                        ]);
-                      }}
-                    >
+                    <Button variant="light" size="xs" onClick={handleAddProcurementLine}>
                       Add Procurement Line
                     </Button>
                     <Text size="sm" c="dimmed">
@@ -4587,7 +4592,28 @@ export const App = ({
               </Card>
             ) : null}
 
-            {canViewReports && activeView === "reporting" ? (
+            {canViewReports && activeView === "reporting" && activeReportPanel === null ? (
+              <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                <Stack gap="sm">
+                  <Title order={4}>Reports</Title>
+                  {(Object.keys(REPORT_PANEL_LABELS) as ManagerPanelKey[]).map((panel) => (
+                    <Button
+                      key={panel}
+                      variant="light"
+                      onClick={() => {
+                        setActiveReportPanel(panel);
+                      }}
+                    >
+                      {REPORT_PANEL_LABELS[panel]}
+                    </Button>
+                  ))}
+                </Stack>
+              </Card>
+            ) : null}
+
+            {canViewReports &&
+            activeView === "reporting" &&
+            activeReportPanel === "reconciliation" ? (
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
                   <Group justify="space-between">
@@ -4757,7 +4783,9 @@ export const App = ({
               </Card>
             ) : null}
 
-            {canViewReports && activeView === "reporting" ? (
+            {canViewReports &&
+            activeView === "reporting" &&
+            activeReportPanel === "materialsReport" ? (
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
                   <Group justify="space-between">
@@ -4872,7 +4900,9 @@ export const App = ({
               </Card>
             ) : null}
 
-            {canViewReports && activeView === "reporting" ? (
+            {canViewReports &&
+            activeView === "reporting" &&
+            activeReportPanel === "pointsLiability" ? (
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
                   <Group justify="space-between">
@@ -4959,7 +4989,9 @@ export const App = ({
               </Card>
             ) : null}
 
-            {canViewReports && activeView === "reporting" ? (
+            {canViewReports &&
+            activeView === "reporting" &&
+            activeReportPanel === "inventoryStatusReport" ? (
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
                   <Group justify="space-between">
@@ -5048,7 +5080,9 @@ export const App = ({
               </Card>
             ) : null}
 
-            {canViewReports && activeView === "reporting" ? (
+            {canViewReports &&
+            activeView === "reporting" &&
+            activeReportPanel === "inventoryStatusLog" ? (
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
                   <Group justify="space-between">
@@ -5168,7 +5202,7 @@ export const App = ({
               </Card>
             ) : null}
 
-            {canViewReports && activeView === "reporting" ? (
+            {canViewReports && activeView === "reporting" && activeReportPanel === "salesReport" ? (
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
                   <Group justify="space-between">
@@ -5290,7 +5324,9 @@ export const App = ({
               </Card>
             ) : null}
 
-            {canViewReports && activeView === "reporting" ? (
+            {canViewReports &&
+            activeView === "reporting" &&
+            activeReportPanel === "cashflowReport" ? (
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
                   <Group justify="space-between">
@@ -5664,9 +5700,65 @@ export const App = ({
             </SimpleGrid>
 
             <SimpleGrid cols={{ base: 1, lg: 2 }}>
+              {activeView === "adjustments" ? (
+                <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                  <Stack gap="sm">
+                    <Title order={4}>Adjustments</Title>
+                    {canManageInventory ? (
+                      <>
+                        <Button
+                          variant="light"
+                          onClick={() => {
+                            setActiveView("adjustments-points-apply");
+                          }}
+                        >
+                          Adjust points
+                        </Button>
+                        <Button
+                          variant="light"
+                          onClick={() => {
+                            setActiveView("adjustments-inventory-apply");
+                          }}
+                        >
+                          Adjust inventory
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button
+                          variant="light"
+                          onClick={() => {
+                            setActiveView("adjustments-points-request");
+                          }}
+                        >
+                          Request points adjustment
+                        </Button>
+                        <Button
+                          variant="light"
+                          onClick={() => {
+                            setActiveView("adjustments-inventory-request");
+                          }}
+                        >
+                          Request inventory adjustment
+                        </Button>
+                      </>
+                    )}
+                  </Stack>
+                </Card>
+              ) : null}
+
               {activeView === "adjustments-points-request" ? (
                 <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                   <Stack gap="sm">
+                    <Button
+                      variant="subtle"
+                      size="xs"
+                      onClick={() => {
+                        setActiveView("adjustments");
+                      }}
+                    >
+                      Back to Adjustments
+                    </Button>
                     <Title order={4}>Points Adjustment Request</Title>
                     <Select
                       label="Person"
@@ -5717,6 +5809,15 @@ export const App = ({
               {activeView === "adjustments-inventory-request" ? (
                 <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                   <Stack gap="sm">
+                    <Button
+                      variant="subtle"
+                      size="xs"
+                      onClick={() => {
+                        setActiveView("adjustments");
+                      }}
+                    >
+                      Back to Adjustments
+                    </Button>
                     <Title order={4}>Inventory Adjustment Request</Title>
                     <Select
                       label="Batch"
@@ -5778,6 +5879,15 @@ export const App = ({
               {activeView === "adjustments-points-apply" && canManageInventory ? (
                 <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                   <Stack gap="sm">
+                    <Button
+                      variant="subtle"
+                      size="xs"
+                      onClick={() => {
+                        setActiveView("adjustments");
+                      }}
+                    >
+                      Back to Adjustments
+                    </Button>
                     <Title order={4}>Adjust Points</Title>
                     <Button
                       variant="default"
@@ -5852,6 +5962,15 @@ export const App = ({
               {activeView === "adjustments-inventory-apply" && canManageInventory ? (
                 <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                   <Stack gap="sm">
+                    <Button
+                      variant="subtle"
+                      size="xs"
+                      onClick={() => {
+                        setActiveView("adjustments");
+                      }}
+                    >
+                      Back to Adjustments
+                    </Button>
                     <Title order={4}>Adjust Inventory</Title>
                     <Button
                       variant="default"
@@ -6353,120 +6472,164 @@ export const App = ({
                 <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                   <Stack gap="sm">
                     <Title order={4}>Users</Title>
-                    <Button
-                      variant="default"
-                      onClick={() => {
-                        void loadStaffUsers();
-                      }}
-                      loading={staffUsersLoading}
-                    >
-                      Refresh Users
-                    </Button>
-                    {staffUsersError !== null ? <Text c="red">{staffUsersError}</Text> : null}
-                    {staffUsers.map((user) => (
-                      <Card key={user.id} withBorder radius="md" padding="sm">
-                        <Text size="sm">{`${user.username} (${user.role})`}</Text>
-                      </Card>
-                    ))}
-                  </Stack>
-                </Card>
-              ) : null}
-
-              {activeView === "users-create" && canManageUsers ? (
-                <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
-                  <Stack gap="sm">
-                    <Title order={4}>Add User</Title>
-                    <TextInput
-                      label="Username"
-                      value={createUserUsername}
-                      onChange={(event) => {
-                        setCreateUserUsername(event.currentTarget.value);
-                      }}
-                    />
-                    <Select
-                      label="Role"
-                      data={[
-                        { value: "user", label: "user" },
-                        { value: "administrator", label: "administrator" },
-                      ]}
-                      value={createUserRole}
-                      onChange={(value) => {
-                        if (value === "user" || value === "administrator") {
-                          setCreateUserRole(value);
-                        }
-                      }}
-                    />
-                    <TextInput
-                      label="Passcode"
-                      value={createUserPasscode}
-                      onChange={(event) => {
-                        setCreateUserPasscode(event.currentTarget.value);
-                      }}
-                    />
-                    {createUserError !== null ? <Text c="red">{createUserError}</Text> : null}
-                    <Button
-                      onClick={() => {
-                        void handleCreateUser();
-                      }}
-                      loading={createUserPending}
-                    >
-                      Add new user
-                    </Button>
-                  </Stack>
-                </Card>
-              ) : null}
-
-              {activeView === "users-edit" && canManageUsers ? (
-                <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
-                  <Stack gap="sm">
-                    <Title order={4}>Rename and edit user</Title>
-                    <Select
-                      label="User"
-                      data={staffUsers.map((user) => ({
-                        value: user.id,
-                        label: `${user.username} (${user.role})`,
-                      }))}
-                      value={editUserId}
-                      onChange={setEditUserId}
-                      searchable
-                      clearable
-                    />
-                    <TextInput
-                      label="Username"
-                      value={editUserUsername}
-                      onChange={(event) => {
-                        setEditUserUsername(event.currentTarget.value);
-                      }}
-                    />
-                    <Select
-                      label="Role"
-                      data={[
-                        { value: "user", label: "user" },
-                        { value: "administrator", label: "administrator" },
-                      ]}
-                      value={editUserRole}
-                      onChange={(value) => {
-                        if (value === "user" || value === "administrator") {
-                          setEditUserRole(value);
-                        }
-                      }}
-                    />
-                    <TextInput
-                      label="New passcode (optional)"
-                      value={editUserPasscode}
-                      onChange={(event) => {
-                        setEditUserPasscode(event.currentTarget.value);
-                      }}
-                    />
-                    {editUserError !== null ? <Text c="red">{editUserError}</Text> : null}
-                    <Button
-                      onClick={() => {
-                        void handleUpdateUser();
-                      }}
-                      loading={editUserPending}
-                    >
-                      Rename and edit user
-                    </Button>
+                    {usersCreateMode ? (
+                      <Stack gap="xs">
+                        <Title order={5}>Add User</Title>
+                        <TextInput
+                          label="Username"
+                          value={createUserUsername}
+                          onChange={(event) => {
+                            setCreateUserUsername(event.currentTarget.value);
+                          }}
+                        />
+                        <Select
+                          label="Role"
+                          data={[
+                            { value: "user", label: "user" },
+                            { value: "administrator", label: "administrator" },
+                          ]}
+                          value={createUserRole}
+                          onChange={(value) => {
+                            if (value === "user" || value === "administrator") {
+                              setCreateUserRole(value);
+                            }
+                          }}
+                        />
+                        <TextInput
+                          label="Passcode"
+                          value={createUserPasscode}
+                          onChange={(event) => {
+                            setCreateUserPasscode(event.currentTarget.value);
+                          }}
+                        />
+                        {createUserError !== null ? <Text c="red">{createUserError}</Text> : null}
+                        <Group>
+                          <Button
+                            onClick={() => {
+                              void handleCreateUser();
+                            }}
+                            loading={createUserPending}
+                          >
+                            Add new user
+                          </Button>
+                          <Button
+                            variant="default"
+                            onClick={() => {
+                              setUsersCreateMode(false);
+                              setCreateUserUsername("");
+                              setCreateUserPasscode("");
+                              setCreateUserRole("user");
+                              setCreateUserError(null);
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </Group>
+                      </Stack>
+                    ) : editUserId !== null ? (
+                      <Stack gap="xs">
+                        <Title order={5}>
+                          {`Editing: ${
+                            staffUsers.find((user) => user.id === editUserId)?.username ??
+                            editUserId
+                          }`}
+                        </Title>
+                        <TextInput
+                          label="Username"
+                          value={editUserUsername}
+                          onChange={(event) => {
+                            setEditUserUsername(event.currentTarget.value);
+                          }}
+                        />
+                        <Select
+                          label="Role"
+                          data={[
+                            { value: "user", label: "user" },
+                            { value: "administrator", label: "administrator" },
+                          ]}
+                          value={editUserRole}
+                          onChange={(value) => {
+                            if (value === "user" || value === "administrator") {
+                              setEditUserRole(value);
+                            }
+                          }}
+                        />
+                        <TextInput
+                          label="New passcode (optional)"
+                          value={editUserPasscode}
+                          onChange={(event) => {
+                            setEditUserPasscode(event.currentTarget.value);
+                          }}
+                        />
+                        {editUserError !== null ? <Text c="red">{editUserError}</Text> : null}
+                        <Group>
+                          <Button
+                            onClick={() => {
+                              void handleUpdateUser();
+                            }}
+                            loading={editUserPending}
+                          >
+                            Save Changes
+                          </Button>
+                          <Button
+                            variant="default"
+                            onClick={() => {
+                              setEditUserId(null);
+                              setEditUserError(null);
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </Group>
+                      </Stack>
+                    ) : (
+                      <>
+                        <Group>
+                          <Button
+                            variant="default"
+                            onClick={() => {
+                              void loadStaffUsers();
+                            }}
+                            loading={staffUsersLoading}
+                          >
+                            Refresh Users
+                          </Button>
+                          <Button
+                            variant="light"
+                            onClick={() => {
+                              setUsersCreateMode(true);
+                              setCreateUserError(null);
+                            }}
+                          >
+                            Add
+                          </Button>
+                        </Group>
+                        {staffUsersError !== null ? <Text c="red">{staffUsersError}</Text> : null}
+                        {staffUsers.map((user) => (
+                          <Card key={user.id} withBorder radius="md" padding="sm">
+                            <Group justify="space-between">
+                              <Text size="sm">{`${user.username} (${user.role})`}</Text>
+                              <Button
+                                size="xs"
+                                variant="default"
+                                onClick={() => {
+                                  setEditUserId(user.id);
+                                  setEditUserPasscode("");
+                                  setEditUserError(null);
+                                }}
+                              >
+                                Edit
+                              </Button>
+                            </Group>
+                          </Card>
+                        ))}
+                        {staffUsers.length === 0 && !staffUsersLoading ? (
+                          <Text size="sm" c="dimmed">
+                            No users found.
+                          </Text>
+                        ) : null}
+                      </>
+                    )}
                   </Stack>
                 </Card>
               ) : null}

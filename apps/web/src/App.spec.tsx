@@ -79,6 +79,10 @@ const openManagerPanel = async (view: RenderResult, buttonName: string): Promise
   if (view.queryByRole("button", { name: buttonName }) === null) {
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
   }
+  if (view.queryByRole("button", { name: buttonName }) === null) {
+    const landingLinkName = buttonName.replace(/^Open /, "");
+    await userEvent.click(view.getByRole("button", { name: landingLinkName }));
+  }
   await userEvent.click(view.getByRole("button", { name: buttonName }));
 };
 
@@ -1618,6 +1622,7 @@ describe("App person registry", () => {
     await waitFor(() => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
+    await userEvent.click(view.getByRole("button", { name: "Open Adjustments" }));
     await userEvent.click(view.getByRole("button", { name: "Adjust inventory" }));
     await userEvent.click(view.getAllByLabelText("Item")[0]!);
     await userEvent.click(await view.findByRole("option", { name: "Plastic Bottles" }));
@@ -1712,6 +1717,7 @@ describe("App person registry", () => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
 
+    await userEvent.click(view.getByRole("button", { name: "Open Adjustments" }));
     await userEvent.click(view.getByRole("button", { name: "Adjust inventory" }));
 
     // Select item-2 (Cardboard) — only batch-2 should appear in the batch dropdown
@@ -1807,6 +1813,7 @@ describe("App person registry", () => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
 
+    await userEvent.click(view.getByRole("button", { name: "Open Adjustments" }));
     await userEvent.click(view.getByRole("button", { name: "Request inventory adjustment" }));
     await userEvent.type(view.getByLabelText("Quantity"), "1");
     await userEvent.type(view.getByLabelText("Reason"), "damage");
@@ -1907,6 +1914,7 @@ describe("App person registry", () => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
 
+    await userEvent.click(view.getByRole("button", { name: "Open Adjustments" }));
     await userEvent.click(view.getByRole("button", { name: "Request points adjustment" }));
     await userEvent.type(view.getByLabelText("Adjustment Points"), "2.5");
     await userEvent.type(view.getByLabelText("Adjustment Reason"), "manual correction");
@@ -1920,6 +1928,62 @@ describe("App person registry", () => {
     expect(body.personId).toBe("person-1");
     expect(body.deltaPoints).toBe(2.5);
     expect(body.reason).toBe("manual correction");
+  });
+
+  test("adjustments landing shows role-appropriate links and Back returns from a detail view", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/adjustments/requests")) return jsonResponse({ requests: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Open Adjustments" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Adjustments", level: 4 })).toBeInTheDocument();
+    });
+    expect(view.getByRole("button", { name: "Adjust points" })).toBeInTheDocument();
+    expect(view.getByRole("button", { name: "Adjust inventory" })).toBeInTheDocument();
+    expect(
+      view.queryByRole("button", { name: "Request points adjustment" }),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(view.getByRole("button", { name: "Adjust points" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Adjust Points" })).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Back to Adjustments" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Adjustments", level: 4 })).toBeInTheDocument();
+    });
+    expect(view.queryByRole("heading", { name: "Adjust Points" })).not.toBeInTheDocument();
   });
 
   test("sale flow enqueues FIFO-expanded lines, syncs, and refreshes ledger", async () => {
@@ -3210,6 +3274,93 @@ describe("App person registry", () => {
     expect(pushBody.events[0]?.payload.cashTotal).toBe(11);
   });
 
+  test("procurement line collapses to a summary when a new line is added, and Edit re-expands it", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    const capturedPushBodyRef = { value: null as unknown };
+    vi.stubGlobal(
+      "fetch",
+      makeProcurementSyncFetchMock(capturedPushBodyRef, [
+        { id: "item-1", name: "Soap", pointsPrice: 10 },
+      ]),
+    );
+
+    const view = render(
+      <MantineProvider>
+        <App queue={queue} syncStateStore={syncStateStore} />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
+    });
+
+    await userEvent.type(view.getByLabelText("Item Name 1"), "Soap");
+    await userEvent.type(view.getByLabelText("Quantity 1"), "2");
+    await userEvent.type(view.getByLabelText("Procurement Price 1"), "6");
+
+    await userEvent.click(view.getByRole("button", { name: "Add Procurement Line" }));
+
+    await waitFor(() => {
+      expect(view.queryByLabelText("Item Name 1")).not.toBeInTheDocument();
+    });
+    expect(view.getByText("Soap")).toBeInTheDocument();
+    expect(view.getByText(/Cost per unit: 3\.00/)).toBeInTheDocument();
+    expect(view.getByLabelText("Item Name 2")).toBeInTheDocument();
+
+    await userEvent.click(view.getByRole("button", { name: "Edit" }));
+
+    await waitFor(() => {
+      expect(view.getByLabelText("Item Name 1")).toBeInTheDocument();
+    });
+    expect(view.getByLabelText("Item Name 1")).toHaveValue("Soap");
+  });
+
+  test("removing the currently-expanded procurement line expands the previous remaining line", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    const capturedPushBodyRef = { value: null as unknown };
+    vi.stubGlobal(
+      "fetch",
+      makeProcurementSyncFetchMock(capturedPushBodyRef, [
+        { id: "item-1", name: "Soap", pointsPrice: 10 },
+      ]),
+    );
+
+    const view = render(
+      <MantineProvider>
+        <App queue={queue} syncStateStore={syncStateStore} />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await userEvent.click(view.getByRole("button", { name: "Procurement" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Record Procurement" })).toBeInTheDocument();
+    });
+
+    await userEvent.type(view.getByLabelText("Item Name 1"), "Soap");
+    await userEvent.click(view.getByRole("button", { name: "Add Procurement Line" }));
+    await waitFor(() => {
+      expect(view.getByLabelText("Item Name 2")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Remove Procurement Line" }));
+
+    await waitFor(() => {
+      expect(view.getByLabelText("Item Name 1")).toBeInTheDocument();
+    });
+    expect(view.getByLabelText("Item Name 1")).toHaveValue("Soap");
+  });
+
   function makeShopNavFetchMock(
     role: "administrator" | "user",
   ): ReturnType<typeof vi.fn<typeof fetch>> {
@@ -3880,6 +4031,65 @@ describe("App person registry", () => {
     ).not.toBeInTheDocument();
   });
 
+  test("reports landing lists all report types and shows only the selected one until Reports is clicked again", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Reports", level: 4 })).toBeInTheDocument();
+    });
+    expect(view.getByRole("button", { name: "Materials Collected Report" })).toBeInTheDocument();
+    expect(view.getByRole("button", { name: "Cashflow Report" })).toBeInTheDocument();
+    expect(
+      view.queryByRole("heading", { name: "Materials Collected Report" }),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(view.getByRole("button", { name: "Sales Report" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Sales Report" })).toBeInTheDocument();
+    });
+    expect(
+      view.queryByRole("heading", { name: "Materials Collected Report" }),
+    ).not.toBeInTheDocument();
+    expect(view.queryByRole("heading", { name: "Reports", level: 4 })).not.toBeInTheDocument();
+
+    await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Reports", level: 4 })).toBeInTheDocument();
+    });
+    expect(view.queryByRole("heading", { name: "Sales Report" })).not.toBeInTheDocument();
+  });
+
   test("materials report panel loads for manager and runs default request", async () => {
     stubResizeObserver();
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
@@ -3939,6 +4149,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Materials Collected Report" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Materials Collected Report" })).toBeInTheDocument();
@@ -4003,6 +4214,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Materials Collected Report" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Materials Collected Report" })).toBeInTheDocument();
@@ -4070,6 +4282,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Materials Collected Report" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Materials Collected Report" })).toBeInTheDocument();
@@ -4177,6 +4390,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Materials Collected Report" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Materials Collected Report" })).toBeInTheDocument();
@@ -4277,6 +4491,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Points Liability Report" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Points Liability Report" })).toBeInTheDocument();
@@ -4369,6 +4584,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Points Liability Report" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Points Liability Report" })).toBeInTheDocument();
@@ -4480,6 +4696,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Inventory Status Report" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Inventory Status Report" })).toBeInTheDocument();
@@ -4573,6 +4790,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Inventory Status Report" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Inventory Status Report" })).toBeInTheDocument();
@@ -4689,6 +4907,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Inventory Status Change Log" }));
 
     await waitFor(() => {
       expect(
@@ -4819,6 +5038,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Inventory Status Change Log" }));
 
     await waitFor(() => {
       expect(
@@ -4969,6 +5189,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Sales Report" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Sales Report" })).toBeInTheDocument();
@@ -5114,6 +5335,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Sales Report" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Sales Report" })).toBeInTheDocument();
@@ -5284,6 +5506,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Cashflow Report" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Cashflow Report" })).toBeInTheDocument();
@@ -5450,6 +5673,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Cashflow Report" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Cashflow Report" })).toBeInTheDocument();
@@ -5642,6 +5866,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Integrity and Reconciliation" }));
 
     await waitFor(() => {
       expect(
@@ -5829,6 +6054,7 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Reports" }));
+    await userEvent.click(view.getByRole("button", { name: "Cashflow Report" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Cashflow Report" })).toBeInTheDocument();
@@ -7954,5 +8180,140 @@ describe("App person registry", () => {
       expect(view.getByAltText("PET material image")).toBeInTheDocument();
     });
     expect(view.queryByText("No image uploaded")).not.toBeInTheDocument();
+  });
+
+  test("users screen lists staff and adds a new user", async () => {
+    stubResizeObserver();
+    let users: Array<{ id: string; username: string; role: "user" | "administrator" }> = [
+      { id: "user-1", username: "administrator", role: "administrator" },
+    ];
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      if (url.includes("/adjustments/requests")) return jsonResponse({ requests: [] });
+      if (url.includes("/users") && method === "POST") {
+        const created = { id: "user-2", username: "newstaff", role: "user" as const };
+        users = [...users, created];
+        return jsonResponse({ user: created }, 201);
+      }
+      if (url.includes("/users")) return jsonResponse({ users });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Users" }));
+    await waitFor(() => {
+      expect(view.getAllByText("administrator (administrator)").length).toBeGreaterThan(0);
+    });
+    expect(view.queryByRole("button", { name: "Rename and edit user" })).not.toBeInTheDocument();
+
+    await userEvent.click(view.getByRole("button", { name: "Add" }));
+    await userEvent.type(view.getByLabelText("Username"), "newstaff");
+    await userEvent.type(view.getByLabelText("Passcode"), "5678");
+    await userEvent.click(view.getByRole("button", { name: "Add new user" }));
+
+    await waitFor(() => {
+      expect(view.getByText("newstaff (user)")).toBeInTheDocument();
+    });
+  });
+
+  test("users screen edits an existing user's role and passcode inline", async () => {
+    stubResizeObserver();
+    let users: Array<{ id: string; username: string; role: "user" | "administrator" }> = [
+      { id: "user-2", username: "staffmember", role: "user" },
+    ];
+    let capturedUpdateBody: unknown = null;
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      if (url.includes("/adjustments/requests")) return jsonResponse({ requests: [] });
+      if (url.includes("/users/user-2") && method === "PATCH") {
+        if (typeof init?.body === "string") {
+          capturedUpdateBody = JSON.parse(init.body) as unknown;
+        }
+        const updated = { id: "user-2", username: "renamedstaff", role: "administrator" as const };
+        users = [updated];
+        return jsonResponse({ user: updated });
+      }
+      if (url.includes("/users")) return jsonResponse({ users });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Users" }));
+    await waitFor(() => {
+      expect(view.getByText("staffmember (user)")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Edit" }));
+    await waitFor(() => {
+      expect(view.getByText("Editing: staffmember")).toBeInTheDocument();
+    });
+
+    await userEvent.clear(view.getByLabelText("Username"));
+    await userEvent.type(view.getByLabelText("Username"), "renamedstaff");
+    await userEvent.click(view.getByRole("textbox", { name: "Role" }));
+    await userEvent.click(view.getByRole("option", { name: "administrator" }));
+    await userEvent.type(view.getByLabelText("New passcode (optional)"), "newpass1");
+    await userEvent.click(view.getByRole("button", { name: "Save Changes" }));
+
+    await waitFor(() => {
+      expect(view.getByText("renamedstaff (administrator)")).toBeInTheDocument();
+    });
+    expect(capturedUpdateBody).toEqual({
+      username: "renamedstaff",
+      role: "administrator",
+      passcode: "newpass1",
+    });
   });
 });
