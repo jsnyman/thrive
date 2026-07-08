@@ -50,7 +50,44 @@ export const createCollectionPointsClient = (options?: {
     return body["collectionPoints"].map(parseCollectionPoint);
   };
 
+  const createCollectionPoint = async (input: { name: string }): Promise<CollectionPointRecord> => {
+    const response = await apiClient.request({
+      method: "POST",
+      path: "/collection-points",
+      body: input,
+    });
+    if (!response.ok) {
+      throw new Error(`Collection point create failed with status ${String(response.status)}`);
+    }
+    const body = await apiClient.readJson<unknown>(response, "collection point create");
+    if (!isRecord(body) || !isRecord(body["collectionPoint"])) {
+      throw new Error("Invalid collection point create response");
+    }
+    return parseCollectionPoint(body["collectionPoint"]);
+  };
+
+  const updateCollectionPoint = async (
+    collectionPointId: string,
+    input: { updates: { name?: string; isActive?: boolean } },
+  ): Promise<CollectionPointRecord> => {
+    const response = await apiClient.request({
+      method: "PATCH",
+      path: `/collection-points/${collectionPointId}`,
+      body: input,
+    });
+    if (!response.ok) {
+      throw new Error(`Collection point update failed with status ${String(response.status)}`);
+    }
+    const body = await apiClient.readJson<unknown>(response, "collection point update");
+    if (!isRecord(body) || !isRecord(body["collectionPoint"])) {
+      throw new Error("Invalid collection point update response");
+    }
+    return parseCollectionPoint(body["collectionPoint"]);
+  };
+
   return {
     listCollectionPoints,
+    createCollectionPoint,
+    updateCollectionPoint,
   };
 };

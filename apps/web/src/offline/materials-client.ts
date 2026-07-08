@@ -100,6 +100,25 @@ export const createMaterialsClient = (options?: { fetchFn?: typeof fetch; baseUr
     return body["materials"].map(parseMaterial);
   };
 
+  const createMaterial = async (input: {
+    name: string;
+    pointsPerKg: number;
+  }): Promise<MaterialRecord> => {
+    const response = await apiClient.request({
+      method: "POST",
+      path: "/materials",
+      body: input,
+    });
+    if (!response.ok) {
+      throw new Error(`Material create failed with status ${String(response.status)}`);
+    }
+    const body = await apiClient.readJson<unknown>(response, "material create");
+    if (!isRecord(body) || !isRecord(body["material"])) {
+      throw new Error("Invalid material create response");
+    }
+    return parseMaterial(body["material"]);
+  };
+
   const uploadMaterialImage = async (
     materialTypeId: string,
     input: { contentType: string; fileName?: string | null; dataBase64: string },
@@ -133,6 +152,7 @@ export const createMaterialsClient = (options?: { fetchFn?: typeof fetch; baseUr
 
   return {
     listMaterials,
+    createMaterial,
     uploadMaterialImage,
     readMaterialImage,
   };

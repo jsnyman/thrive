@@ -6,6 +6,7 @@ import {
   Card,
   Container,
   Divider,
+  FileInput,
   Group,
   Modal,
   Select,
@@ -177,7 +178,9 @@ type NavViewKey =
   | "users-list"
   | "users-create"
   | "users-edit"
-  | "items-manage";
+  | "items-manage"
+  | "collection-points-manage"
+  | "materials-manage";
 
 const inventoryStatuses: InventoryStatus[] = [
   "storage",
@@ -642,6 +645,25 @@ export const App = ({
   const [itemEditSku, setItemEditSku] = useState<string>("");
   const [itemEditError, setItemEditError] = useState<string | null>(null);
   const [itemEditPending, setItemEditPending] = useState<boolean>(false);
+  const [collectionPointCreateMode, setCollectionPointCreateMode] = useState<boolean>(false);
+  const [collectionPointCreateName, setCollectionPointCreateName] = useState<string>("");
+  const [collectionPointCreatePending, setCollectionPointCreatePending] = useState<boolean>(false);
+  const [collectionPointCreateError, setCollectionPointCreateError] = useState<string | null>(null);
+  const [collectionPointEditingId, setCollectionPointEditingId] = useState<string | null>(null);
+  const [collectionPointEditName, setCollectionPointEditName] = useState<string>("");
+  const [collectionPointEditIsActive, setCollectionPointEditIsActive] = useState<boolean>(true);
+  const [collectionPointEditPending, setCollectionPointEditPending] = useState<boolean>(false);
+  const [collectionPointEditError, setCollectionPointEditError] = useState<string | null>(null);
+  const [materialCreateMode, setMaterialCreateMode] = useState<boolean>(false);
+  const [materialCreateName, setMaterialCreateName] = useState<string>("");
+  const [materialCreatePointsPerKg, setMaterialCreatePointsPerKg] = useState<string>("");
+  const [materialCreatePending, setMaterialCreatePending] = useState<boolean>(false);
+  const [materialCreateError, setMaterialCreateError] = useState<string | null>(null);
+  const [materialImageUploadingId, setMaterialImageUploadingId] = useState<string | null>(null);
+  const [materialImageUploadError, setMaterialImageUploadError] = useState<string | null>(null);
+  const [materialManageImageSrcById, setMaterialManageImageSrcById] = useState<
+    Record<string, string>
+  >({});
 
   const [createName, setCreateName] = useState<string>("");
   const [createSurname, setCreateSurname] = useState<string>("");
@@ -1063,6 +1085,59 @@ export const App = ({
       }
     };
   }, [brokenMaterialImageIds, materialsClient, selectedIntakeMaterial]);
+
+  useEffect(() => {
+    if (activeView !== "materials-manage") {
+      return;
+    }
+    let cancelled = false;
+    const objectUrls: string[] = [];
+
+    const loadMaterialImages = async (): Promise<void> => {
+      const entries = await Promise.all(
+        materials
+          .filter(
+            (material) =>
+              material.imageUpdatedAt !== null &&
+              material.imageUpdatedAt !== undefined &&
+              !brokenMaterialImageIds.includes(material.id),
+          )
+          .map(async (material): Promise<readonly [string, string] | null> => {
+            try {
+              const image = await materialsClient.readMaterialImage(material.id);
+              return [material.id, URL.createObjectURL(image.blob)] as const;
+            } catch {
+              return null;
+            }
+          }),
+      );
+      if (cancelled) {
+        entries.forEach((entry) => {
+          if (entry !== null) {
+            URL.revokeObjectURL(entry[1]);
+          }
+        });
+        return;
+      }
+      const nextMap: Record<string, string> = {};
+      entries.forEach((entry) => {
+        if (entry !== null) {
+          nextMap[entry[0]] = entry[1];
+          objectUrls.push(entry[1]);
+        }
+      });
+      setMaterialManageImageSrcById(nextMap);
+    };
+
+    void loadMaterialImages();
+
+    return () => {
+      cancelled = true;
+      objectUrls.forEach((url) => {
+        URL.revokeObjectURL(url);
+      });
+    };
+  }, [activeView, brokenMaterialImageIds, materials, materialsClient]);
 
   useEffect(() => {
     if (!intakeSuccess) return;
@@ -2341,6 +2416,132 @@ export const App = ({
     }
   };
 
+  const handleCreateCollectionPoint = async (): Promise<void> => {
+    if (!canManageInventory) {
+      setCollectionPointCreateError("You do not have permission to manage collection points");
+      return;
+    }
+    if (collectionPointCreateName.trim().length === 0) {
+      setCollectionPointCreateError("Name is required");
+      return;
+    }
+    setCollectionPointCreatePending(true);
+    setCollectionPointCreateError(null);
+    try {
+      await collectionPointsClient.createCollectionPoint({
+        name: collectionPointCreateName.trim(),
+      });
+      await loadCollectionPoints();
+      setCollectionPointCreateName("");
+      setCollectionPointCreateMode(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setCollectionPointCreateError(message);
+    } finally {
+      setCollectionPointCreatePending(false);
+    }
+  };
+
+  const handleSaveCollectionPointEdit = async (): Promise<void> => {
+    if (!canManageInventory) {
+      setCollectionPointEditError("You do not have permission to manage collection points");
+      return;
+    }
+    if (collectionPointEditingId === null) {
+      setCollectionPointEditError("No collection point selected");
+      return;
+    }
+    if (collectionPointEditName.trim().length === 0) {
+      setCollectionPointEditError("Name is required");
+      return;
+    }
+    setCollectionPointEditPending(true);
+    setCollectionPointEditError(null);
+    try {
+      await collectionPointsClient.updateCollectionPoint(collectionPointEditingId, {
+        updates: {
+          name: collectionPointEditName.trim(),
+          isActive: collectionPointEditIsActive,
+        },
+      });
+      await loadCollectionPoints();
+      setCollectionPointEditingId(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setCollectionPointEditError(message);
+    } finally {
+      setCollectionPointEditPending(false);
+    }
+  };
+
+  const handleCreateMaterial = async (): Promise<void> => {
+    if (!canManageInventory) {
+      setMaterialCreateError("You do not have permission to manage materials");
+      return;
+    }
+    if (materialCreateName.trim().length === 0) {
+      setMaterialCreateError("Name is required");
+      return;
+    }
+    const pointsPerKg = Number.parseFloat(materialCreatePointsPerKg);
+    if (!Number.isFinite(pointsPerKg) || pointsPerKg < 0) {
+      setMaterialCreateError("Points per kg must be 0 or greater");
+      return;
+    }
+    setMaterialCreatePending(true);
+    setMaterialCreateError(null);
+    try {
+      await materialsClient.createMaterial({ name: materialCreateName.trim(), pointsPerKg });
+      await loadMaterials();
+      setMaterialCreateName("");
+      setMaterialCreatePointsPerKg("");
+      setMaterialCreateMode(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setMaterialCreateError(message);
+    } finally {
+      setMaterialCreatePending(false);
+    }
+  };
+
+  const readFileAsBase64 = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result;
+        if (typeof result !== "string") {
+          reject(new Error("Failed to read file"));
+          return;
+        }
+        const commaIndex = result.indexOf(",");
+        resolve(commaIndex === -1 ? result : result.slice(commaIndex + 1));
+      };
+      reader.onerror = () => {
+        reject(new Error("Failed to read file"));
+      };
+      reader.readAsDataURL(file);
+    });
+
+  const handleUploadMaterialImage = async (materialTypeId: string, file: File): Promise<void> => {
+    setMaterialImageUploadingId(materialTypeId);
+    setMaterialImageUploadError(null);
+    try {
+      const dataBase64 = await readFileAsBase64(file);
+      await materialsClient.uploadMaterialImage(materialTypeId, {
+        contentType: file.type.length > 0 ? file.type : "application/octet-stream",
+        fileName: file.name,
+        dataBase64,
+      });
+      setBrokenMaterialImageIds((previous) => previous.filter((id) => id !== materialTypeId));
+      await loadMaterials();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setMaterialImageUploadError(message);
+    } finally {
+      setMaterialImageUploadingId(null);
+    }
+  };
+
   const handleRecordProcurement = async (): Promise<void> => {
     if (!canRecordProcurement) {
       setProcurementError("You do not have permission to record procurement");
@@ -3172,6 +3373,26 @@ export const App = ({
               >
                 Manage Items
               </Button>
+              <Button
+                className="navActionButton"
+                variant={activeView === "collection-points-manage" ? "filled" : "light"}
+                onClick={() => {
+                  setActiveView("collection-points-manage");
+                  void loadCollectionPoints();
+                }}
+              >
+                Collection Points
+              </Button>
+              <Button
+                className="navActionButton"
+                variant={activeView === "materials-manage" ? "filled" : "light"}
+                onClick={() => {
+                  setActiveView("materials-manage");
+                  void loadMaterials();
+                }}
+              >
+                Collected Materials
+              </Button>
             </Stack>
           ) : null}
           <Stack className="navGroup" gap="xs">
@@ -3315,13 +3536,17 @@ export const App = ({
                       ? "Administration"
                       : activeView === "items-manage"
                         ? "Manage Items"
-                        : activeView.startsWith("adjustments-")
-                          ? "Adjustments"
-                          : activeView === "reporting"
-                            ? "Reports"
-                            : activeView.startsWith("users-")
-                              ? "User Management"
-                              : "Person Registry"}
+                        : activeView === "collection-points-manage"
+                          ? "Collection Points"
+                          : activeView === "materials-manage"
+                            ? "Collected Materials"
+                            : activeView.startsWith("adjustments-")
+                              ? "Adjustments"
+                              : activeView === "reporting"
+                                ? "Reports"
+                                : activeView.startsWith("users-")
+                                  ? "User Management"
+                                  : "Person Registry"}
               </Title>
               {isInSessionSection ? (
                 <Group gap="xs">
@@ -5862,6 +6087,264 @@ export const App = ({
                         </Stack>
                       </Card>
                     ) : null}
+                  </Stack>
+                </Card>
+              ) : null}
+
+              {activeView === "collection-points-manage" && canManageInventory ? (
+                <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                  <Stack gap="sm">
+                    <Title order={4}>Collection Points</Title>
+                    {collectionPointCreateMode ? (
+                      <Stack gap="xs">
+                        <Title order={5}>New Collection Point</Title>
+                        <TextInput
+                          label="Name"
+                          value={collectionPointCreateName}
+                          onChange={(event) => {
+                            setCollectionPointCreateName(event.currentTarget.value);
+                          }}
+                        />
+                        {collectionPointCreateError !== null ? (
+                          <Text c="red">{collectionPointCreateError}</Text>
+                        ) : null}
+                        <Group>
+                          <Button
+                            loading={collectionPointCreatePending}
+                            onClick={() => {
+                              void handleCreateCollectionPoint();
+                            }}
+                          >
+                            Save Collection Point
+                          </Button>
+                          <Button
+                            variant="default"
+                            onClick={() => {
+                              setCollectionPointCreateMode(false);
+                              setCollectionPointCreateName("");
+                              setCollectionPointCreateError(null);
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </Group>
+                      </Stack>
+                    ) : collectionPointEditingId === null ? (
+                      <>
+                        <Button
+                          variant="light"
+                          size="xs"
+                          onClick={() => {
+                            setCollectionPointCreateMode(true);
+                            setCollectionPointCreateError(null);
+                          }}
+                        >
+                          New Collection Point
+                        </Button>
+                        {[...collectionPoints]
+                          .sort((a, b) => a.name.localeCompare(b.name))
+                          .map((point) => (
+                            <Card key={point.id} withBorder radius="md" padding="sm">
+                              <Group justify="space-between">
+                                <Stack gap={2}>
+                                  <Text size="sm" fw={500}>
+                                    {point.name}
+                                  </Text>
+                                  <Badge color={point.isActive ? "green" : "gray"}>
+                                    {point.isActive ? "Active" : "Inactive"}
+                                  </Badge>
+                                </Stack>
+                                <Button
+                                  size="xs"
+                                  variant="default"
+                                  onClick={() => {
+                                    setCollectionPointEditingId(point.id);
+                                    setCollectionPointEditName(point.name);
+                                    setCollectionPointEditIsActive(point.isActive);
+                                    setCollectionPointEditError(null);
+                                  }}
+                                >
+                                  Edit
+                                </Button>
+                              </Group>
+                            </Card>
+                          ))}
+                        {collectionPoints.length === 0 ? (
+                          <Text size="sm" c="dimmed">
+                            No collection points found.
+                          </Text>
+                        ) : null}
+                      </>
+                    ) : (
+                      <Stack gap="xs">
+                        <Title order={5}>
+                          {`Editing: ${
+                            collectionPoints.find((point) => point.id === collectionPointEditingId)
+                              ?.name ?? collectionPointEditingId
+                          }`}
+                        </Title>
+                        <TextInput
+                          label="Name"
+                          value={collectionPointEditName}
+                          onChange={(event) => {
+                            setCollectionPointEditName(event.currentTarget.value);
+                          }}
+                        />
+                        <Select
+                          label="Status"
+                          data={[
+                            { value: "active", label: "Active" },
+                            { value: "inactive", label: "Inactive" },
+                          ]}
+                          value={collectionPointEditIsActive ? "active" : "inactive"}
+                          onChange={(value) => {
+                            setCollectionPointEditIsActive(value === "active");
+                          }}
+                        />
+                        {collectionPointEditError !== null ? (
+                          <Text c="red">{collectionPointEditError}</Text>
+                        ) : null}
+                        <Group>
+                          <Button
+                            loading={collectionPointEditPending}
+                            onClick={() => {
+                              void handleSaveCollectionPointEdit();
+                            }}
+                          >
+                            Save Changes
+                          </Button>
+                          <Button
+                            variant="default"
+                            onClick={() => {
+                              setCollectionPointEditingId(null);
+                              setCollectionPointEditError(null);
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </Group>
+                      </Stack>
+                    )}
+                  </Stack>
+                </Card>
+              ) : null}
+
+              {activeView === "materials-manage" && canManageInventory ? (
+                <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
+                  <Stack gap="sm">
+                    <Title order={4}>Collected Materials</Title>
+                    {materialsError !== null ? <Text c="red">{materialsError}</Text> : null}
+                    {materialCreateMode ? (
+                      <Stack gap="xs">
+                        <Title order={5}>New Material</Title>
+                        <TextInput
+                          label="Name"
+                          value={materialCreateName}
+                          onChange={(event) => {
+                            setMaterialCreateName(event.currentTarget.value);
+                          }}
+                        />
+                        <TextInput
+                          label="Points per kg"
+                          value={materialCreatePointsPerKg}
+                          onChange={(event) => {
+                            setMaterialCreatePointsPerKg(event.currentTarget.value);
+                          }}
+                        />
+                        {materialCreateError !== null ? (
+                          <Text c="red">{materialCreateError}</Text>
+                        ) : null}
+                        <Group>
+                          <Button
+                            loading={materialCreatePending}
+                            onClick={() => {
+                              void handleCreateMaterial();
+                            }}
+                          >
+                            Save Material
+                          </Button>
+                          <Button
+                            variant="default"
+                            onClick={() => {
+                              setMaterialCreateMode(false);
+                              setMaterialCreateName("");
+                              setMaterialCreatePointsPerKg("");
+                              setMaterialCreateError(null);
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </Group>
+                      </Stack>
+                    ) : (
+                      <>
+                        <Button
+                          variant="light"
+                          size="xs"
+                          onClick={() => {
+                            setMaterialCreateMode(true);
+                            setMaterialCreateError(null);
+                          }}
+                        >
+                          New Material
+                        </Button>
+                        {materialImageUploadError !== null ? (
+                          <Text c="red">{materialImageUploadError}</Text>
+                        ) : null}
+                        {materials.map((material) => (
+                          <Card key={material.id} withBorder radius="md" padding="sm">
+                            <Stack gap="xs">
+                              <Text size="sm" fw={500}>
+                                {material.name}
+                              </Text>
+                              <Text size="xs" c="dimmed">
+                                {`${formatPointValue(material.pointsPerKg)} pts/kg`}
+                              </Text>
+                              {materialManageImageSrcById[material.id] !== undefined ? (
+                                <img
+                                  alt={`${material.name} material image`}
+                                  src={materialManageImageSrcById[material.id]}
+                                  style={{
+                                    width: "100%",
+                                    maxWidth: "160px",
+                                    height: "120px",
+                                    objectFit: "cover",
+                                    borderRadius: "8px",
+                                  }}
+                                  onError={() => {
+                                    setBrokenMaterialImageIds((previous) =>
+                                      previous.includes(material.id)
+                                        ? previous
+                                        : [...previous, material.id],
+                                    );
+                                  }}
+                                />
+                              ) : (
+                                <Text size="xs" c="dimmed">
+                                  No image uploaded
+                                </Text>
+                              )}
+                              <FileInput
+                                label="Upload image"
+                                placeholder="Choose file"
+                                accept="image/*"
+                                disabled={materialImageUploadingId === material.id}
+                                onChange={(file) => {
+                                  if (file !== null) {
+                                    void handleUploadMaterialImage(material.id, file);
+                                  }
+                                }}
+                              />
+                            </Stack>
+                          </Card>
+                        ))}
+                        {materials.length === 0 && !materialsLoading ? (
+                          <Text size="sm" c="dimmed">
+                            No materials found.
+                          </Text>
+                        ) : null}
+                      </>
+                    )}
                   </Stack>
                 </Card>
               ) : null}

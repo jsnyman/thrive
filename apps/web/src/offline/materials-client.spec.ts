@@ -63,6 +63,34 @@ describe("createMaterialsClient", () => {
     expect(fetchFn.mock.calls[0]?.[0]).toBe("/api/materials");
   });
 
+  test("creates a material", async () => {
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        jsonResponse({ material: { id: "mat-2", name: "Glass", pointsPerKg: 2.1 } }, 201),
+      );
+    const client = createMaterialsClient({ fetchFn, baseUrl: "/api" });
+
+    const created = await client.createMaterial({ name: "Glass", pointsPerKg: 2.1 });
+
+    expect(created).toEqual({ id: "mat-2", name: "Glass", pointsPerKg: 2.1, imageUpdatedAt: null });
+    expect(fetchFn.mock.calls[0]?.[0]).toBe("/api/materials");
+    expect(fetchFn.mock.calls[0]?.[1]).toMatchObject({ method: "POST" });
+    expect(JSON.parse(String(fetchFn.mock.calls[0]?.[1]?.body))).toEqual({
+      name: "Glass",
+      pointsPerKg: 2.1,
+    });
+  });
+
+  test("throws a deterministic error when creating a material fails", async () => {
+    const fetchFn = vi.fn<typeof fetch>().mockResolvedValueOnce(jsonResponse({}, 400));
+    const client = createMaterialsClient({ fetchFn });
+
+    await expect(client.createMaterial({ name: "", pointsPerKg: 1 })).rejects.toThrow(
+      "Material create failed with status 400",
+    );
+  });
+
   test("uploads a material image when online", async () => {
     Object.defineProperty(globalThis.navigator, "onLine", {
       configurable: true,

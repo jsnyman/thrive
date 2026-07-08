@@ -7655,4 +7655,304 @@ describe("App person registry", () => {
     });
     expect(adjustmentAttempts).toBe(2);
   });
+
+  test("collection points admin lists points alphabetically and creates a new one", async () => {
+    stubResizeObserver();
+    let collectionPoints = [
+      { id: "cp-2", name: "Zebra Point", isActive: true },
+      { id: "cp-1", name: "Alpha Point", isActive: false },
+    ];
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points") && method === "POST") {
+        const created = { id: "cp-3", name: "New Point", isActive: true };
+        collectionPoints = [...collectionPoints, created];
+        return jsonResponse({ collectionPoint: created }, 201);
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({ collectionPoints });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Collection Points" }));
+    await waitFor(() => {
+      expect(view.getByText("Alpha Point")).toBeInTheDocument();
+    });
+    expect(view.getByText("Zebra Point")).toBeInTheDocument();
+    expect(view.getByText("Inactive")).toBeInTheDocument();
+
+    const names = view
+      .getAllByText(/Point$/)
+      .map((element) => element.textContent)
+      .filter((text): text is string => text !== null);
+    expect(names.indexOf("Alpha Point")).toBeLessThan(names.indexOf("Zebra Point"));
+
+    await userEvent.click(view.getByRole("button", { name: "New Collection Point" }));
+    await userEvent.type(view.getByLabelText("Name"), "New Point");
+    await userEvent.click(view.getByRole("button", { name: "Save Collection Point" }));
+
+    await waitFor(() => {
+      expect(view.getByText("New Point")).toBeInTheDocument();
+    });
+  });
+
+  test("collection points admin edits a point's name and active status", async () => {
+    stubResizeObserver();
+    let collectionPoints = [{ id: "cp-1", name: "Old Name", isActive: true }];
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points/cp-1") && method === "PATCH") {
+        collectionPoints = [{ id: "cp-1", name: "New Name", isActive: false }];
+        return jsonResponse({ collectionPoint: collectionPoints[0] });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({ collectionPoints });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Collection Points" }));
+    await waitFor(() => {
+      expect(view.getByText("Old Name")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Edit" }));
+    await userEvent.clear(view.getByLabelText("Name"));
+    await userEvent.type(view.getByLabelText("Name"), "New Name");
+    await userEvent.click(view.getByRole("textbox", { name: "Status" }));
+    await userEvent.click(view.getByRole("option", { name: "Inactive" }));
+    await userEvent.click(view.getByRole("button", { name: "Save Changes" }));
+
+    await waitFor(() => {
+      expect(view.getByText("New Name")).toBeInTheDocument();
+    });
+    expect(view.getByText("Inactive")).toBeInTheDocument();
+  });
+
+  test("collection points and collected materials admin nav are hidden for non-administrator users", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-2", username: "staff", role: "user" },
+          token: "token-2",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "staff");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+    expect(view.queryByRole("button", { name: "Collection Points" })).not.toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "Collected Materials" })).not.toBeInTheDocument();
+  });
+
+  test("collected materials admin lists materials and creates a new one", async () => {
+    stubResizeObserver();
+    let materials = [{ id: "mat-1", name: "PET", pointsPerKg: 3, imageUpdatedAt: null }];
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials") && method === "POST") {
+        const created = { id: "mat-2", name: "Glass", pointsPerKg: 2, imageUpdatedAt: null };
+        materials = [...materials, created];
+        return jsonResponse({ material: created }, 201);
+      }
+      if (url.includes("/materials")) return jsonResponse({ materials });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Collected Materials" }));
+    await waitFor(() => {
+      expect(view.getByText("PET")).toBeInTheDocument();
+    });
+    expect(view.getByText("No image uploaded")).toBeInTheDocument();
+
+    await userEvent.click(view.getByRole("button", { name: "New Material" }));
+    await userEvent.type(view.getByLabelText("Name"), "Glass");
+    await userEvent.type(view.getByLabelText("Points per kg"), "2");
+    await userEvent.click(view.getByRole("button", { name: "Save Material" }));
+
+    await waitFor(() => {
+      expect(view.getByText("Glass")).toBeInTheDocument();
+    });
+  });
+
+  test("collected materials admin uploads an image for a material", async () => {
+    stubResizeObserver();
+    let materials: Array<{
+      id: string;
+      name: string;
+      pointsPerKg: number;
+      imageUpdatedAt: string | null;
+    }> = [{ id: "mat-1", name: "PET", pointsPerKg: 3, imageUpdatedAt: null }];
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials/mat-1/image") && method === "PUT") {
+        materials = [
+          { id: "mat-1", name: "PET", pointsPerKg: 3, imageUpdatedAt: "2026-07-08T10:00:00.000Z" },
+        ];
+        return jsonResponse(
+          {
+            materialTypeId: "mat-1",
+            contentType: "image/png",
+            fileName: "pet.png",
+            fileSizeBytes: 4,
+            updatedAt: "2026-07-08T10:00:00.000Z",
+          },
+          201,
+        );
+      }
+      if (url.includes("/materials/mat-1/image")) {
+        return new Response("fake-image-bytes", {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        });
+      }
+      if (url.includes("/materials")) return jsonResponse({ materials });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Collected Materials" }));
+    await waitFor(() => {
+      expect(view.getByText("PET")).toBeInTheDocument();
+    });
+
+    const file = new File(["fake-image-bytes"], "pet.png", { type: "image/png" });
+    const fileInput = view.container.querySelector<HTMLInputElement>('input[type="file"]');
+    if (fileInput === null) {
+      throw new Error("Expected a file input for image upload");
+    }
+    await userEvent.upload(fileInput, file);
+
+    await waitFor(() => {
+      expect(view.getByAltText("PET material image")).toBeInTheDocument();
+    });
+    expect(view.queryByText("No image uploaded")).not.toBeInTheDocument();
+  });
 });
