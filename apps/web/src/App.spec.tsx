@@ -200,7 +200,8 @@ describe("App person registry", () => {
     expect(view.queryByText("Navigation")).not.toBeInTheDocument();
     expect(view.getByText("Person")).toBeInTheDocument();
     expect(view.getByText("Collection")).toBeInTheDocument();
-    expect(view.getByText("Shop")).toBeInTheDocument();
+    expect(view.getByText("Sales")).toBeInTheDocument();
+    expect(view.getByText("Administration")).toBeInTheDocument();
     expect(view.getByText("Adjustments")).toBeInTheDocument();
     expect(view.getByRole("button", { name: "Sync Now" })).toBeInTheDocument();
     expect(view.getByRole("button", { name: "Logout" })).toBeInTheDocument();
@@ -764,6 +765,11 @@ describe("App person registry", () => {
           token: "token-1",
         });
       }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
       if (url.includes("/people")) {
         return jsonResponse({
           people: [
@@ -884,6 +890,10 @@ describe("App person registry", () => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
     await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
     await userEvent.type(view.getByLabelText("Weight Kg 1"), "2.9");
     await userEvent.click(view.getByRole("button", { name: "Add Line" }));
     await userEvent.click(view.getByRole("textbox", { name: "Material 2" }));
@@ -926,6 +936,11 @@ describe("App person registry", () => {
         return jsonResponse({
           user: { id: "user-1", username: "administrator", role: "administrator" },
           token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
         });
       }
       if (url.includes("/people")) {
@@ -982,6 +997,10 @@ describe("App person registry", () => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
     await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
 
     await userEvent.type(view.getByLabelText("Weight Kg 1"), "abc");
     await userEvent.click(view.getByRole("button", { name: "Record Intake" }));
@@ -1011,6 +1030,10 @@ describe("App person registry", () => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
     await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
 
     // Both lines default to the first material (PET) — same material, two bags
     await userEvent.type(view.getByLabelText("Weight Kg 1"), "1.5");
@@ -1042,6 +1065,11 @@ describe("App person registry", () => {
             role: "administrator",
           },
           token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
         });
       }
       if (url.includes("/people")) {
@@ -1076,6 +1104,10 @@ describe("App person registry", () => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
     await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
 
     await userEvent.click(view.getByRole("button", { name: "Record Intake" }));
     await waitFor(() => {
@@ -1100,6 +1132,11 @@ describe("App person registry", () => {
             role: "administrator",
           },
           token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
         });
       }
       if (url.includes("/people")) {
@@ -1169,6 +1206,10 @@ describe("App person registry", () => {
       expect(view.getByText("Person Registry")).toBeInTheDocument();
     });
     await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
 
     await userEvent.click(view.getByRole("button", { name: "Remove Line" }));
     await userEvent.click(view.getByRole("button", { name: "Record Intake" }));
@@ -1193,6 +1234,11 @@ describe("App person registry", () => {
             role: "administrator",
           },
           token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
         });
       }
       if (url.includes("/people")) {
@@ -1257,6 +1303,10 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
 
     await waitFor(() => {
       expect(view.getByText("Balance: 12.0")).toBeInTheDocument();
@@ -1681,6 +1731,11 @@ describe("App person registry", () => {
           token: "token-1",
         });
       }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
       if (url.includes("/people")) {
         return jsonResponse({
           people: [
@@ -1804,6 +1859,10 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Record Sale" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Sale" })).toBeInTheDocument();
@@ -1855,6 +1914,11 @@ describe("App person registry", () => {
             role: "administrator",
           },
           token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
         });
       }
       if (url.includes("/people")) {
@@ -1928,6 +1992,10 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Passcode"), "1234");
     await userEvent.click(view.getByRole("button", { name: "Sign in" }));
     await userEvent.click(view.getByRole("button", { name: "Record Sale" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Sale" })).toBeInTheDocument();
@@ -2934,6 +3002,11 @@ describe("App person registry", () => {
           token: "token-1",
         });
       }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
       if (url.includes("/people")) return jsonResponse({ people: [] });
       if (url.includes("/materials")) return jsonResponse({ materials: [] });
       if (url.includes("/items")) return jsonResponse({ items: [] });
@@ -2984,6 +3057,7 @@ describe("App person registry", () => {
     });
 
     expect(view.getByRole("button", { name: "Record Sale" })).toBeInTheDocument();
+    expect(view.queryByText("Administration")).not.toBeInTheDocument();
     expect(view.queryByRole("button", { name: "Procurement" })).not.toBeInTheDocument();
     expect(view.queryByRole("button", { name: "Record Expense" })).not.toBeInTheDocument();
   });
@@ -3006,6 +3080,10 @@ describe("App person registry", () => {
     });
 
     await userEvent.click(view.getByRole("button", { name: "Record Sale" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Sale" })).toBeInTheDocument();
@@ -3064,6 +3142,208 @@ describe("App person registry", () => {
     });
     expect(view.queryByRole("heading", { name: "Record Sale" })).not.toBeInTheDocument();
     expect(view.queryByRole("heading", { name: "Record Procurement" })).not.toBeInTheDocument();
+  });
+
+  test("re-entering the same locked section does not re-prompt for a collection point", async () => {
+    stubResizeObserver();
+    vi.stubGlobal("fetch", makeShopNavFetchMock("administrator"));
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
+    await waitFor(() => {
+      expect(view.getByText("Collection point: Heuwelkroon parkie")).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(view.queryByText("Select collection point")).not.toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+
+    expect(view.queryByText("Select collection point")).not.toBeInTheDocument();
+    expect(view.getByText("Collection point: Heuwelkroon parkie")).toBeInTheDocument();
+  });
+
+  test("switching from Collection to Sales starts a fresh section session prompt", async () => {
+    stubResizeObserver();
+    vi.stubGlobal("fetch", makeShopNavFetchMock("administrator"));
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
+
+    await userEvent.click(view.getByRole("button", { name: "Record Sale" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
+
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Record Sale" })).toBeInTheDocument();
+    });
+  });
+
+  test("exiting a section clears the locked collection point and returns to the main registry view", async () => {
+    stubResizeObserver();
+    vi.stubGlobal("fetch", makeShopNavFetchMock("administrator"));
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
+    await waitFor(() => {
+      expect(view.getByText("Collection point: Heuwelkroon parkie")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Exit to main menu" }));
+
+    expect(view.queryByText(/Collection point:/)).not.toBeInTheDocument();
+
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+  });
+
+  test("collection point prompt excludes inactive collection points", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [
+            { id: "cp-1", name: "Heuwelkroon parkie", isActive: true },
+            { id: "cp-2", name: "Old Village Point", isActive: false },
+          ],
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+
+    expect(view.getByRole("button", { name: "Heuwelkroon parkie" })).toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "Old Village Point" })).not.toBeInTheDocument();
+  });
+
+  test("blocks Collection/Sales section entry when collection points cannot be refreshed", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({ error: "SERVICE_UNAVAILABLE" }, 500);
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Log material collection" }));
+
+    await waitFor(() => {
+      expect(
+        view.getByText(/Collection points could not be refreshed\. Section entry is blocked/),
+      ).toBeInTheDocument();
+    });
+    expect(view.queryByText("Select collection point")).not.toBeInTheDocument();
+    expect(view.queryByRole("heading", { name: "Record Intake" })).not.toBeInTheDocument();
   });
 
   test("procurement panel is hidden for non-administrator", async () => {

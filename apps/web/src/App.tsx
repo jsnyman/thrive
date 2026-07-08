@@ -28,6 +28,10 @@ import {
 import type { EventQueue } from "./offline/event-queue";
 import { createAuthClient, type AuthUser } from "./offline/auth-client";
 import {
+  createCollectionPointsClient,
+  type CollectionPointRecord,
+} from "./offline/collection-points-client";
+import {
   createInventoryClient,
   type InventoryBatchState,
   type InventoryStatus,
@@ -578,6 +582,7 @@ export const App = ({
   const authClient = useMemo(() => createAuthClient(), []);
   const peopleClient = useMemo(() => createPeopleClient(), []);
   const materialsClient = useMemo(() => createMaterialsClient(), []);
+  const collectionPointsClient = useMemo(() => createCollectionPointsClient(), []);
   const itemsClient = useMemo(() => createItemsClient(), []);
   const inventoryClient = useMemo(() => createInventoryClient(), []);
   const procurementClient = useMemo(() => createProcurementClient(), []);
@@ -603,6 +608,16 @@ export const App = ({
   const [materials, setMaterials] = useState<MaterialRecord[]>([]);
   const [materialsLoading, setMaterialsLoading] = useState<boolean>(false);
   const [materialsError, setMaterialsError] = useState<string | null>(null);
+  const [collectionPoints, setCollectionPoints] = useState<CollectionPointRecord[]>([]);
+  const [sessionCollectionPointId, setSessionCollectionPointId] = useState<string | null>(null);
+  const [collectionPointPromptSection, setCollectionPointPromptSection] = useState<
+    "collection" | "sales" | null
+  >(null);
+  const [collectionPointPromptOptions, setCollectionPointPromptOptions] = useState<
+    CollectionPointRecord[]
+  >([]);
+  const [collectionPointPromptLoading, setCollectionPointPromptLoading] = useState<boolean>(false);
+  const [collectionPointPromptError, setCollectionPointPromptError] = useState<string | null>(null);
   const [items, setItems] = useState<ItemRecord[]>([]);
   const [itemsLoading, setItemsLoading] = useState<boolean>(false);
   const [itemsError, setItemsError] = useState<string | null>(null);
@@ -869,6 +884,10 @@ export const App = ({
   const showProcurementPanel = canManageInventory && activeView === "shop-procurement";
   const showExpensePanel = canManageInventory && activeView === "shop-expense";
   const showLedgerPanel = canManageInventory && activeView === "collection-log";
+  const isInSessionSection = activeView === "collection-log" || activeView === "shop-sale";
+  const sessionCollectionPointName =
+    collectionPoints.find((collectionPoint) => collectionPoint.id === sessionCollectionPointId)
+      ?.name ?? null;
   const isManagerPanelOpen = (panel: ManagerPanelKey): boolean => openManagerPanels[panel];
   const selectedReconciliationIssue = useMemo(
     () =>
@@ -991,6 +1010,53 @@ export const App = ({
     } finally {
       setMaterialsLoading(false);
     }
+  };
+
+  const loadCollectionPoints = async (): Promise<CollectionPointRecord[]> => {
+    const next = await collectionPointsClient.listCollectionPoints();
+    setCollectionPoints(next);
+    return next;
+  };
+
+  const enterSection = async (section: "collection" | "sales"): Promise<void> => {
+    const targetView: NavViewKey = section === "collection" ? "collection-log" : "shop-sale";
+    if (sessionCollectionPointId !== null && activeView === targetView) {
+      return;
+    }
+    setCollectionPointPromptLoading(true);
+    setCollectionPointPromptError(null);
+    try {
+      const points = await loadCollectionPoints();
+      const activePoints = points.filter((point) => point.isActive);
+      if (activePoints.length === 0) {
+        setCollectionPointPromptError("No active collection points are available.");
+        return;
+      }
+      setCollectionPointPromptOptions(activePoints);
+      setCollectionPointPromptSection(section);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setCollectionPointPromptError(
+        `Collection points could not be refreshed. Section entry is blocked while offline. (${message})`,
+      );
+    } finally {
+      setCollectionPointPromptLoading(false);
+    }
+  };
+
+  const selectSessionCollectionPoint = (collectionPointId: string): void => {
+    if (collectionPointPromptSection === null) {
+      return;
+    }
+    setSessionCollectionPointId(collectionPointId);
+    setActiveView(collectionPointPromptSection === "collection" ? "collection-log" : "shop-sale");
+    setCollectionPointPromptSection(null);
+    setCollectionPointPromptOptions([]);
+  };
+
+  const exitSection = (): void => {
+    setSessionCollectionPointId(null);
+    setActiveView("person-search");
   };
 
   const loadItems = async (): Promise<void> => {
@@ -1531,6 +1597,12 @@ export const App = ({
     setPeople([]);
     setAllPeople([]);
     setMaterials([]);
+    setCollectionPoints([]);
+    setSessionCollectionPointId(null);
+    setCollectionPointPromptSection(null);
+    setCollectionPointPromptOptions([]);
+    setCollectionPointPromptError(null);
+    setActiveView("person-search");
     setItems([]);
     setSelectedPersonId(null);
     setLedgerPersonId(null);
@@ -2781,25 +2853,35 @@ export const App = ({
             <Button
               className="navActionButton"
               variant={activeView === "collection-log" ? "filled" : "light"}
+              loading={collectionPointPromptLoading}
               onClick={() => {
-                setActiveView("collection-log");
+                void enterSection("collection");
               }}
             >
               Log material collection
             </Button>
           </Stack>
           <Stack className="navGroup" gap="xs">
-            <Text className="navGroupTitle">Shop</Text>
+            <Text className="navGroupTitle">Sales</Text>
             <Button
               className="navActionButton"
               variant={activeView === "shop-sale" ? "filled" : "light"}
+              loading={collectionPointPromptLoading}
               onClick={() => {
-                setActiveView("shop-sale");
+                void enterSection("sales");
               }}
             >
               Record Sale
             </Button>
-            {canManageInventory ? (
+          </Stack>
+          {collectionPointPromptError !== null ? (
+            <Text c="red" size="xs">
+              {collectionPointPromptError}
+            </Text>
+          ) : null}
+          {canManageInventory ? (
+            <Stack className="navGroup" gap="xs">
+              <Text className="navGroupTitle">Administration</Text>
               <Button
                 className="navActionButton"
                 variant={activeView === "shop-procurement" ? "filled" : "light"}
@@ -2810,8 +2892,6 @@ export const App = ({
               >
                 Procurement
               </Button>
-            ) : null}
-            {canManageInventory ? (
               <Button
                 className="navActionButton"
                 variant={activeView === "shop-expense" ? "filled" : "light"}
@@ -2821,8 +2901,6 @@ export const App = ({
               >
                 Record Expense
               </Button>
-            ) : null}
-            {canManageInventory ? (
               <Button
                 className="navActionButton"
                 variant={activeView === "items-manage" ? "filled" : "light"}
@@ -2832,8 +2910,8 @@ export const App = ({
               >
                 Manage Items
               </Button>
-            ) : null}
-          </Stack>
+            </Stack>
+          ) : null}
           <Stack className="navGroup" gap="xs">
             <Group justify="space-between">
               <Text className="navGroupTitle">Adjustments</Text>
@@ -2969,18 +3047,33 @@ export const App = ({
               <Title order={2}>
                 {activeView === "collection-log"
                   ? "Collection"
-                  : activeView.startsWith("shop-")
-                    ? "Shop"
-                    : activeView === "items-manage"
-                      ? "Manage Items"
-                      : activeView.startsWith("adjustments-")
-                        ? "Adjustments"
-                        : activeView === "reporting"
-                          ? "Reports"
-                          : activeView.startsWith("users-")
-                            ? "User Management"
-                            : "Person Registry"}
+                  : activeView === "shop-sale"
+                    ? "Sales"
+                    : activeView.startsWith("shop-")
+                      ? "Administration"
+                      : activeView === "items-manage"
+                        ? "Manage Items"
+                        : activeView.startsWith("adjustments-")
+                          ? "Adjustments"
+                          : activeView === "reporting"
+                            ? "Reports"
+                            : activeView.startsWith("users-")
+                              ? "User Management"
+                              : "Person Registry"}
               </Title>
+              {isInSessionSection ? (
+                <Group gap="xs">
+                  <Text size="sm">{`Collection point: ${sessionCollectionPointName ?? "none"}`}</Text>
+                  <Button
+                    className="navActionButton"
+                    variant="subtle"
+                    size="xs"
+                    onClick={exitSection}
+                  >
+                    Exit to main menu
+                  </Button>
+                </Group>
+              ) : null}
               <Text c="dimmed" size="sm">{`Pending events: ${String(sync.pendingCount)}`}</Text>
               <Text c="dimmed" size="sm">{`Last sync: ${sync.lastSyncAt ?? "never"}`}</Text>
               {sync.errorMessage !== null ? (
@@ -3256,6 +3349,33 @@ export const App = ({
                 >
                   Confirm Remove
                 </Button>
+              </Stack>
+            </Modal>
+
+            <Modal
+              opened={collectionPointPromptSection !== null}
+              onClose={() => {
+                setCollectionPointPromptSection(null);
+                setCollectionPointPromptOptions([]);
+              }}
+              title="Select collection point"
+            >
+              <Stack gap="sm">
+                <Text size="sm">
+                  Choose the collection point for this{" "}
+                  {collectionPointPromptSection === "collection" ? "collection" : "sales"} session.
+                  This stays locked until you exit the section.
+                </Text>
+                {collectionPointPromptOptions.map((collectionPoint) => (
+                  <Button
+                    key={collectionPoint.id}
+                    onClick={() => {
+                      selectSessionCollectionPoint(collectionPoint.id);
+                    }}
+                  >
+                    {collectionPoint.name}
+                  </Button>
+                ))}
               </Stack>
             </Modal>
 
