@@ -72,6 +72,7 @@ type MaterialsCollectedReportRow = {
   day: string;
   materialTypeId: string;
   materialName: string;
+  collectionPointId: string;
   locationText: string;
   totalWeightKg: number;
   totalPoints: number;
@@ -137,6 +138,7 @@ type SalesReportRow = {
   day: string;
   itemId: string;
   itemName: string;
+  collectionPointId: string;
   locationText: string;
   totalQuantity: number;
   totalPoints: number;
@@ -386,6 +388,7 @@ const createDependencies = (options?: {
       day: "2026-03-04",
       materialTypeId: "mat-1",
       materialName: "PET",
+      collectionPointId: "cp-1",
       locationText: "Village A",
       totalWeightKg: 2.9,
       totalPoints: 8.7,
@@ -394,6 +397,7 @@ const createDependencies = (options?: {
       day: "2026-02-20",
       materialTypeId: "mat-1",
       materialName: "PET",
+      collectionPointId: "cp-2",
       locationText: "Village B",
       totalWeightKg: 1.2,
       totalPoints: 3,
@@ -488,6 +492,7 @@ const createDependencies = (options?: {
       day: "2026-03-04",
       itemId: "item-1",
       itemName: "Soap",
+      collectionPointId: "cp-1",
       locationText: "Village A",
       totalQuantity: 5,
       totalPoints: 52.5,
@@ -497,6 +502,7 @@ const createDependencies = (options?: {
       day: "2026-03-05",
       itemId: "item-1",
       itemName: "Soap",
+      collectionPointId: "cp-2",
       locationText: "Unknown",
       totalQuantity: 1,
       totalPoints: 10.5,
@@ -1097,16 +1103,19 @@ const createDependencies = (options?: {
         .filter((entry) => entry.personId === personId)
         .reduce((sum, entry) => sumPointValues([sum, entry.deltaPoints]), 0),
     listMaterialsCollectedReport: async (filters) =>
-      materialsReportRows.filter((row) => {
-        const inFrom = filters.fromDate === null || row.day >= filters.fromDate;
-        const inTo = filters.toDate === null || row.day <= filters.toDate;
-        const inMaterial =
-          filters.materialTypeId === null || row.materialTypeId === filters.materialTypeId;
-        const inLocation =
-          filters.locationText === null ||
-          row.locationText.toLowerCase().includes(filters.locationText.toLowerCase());
-        return inFrom && inTo && inMaterial && inLocation;
-      }),
+      materialsReportRows
+        .filter((row) => {
+          const inFrom = filters.fromDate === null || row.day >= filters.fromDate;
+          const inTo = filters.toDate === null || row.day <= filters.toDate;
+          const inMaterial =
+            filters.materialTypeId === null || row.materialTypeId === filters.materialTypeId;
+          const inLocation =
+            filters.collectionPointId === null ||
+            row.collectionPointId === filters.collectionPointId;
+          return inFrom && inTo && inMaterial && inLocation;
+        })
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        .map(({ collectionPointId: _collectionPointId, ...row }) => row),
     listPointsLiabilityReport: async (filters) => {
       const rows = pointsLiabilityReportRows
         .filter((row) => row.balancePoints > 0)
@@ -1146,31 +1155,37 @@ const createDependencies = (options?: {
       const rows = cashflowReportRows.filter((row) => {
         const inFrom = filters.fromDate === null || row.day >= filters.fromDate;
         const inTo = filters.toDate === null || row.day <= filters.toDate;
-        if (filters.locationText === null) {
+        if (filters.collectionPointId === null) {
           return inFrom && inTo;
         }
-        return inFrom && inTo && filters.locationText.toLowerCase().includes("village");
+        return inFrom && inTo && row.day === "2026-03-04";
       });
-      const expenseCategories =
-        filters.locationText === null
-          ? cashflowExpenseCategories
-          : cashflowExpenseCategories.filter((row) => row.category === "Fuel");
+      const expenseCategories = filters.collectionPointId === null ? cashflowExpenseCategories : [];
+      const normalizedRows =
+        filters.collectionPointId === null
+          ? rows
+          : rows.map((row) => ({
+              ...row,
+              expenseCashTotal: 0,
+              netCashflow: row.salesPointsValue,
+              expenseCount: 0,
+            }));
       return {
-        rows,
+        rows: normalizedRows,
         summary: {
-          totalSalesPointsValue: rows.reduce(
+          totalSalesPointsValue: normalizedRows.reduce(
             (sum, row) => sumPointValues([sum, row.salesPointsValue]),
             0,
           ),
-          totalExpenseCash: rows.reduce((sum, row) => sum + row.expenseCashTotal, 0),
+          totalExpenseCash: normalizedRows.reduce((sum, row) => sum + row.expenseCashTotal, 0),
           netCashflow: Number(
             (
-              rows.reduce((sum, row) => sumPointValues([sum, row.salesPointsValue]), 0) -
-              rows.reduce((sum, row) => sum + row.expenseCashTotal, 0)
+              normalizedRows.reduce((sum, row) => sumPointValues([sum, row.salesPointsValue]), 0) -
+              normalizedRows.reduce((sum, row) => sum + row.expenseCashTotal, 0)
             ).toFixed(2),
           ),
-          saleCount: rows.reduce((sum, row) => sum + row.saleCount, 0),
-          expenseCount: rows.reduce((sum, row) => sum + row.expenseCount, 0),
+          saleCount: normalizedRows.reduce((sum, row) => sum + row.saleCount, 0),
+          expenseCount: normalizedRows.reduce((sum, row) => sum + row.expenseCount, 0),
         },
         expenseCategories,
       };
@@ -1196,13 +1211,13 @@ const createDependencies = (options?: {
         const inFrom = filters.fromDate === null || row.day >= filters.fromDate;
         const inTo = filters.toDate === null || row.day <= filters.toDate;
         const inLocation =
-          filters.locationText === null ||
-          row.locationText.toLowerCase().includes(filters.locationText.toLowerCase());
+          filters.collectionPointId === null || row.collectionPointId === filters.collectionPointId;
         const inItem = filters.itemId === null || row.itemId === filters.itemId;
         return inFrom && inTo && inLocation && inItem;
       });
       return {
-        rows,
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        rows: rows.map(({ collectionPointId: _collectionPointId, ...row }) => row),
         summary: {
           totalQuantity: rows.reduce((sum, row) => sum + row.totalQuantity, 0),
           totalPoints: rows.reduce((sum, row) => sumPointValues([sum, row.totalPoints]), 0),
@@ -2768,14 +2783,14 @@ describe("core HTTP endpoints", () => {
 
     const filtered = await supertest(server)
       .get(
-        "/reports/materials-collected?fromDate=2026-03-01&toDate=2026-03-31&locationText=village%20a&materialTypeId=mat-1",
+        "/reports/materials-collected?fromDate=2026-03-01&toDate=2026-03-31&collectionPointId=cp-1&materialTypeId=mat-1",
       )
       .set("authorization", `Bearer ${managerToken}`);
     expect(filtered.status).toBe(200);
     expect(filtered.body.appliedFilters).toEqual({
       fromDate: "2026-03-01",
       toDate: "2026-03-31",
-      locationText: "village a",
+      collectionPointId: "cp-1",
       materialTypeId: "mat-1",
     });
     expect(filtered.body.rows).toEqual([
@@ -3057,7 +3072,7 @@ describe("core HTTP endpoints", () => {
     expect(defaultRange.body.appliedFilters).toEqual({
       fromDate: "2026-02-04",
       toDate: "2026-03-05",
-      locationText: null,
+      collectionPointId: null,
       itemId: null,
     });
   });
@@ -3068,7 +3083,7 @@ describe("core HTTP endpoints", () => {
 
     const response = await supertest(server)
       .get(
-        "/reports/sales?fromDate=2026-03-01&toDate=2026-03-05&locationText=village%20a&itemId=item-1",
+        "/reports/sales?fromDate=2026-03-01&toDate=2026-03-05&collectionPointId=cp-1&itemId=item-1",
       )
       .set("authorization", `Bearer ${managerToken}`);
 
@@ -3076,7 +3091,7 @@ describe("core HTTP endpoints", () => {
     expect(response.body.appliedFilters).toEqual({
       fromDate: "2026-03-01",
       toDate: "2026-03-05",
-      locationText: "village a",
+      collectionPointId: "cp-1",
       itemId: "item-1",
     });
     expect(response.body.rows).toEqual([
@@ -3139,7 +3154,7 @@ describe("core HTTP endpoints", () => {
     expect(defaultRange.body.appliedFilters).toEqual({
       fromDate: "2026-02-04",
       toDate: "2026-03-05",
-      locationText: null,
+      collectionPointId: null,
     });
   });
 
@@ -3148,47 +3163,33 @@ describe("core HTTP endpoints", () => {
     const managerToken = await loginAndGetToken(server, "administrator", administratorPasscode);
 
     const response = await supertest(server)
-      .get("/reports/cashflow?fromDate=2026-03-01&toDate=2026-03-05&locationText=village%20a")
+      .get("/reports/cashflow?fromDate=2026-03-01&toDate=2026-03-05&collectionPointId=cp-1")
       .set("authorization", `Bearer ${managerToken}`);
 
     expect(response.status).toBe(200);
     expect(response.body.appliedFilters).toEqual({
       fromDate: "2026-03-01",
       toDate: "2026-03-05",
-      locationText: "village a",
+      collectionPointId: "cp-1",
     });
     expect(response.body.rows).toEqual([
       {
         day: "2026-03-04",
         salesPointsValue: 52.5,
-        expenseCashTotal: 18.5,
-        netCashflow: 34,
+        expenseCashTotal: 0,
+        netCashflow: 52.5,
         saleCount: 2,
-        expenseCount: 2,
-      },
-      {
-        day: "2026-03-05",
-        salesPointsValue: 10.5,
-        expenseCashTotal: 5.25,
-        netCashflow: 5.25,
-        saleCount: 1,
-        expenseCount: 1,
+        expenseCount: 0,
       },
     ]);
     expect(response.body.summary).toEqual({
-      totalSalesPointsValue: 63,
-      totalExpenseCash: 23.75,
-      netCashflow: 39.25,
-      saleCount: 3,
-      expenseCount: 3,
+      totalSalesPointsValue: 52.5,
+      totalExpenseCash: 0,
+      netCashflow: 52.5,
+      saleCount: 2,
+      expenseCount: 0,
     });
-    expect(response.body.expenseCategories).toEqual([
-      {
-        category: "Fuel",
-        totalCashAmount: 18.5,
-        expenseCount: 2,
-      },
-    ]);
+    expect(response.body.expenseCategories).toEqual([]);
   });
 
   test("POST /inventory/status-changes denies user and applies valid moves for administrator", async () => {

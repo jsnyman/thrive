@@ -3,7 +3,7 @@ import { createApiClient } from "./api-client";
 export type MaterialsCollectedReportFilter = {
   fromDate?: string | null;
   toDate?: string | null;
-  locationText?: string | null;
+  collectionPointId?: string | null;
   materialTypeId?: string | null;
 };
 
@@ -14,14 +14,14 @@ export type PointsLiabilityReportFilter = {
 export type SalesReportFilter = {
   fromDate?: string | null;
   toDate?: string | null;
-  locationText?: string | null;
+  collectionPointId?: string | null;
   itemId?: string | null;
 };
 
 export type CashflowReportFilter = {
   fromDate?: string | null;
   toDate?: string | null;
-  locationText?: string | null;
+  collectionPointId?: string | null;
 };
 
 export type InventoryStatusLogReportFilter = {
@@ -45,7 +45,7 @@ export type MaterialsCollectedReportResponse = {
   appliedFilters: {
     fromDate: string | null;
     toDate: string | null;
-    locationText: string | null;
+    collectionPointId: string | null;
     materialTypeId: string | null;
   };
 };
@@ -132,7 +132,7 @@ export type SalesReportResponse = {
   appliedFilters: {
     fromDate: string | null;
     toDate: string | null;
-    locationText: string | null;
+    collectionPointId: string | null;
     itemId: string | null;
   };
 };
@@ -165,7 +165,7 @@ export type CashflowReportResponse = {
   appliedFilters: {
     fromDate: string | null;
     toDate: string | null;
-    locationText: string | null;
+    collectionPointId: string | null;
   };
 };
 
@@ -402,11 +402,11 @@ const toQueryParams = (filters?: MaterialsCollectedReportFilter): string => {
     params.set("toDate", filters.toDate.trim());
   }
   if (
-    filters?.locationText !== undefined &&
-    filters.locationText !== null &&
-    filters.locationText.trim().length > 0
+    filters?.collectionPointId !== undefined &&
+    filters.collectionPointId !== null &&
+    filters.collectionPointId.trim().length > 0
   ) {
-    params.set("locationText", filters.locationText.trim());
+    params.set("collectionPointId", filters.collectionPointId.trim());
   }
   if (
     filters?.materialTypeId !== undefined &&
@@ -484,11 +484,11 @@ const toSalesReportQueryParams = (filters?: SalesReportFilter): string => {
     params.set("toDate", filters.toDate.trim());
   }
   if (
-    filters?.locationText !== undefined &&
-    filters.locationText !== null &&
-    filters.locationText.trim().length > 0
+    filters?.collectionPointId !== undefined &&
+    filters.collectionPointId !== null &&
+    filters.collectionPointId.trim().length > 0
   ) {
-    params.set("locationText", filters.locationText.trim());
+    params.set("collectionPointId", filters.collectionPointId.trim());
   }
   if (
     filters?.itemId !== undefined &&
@@ -521,11 +521,11 @@ const toCashflowReportQueryParams = (filters?: CashflowReportFilter): string => 
     params.set("toDate", filters.toDate.trim());
   }
   if (
-    filters?.locationText !== undefined &&
-    filters.locationText !== null &&
-    filters.locationText.trim().length > 0
+    filters?.collectionPointId !== undefined &&
+    filters.collectionPointId !== null &&
+    filters.collectionPointId.trim().length > 0
   ) {
-    params.set("locationText", filters.locationText.trim());
+    params.set("collectionPointId", filters.collectionPointId.trim());
   }
   const query = params.toString();
   if (query.length === 0) {
@@ -570,9 +570,9 @@ export const createReportsClient = (options?: { fetchFn?: typeof fetch; baseUrl?
       throw new Error("Invalid materials report response");
     }
     if (
-      appliedFilters["locationText"] !== null &&
-      appliedFilters["locationText"] !== undefined &&
-      typeof appliedFilters["locationText"] !== "string"
+      appliedFilters["collectionPointId"] !== null &&
+      appliedFilters["collectionPointId"] !== undefined &&
+      typeof appliedFilters["collectionPointId"] !== "string"
     ) {
       throw new Error("Invalid materials report response");
     }
@@ -588,7 +588,8 @@ export const createReportsClient = (options?: { fetchFn?: typeof fetch; baseUrl?
       appliedFilters: {
         fromDate: (appliedFilters["fromDate"] as string | null | undefined) ?? null,
         toDate: (appliedFilters["toDate"] as string | null | undefined) ?? null,
-        locationText: (appliedFilters["locationText"] as string | null | undefined) ?? null,
+        collectionPointId:
+          (appliedFilters["collectionPointId"] as string | null | undefined) ?? null,
         materialTypeId: (appliedFilters["materialTypeId"] as string | null | undefined) ?? null,
       },
     };
@@ -747,9 +748,9 @@ export const createReportsClient = (options?: { fetchFn?: typeof fetch; baseUrl?
       (appliedFilters["toDate"] !== null &&
         appliedFilters["toDate"] !== undefined &&
         typeof appliedFilters["toDate"] !== "string") ||
-      (appliedFilters["locationText"] !== null &&
-        appliedFilters["locationText"] !== undefined &&
-        typeof appliedFilters["locationText"] !== "string") ||
+      (appliedFilters["collectionPointId"] !== null &&
+        appliedFilters["collectionPointId"] !== undefined &&
+        typeof appliedFilters["collectionPointId"] !== "string") ||
       (appliedFilters["itemId"] !== null &&
         appliedFilters["itemId"] !== undefined &&
         typeof appliedFilters["itemId"] !== "string")
@@ -766,7 +767,8 @@ export const createReportsClient = (options?: { fetchFn?: typeof fetch; baseUrl?
       appliedFilters: {
         fromDate: (appliedFilters["fromDate"] as string | null | undefined) ?? null,
         toDate: (appliedFilters["toDate"] as string | null | undefined) ?? null,
-        locationText: (appliedFilters["locationText"] as string | null | undefined) ?? null,
+        collectionPointId:
+          (appliedFilters["collectionPointId"] as string | null | undefined) ?? null,
         itemId: (appliedFilters["itemId"] as string | null | undefined) ?? null,
       },
     };
@@ -812,9 +814,9 @@ export const createReportsClient = (options?: { fetchFn?: typeof fetch; baseUrl?
       (appliedFilters["toDate"] !== null &&
         appliedFilters["toDate"] !== undefined &&
         typeof appliedFilters["toDate"] !== "string") ||
-      (appliedFilters["locationText"] !== null &&
-        appliedFilters["locationText"] !== undefined &&
-        typeof appliedFilters["locationText"] !== "string")
+      (appliedFilters["collectionPointId"] !== null &&
+        appliedFilters["collectionPointId"] !== undefined &&
+        typeof appliedFilters["collectionPointId"] !== "string")
     ) {
       throw new Error("Invalid cashflow report response");
     }
@@ -831,7 +833,8 @@ export const createReportsClient = (options?: { fetchFn?: typeof fetch; baseUrl?
       appliedFilters: {
         fromDate: (appliedFilters["fromDate"] as string | null | undefined) ?? null,
         toDate: (appliedFilters["toDate"] as string | null | undefined) ?? null,
-        locationText: (appliedFilters["locationText"] as string | null | undefined) ?? null,
+        collectionPointId:
+          (appliedFilters["collectionPointId"] as string | null | undefined) ?? null,
       },
     };
   };

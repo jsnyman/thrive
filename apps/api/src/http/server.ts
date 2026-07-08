@@ -361,7 +361,7 @@ type LedgerEntryRecord = {
 type MaterialsCollectedReportFilter = {
   fromDate: string | null;
   toDate: string | null;
-  locationText: string | null;
+  collectionPointId: string | null;
   materialTypeId: string | null;
 };
 
@@ -377,7 +377,7 @@ type MaterialsCollectedReportRow = {
 type SalesReportFilter = {
   fromDate: string | null;
   toDate: string | null;
-  locationText: string | null;
+  collectionPointId: string | null;
   itemId: string | null;
 };
 
@@ -403,7 +403,7 @@ type SalesReportResult = {
 type CashflowReportFilter = {
   fromDate: string | null;
   toDate: string | null;
-  locationText: string | null;
+  collectionPointId: string | null;
 };
 
 type CashflowReportRow = {
@@ -1827,14 +1827,16 @@ const parseMaterialsCollectedReportFilter = (
 ): MaterialsCollectedReportFilter | null => {
   const fromDateRaw = parsedUrl.searchParams.get("fromDate");
   const toDateRaw = parsedUrl.searchParams.get("toDate");
-  const locationTextRaw = parsedUrl.searchParams.get("locationText");
+  const collectionPointIdRaw = parsedUrl.searchParams.get("collectionPointId");
   const materialTypeIdRaw = parsedUrl.searchParams.get("materialTypeId");
 
   const fromDate =
     fromDateRaw !== null && fromDateRaw.trim().length > 0 ? fromDateRaw.trim() : null;
   const toDate = toDateRaw !== null && toDateRaw.trim().length > 0 ? toDateRaw.trim() : null;
-  const locationText =
-    locationTextRaw !== null && locationTextRaw.trim().length > 0 ? locationTextRaw.trim() : null;
+  const collectionPointId =
+    collectionPointIdRaw !== null && collectionPointIdRaw.trim().length > 0
+      ? collectionPointIdRaw.trim()
+      : null;
   const materialTypeId =
     materialTypeIdRaw !== null && materialTypeIdRaw.trim().length > 0
       ? materialTypeIdRaw.trim()
@@ -1867,7 +1869,7 @@ const parseMaterialsCollectedReportFilter = (
   return {
     fromDate: normalizedFromDate,
     toDate: normalizedToDate,
-    locationText,
+    collectionPointId,
     materialTypeId,
   };
 };
@@ -1883,14 +1885,16 @@ const parsePointsLiabilityReportFilter = (parsedUrl: URL): PointsLiabilityReport
 const parseSalesReportFilter = (parsedUrl: URL, now: Date): SalesReportFilter | null => {
   const fromDateRaw = parsedUrl.searchParams.get("fromDate");
   const toDateRaw = parsedUrl.searchParams.get("toDate");
-  const locationTextRaw = parsedUrl.searchParams.get("locationText");
+  const collectionPointIdRaw = parsedUrl.searchParams.get("collectionPointId");
   const itemIdRaw = parsedUrl.searchParams.get("itemId");
 
   const fromDate =
     fromDateRaw !== null && fromDateRaw.trim().length > 0 ? fromDateRaw.trim() : null;
   const toDate = toDateRaw !== null && toDateRaw.trim().length > 0 ? toDateRaw.trim() : null;
-  const locationText =
-    locationTextRaw !== null && locationTextRaw.trim().length > 0 ? locationTextRaw.trim() : null;
+  const collectionPointId =
+    collectionPointIdRaw !== null && collectionPointIdRaw.trim().length > 0
+      ? collectionPointIdRaw.trim()
+      : null;
   const itemId = itemIdRaw !== null && itemIdRaw.trim().length > 0 ? itemIdRaw.trim() : null;
 
   if (fromDate !== null && !isIsoDateOnly(fromDate)) {
@@ -1917,7 +1921,7 @@ const parseSalesReportFilter = (parsedUrl: URL, now: Date): SalesReportFilter | 
   return {
     fromDate: normalizedFromDate,
     toDate: normalizedToDate,
-    locationText,
+    collectionPointId,
     itemId,
   };
 };
@@ -1925,13 +1929,15 @@ const parseSalesReportFilter = (parsedUrl: URL, now: Date): SalesReportFilter | 
 const parseCashflowReportFilter = (parsedUrl: URL, now: Date): CashflowReportFilter | null => {
   const fromDateRaw = parsedUrl.searchParams.get("fromDate");
   const toDateRaw = parsedUrl.searchParams.get("toDate");
-  const locationTextRaw = parsedUrl.searchParams.get("locationText");
+  const collectionPointIdRaw = parsedUrl.searchParams.get("collectionPointId");
 
   const fromDate =
     fromDateRaw !== null && fromDateRaw.trim().length > 0 ? fromDateRaw.trim() : null;
   const toDate = toDateRaw !== null && toDateRaw.trim().length > 0 ? toDateRaw.trim() : null;
-  const locationText =
-    locationTextRaw !== null && locationTextRaw.trim().length > 0 ? locationTextRaw.trim() : null;
+  const collectionPointId =
+    collectionPointIdRaw !== null && collectionPointIdRaw.trim().length > 0
+      ? collectionPointIdRaw.trim()
+      : null;
 
   if (fromDate !== null && !isIsoDateOnly(fromDate)) {
     return null;
@@ -1957,7 +1963,7 @@ const parseCashflowReportFilter = (parsedUrl: URL, now: Date): CashflowReportFil
   return {
     fromDate: normalizedFromDate,
     toDate: normalizedToDate,
-    locationText,
+    collectionPointId,
   };
 };
 

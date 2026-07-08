@@ -1476,6 +1476,11 @@ describe("App person registry", () => {
       if (url.includes("/inventory/batches")) {
         return jsonResponse({ batches: [] });
       }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Village A", isActive: true }],
+        });
+      }
       if (url.includes("/sync/conflicts")) {
         return jsonResponse({ conflicts: [], nextCursor: null });
       }
@@ -3988,6 +3993,11 @@ describe("App person registry", () => {
       if (url.includes("/inventory/batches")) {
         return jsonResponse({ batches: [] });
       }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Village A", isActive: true }],
+        });
+      }
       if (url.includes("/sync/conflicts")) {
         return jsonResponse({ conflicts: [], nextCursor: null });
       }
@@ -4112,6 +4122,11 @@ describe("App person registry", () => {
           materials: [{ id: "mat-1", name: "PET", pointsPerKg: 3 }],
         });
       }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Village A", isActive: true }],
+        });
+      }
       if (url.includes("/items")) {
         return jsonResponse({ items: [] });
       }
@@ -4130,7 +4145,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -4263,7 +4278,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -4329,6 +4344,11 @@ describe("App person registry", () => {
           materials: [{ id: "mat-1", name: "PET", pointsPerKg: 3 }],
         });
       }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Village A", isActive: true }],
+        });
+      }
       if (url.includes("/items")) {
         return jsonResponse({ items: [] });
       }
@@ -4338,12 +4358,17 @@ describe("App person registry", () => {
       if (url.includes("/inventory/batches")) {
         return jsonResponse({ batches: [] });
       }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Village A", isActive: true }],
+        });
+      }
       if (url.includes("/sync/conflicts")) {
         return jsonResponse({ conflicts: [], nextCursor: null });
       }
       if (
         url.includes(
-          "/reports/materials-collected?fromDate=2026-03-01&toDate=2026-03-09&locationText=Village+A",
+          "/reports/materials-collected?fromDate=2026-03-01&toDate=2026-03-09&collectionPointId=cp-1",
         )
       ) {
         return jsonResponse({
@@ -4360,7 +4385,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-03-01",
             toDate: "2026-03-09",
-            locationText: "Village A",
+            collectionPointId: "cp-1",
             materialTypeId: null,
           },
         });
@@ -4371,7 +4396,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -4401,14 +4426,14 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("From Date"), "2026-03-01");
     await userEvent.clear(view.getByLabelText("To Date"));
     await userEvent.type(view.getByLabelText("To Date"), "2026-03-09");
-    await userEvent.type(view.getByLabelText("Location"), "Village A");
+    await userEvent.selectOptions(view.getByLabelText("Collection Point"), "cp-1");
     await userEvent.click(view.getByRole("button", { name: "Run Report" }));
 
     await waitFor(() => {
       expect(
         fetchMock.mock.calls.some((call) =>
           String(call[0]).includes(
-            "/reports/materials-collected?fromDate=2026-03-01&toDate=2026-03-09&locationText=Village+A",
+            "/reports/materials-collected?fromDate=2026-03-01&toDate=2026-03-09&collectionPointId=cp-1",
           ),
         ),
       ).toBe(true);
@@ -4453,7 +4478,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -4541,7 +4566,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -4643,7 +4668,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -4746,7 +4771,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -4838,7 +4863,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -4968,7 +4993,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -5108,7 +5133,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -5170,7 +5195,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             itemId: null,
           },
         });
@@ -5244,7 +5269,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -5285,9 +5310,14 @@ describe("App person registry", () => {
           rows: [],
         });
       }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Village A", isActive: true }],
+        });
+      }
       if (
         url.includes(
-          "/reports/sales?fromDate=2026-03-01&toDate=2026-03-09&locationText=Village+A&itemId=item-1",
+          "/reports/sales?fromDate=2026-03-01&toDate=2026-03-09&collectionPointId=cp-1&itemId=item-1",
         )
       ) {
         return jsonResponse({
@@ -5300,7 +5330,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-03-01",
             toDate: "2026-03-09",
-            locationText: "Village A",
+            collectionPointId: "cp-1",
             itemId: "item-1",
           },
         });
@@ -5316,7 +5346,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             itemId: null,
           },
         });
@@ -5348,14 +5378,14 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Sales To Date"), "2026-03-09");
     await userEvent.click(view.getByRole("textbox", { name: "Sales Item" }));
     await userEvent.click(view.getByRole("option", { name: "Soap" }));
-    await userEvent.type(view.getByLabelText("Sales Location"), "Village A");
+    await userEvent.selectOptions(view.getByLabelText("Sales Collection Point"), "cp-1");
     await userEvent.click(view.getByRole("button", { name: "Run Report" }));
 
     await waitFor(() => {
       expect(
         fetchMock.mock.calls.some((call) =>
           String(call[0]).includes(
-            "/reports/sales?fromDate=2026-03-01&toDate=2026-03-09&locationText=Village+A&itemId=item-1",
+            "/reports/sales?fromDate=2026-03-01&toDate=2026-03-09&collectionPointId=cp-1&itemId=item-1",
           ),
         ),
       ).toBe(true);
@@ -5402,7 +5432,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -5443,6 +5473,11 @@ describe("App person registry", () => {
           rows: [],
         });
       }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Village A", isActive: true }],
+        });
+      }
       if (url.includes("/reports/sales")) {
         return jsonResponse({
           rows: [],
@@ -5454,7 +5489,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             itemId: null,
           },
         });
@@ -5488,7 +5523,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
           },
         });
       }
@@ -5553,6 +5588,11 @@ describe("App person registry", () => {
       if (url.includes("/inventory/batches")) {
         return jsonResponse({ batches: [] });
       }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Village A", isActive: true }],
+        });
+      }
       if (url.includes("/sync/conflicts")) {
         return jsonResponse({ conflicts: [], nextCursor: null });
       }
@@ -5562,7 +5602,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -5614,14 +5654,14 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             itemId: null,
           },
         });
       }
       if (
         url.includes(
-          "/reports/cashflow?fromDate=2026-03-01&toDate=2026-03-09&locationText=Village+A",
+          "/reports/cashflow?fromDate=2026-03-01&toDate=2026-03-09&collectionPointId=cp-1",
         )
       ) {
         return jsonResponse({
@@ -5637,7 +5677,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-03-01",
             toDate: "2026-03-09",
-            locationText: "Village A",
+            collectionPointId: "cp-1",
           },
         });
       }
@@ -5655,7 +5695,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
           },
         });
       }
@@ -5684,14 +5724,21 @@ describe("App person registry", () => {
     await userEvent.type(view.getByLabelText("Cashflow From Date"), "2026-03-01");
     await userEvent.clear(view.getByLabelText("Cashflow To Date"));
     await userEvent.type(view.getByLabelText("Cashflow To Date"), "2026-03-09");
-    await userEvent.type(view.getByLabelText("Cashflow Location"), "Village A");
+    await waitFor(() => {
+      expect(
+        Array.from(
+          (view.getByLabelText("Cashflow Collection Point") as HTMLSelectElement).options,
+        ).some((option) => option.value === "cp-1"),
+      ).toBe(true);
+    });
+    await userEvent.selectOptions(view.getByLabelText("Cashflow Collection Point"), "cp-1");
     await userEvent.click(view.getByRole("button", { name: "Run Report" }));
 
     await waitFor(() => {
       expect(
         fetchMock.mock.calls.some((call) =>
           String(call[0]).includes(
-            "/reports/cashflow?fromDate=2026-03-01&toDate=2026-03-09&locationText=Village+A",
+            "/reports/cashflow?fromDate=2026-03-01&toDate=2026-03-09&collectionPointId=cp-1",
           ),
         ),
       ).toBe(true);
@@ -5776,7 +5823,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -5819,7 +5866,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             itemId: null,
           },
         });
@@ -5838,7 +5885,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
           },
         });
       }
@@ -5935,7 +5982,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             materialTypeId: null,
           },
         });
@@ -5987,7 +6034,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
             itemId: null,
           },
         });
@@ -6021,7 +6068,7 @@ describe("App person registry", () => {
           appliedFilters: {
             fromDate: "2026-02-08",
             toDate: "2026-03-09",
-            locationText: null,
+            collectionPointId: null,
           },
         });
       }

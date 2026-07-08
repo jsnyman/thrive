@@ -9,6 +9,7 @@ import {
   FileInput,
   Group,
   Modal,
+  NativeSelect,
   Select,
   PasswordInput,
   SimpleGrid,
@@ -756,7 +757,9 @@ export const App = ({
   const [expenseError, setExpenseError] = useState<string | null>(null);
   const [materialsReportFromDate, setMaterialsReportFromDate] = useState<string>("");
   const [materialsReportToDate, setMaterialsReportToDate] = useState<string>("");
-  const [materialsReportLocationText, setMaterialsReportLocationText] = useState<string>("");
+  const [materialsReportCollectionPointId, setMaterialsReportCollectionPointId] = useState<
+    string | null
+  >(null);
   const [materialsReportMaterialTypeId, setMaterialsReportMaterialTypeId] = useState<string | null>(
     null,
   );
@@ -811,7 +814,9 @@ export const App = ({
   const [salesReportFromDate, setSalesReportFromDate] = useState<string>("");
   const [salesReportToDate, setSalesReportToDate] = useState<string>("");
   const [salesReportItemId, setSalesReportItemId] = useState<string | null>(null);
-  const [salesReportLocationText, setSalesReportLocationText] = useState<string>("");
+  const [salesReportCollectionPointId, setSalesReportCollectionPointId] = useState<string | null>(
+    null,
+  );
   const [salesReportRows, setSalesReportRows] = useState<SalesReportRow[]>([]);
   const [salesReportSummary, setSalesReportSummary] = useState<
     SalesReportResponse["summary"] | null
@@ -824,7 +829,9 @@ export const App = ({
   const salesReportRequestRef = useRef<number>(0);
   const [cashflowReportFromDate, setCashflowReportFromDate] = useState<string>("");
   const [cashflowReportToDate, setCashflowReportToDate] = useState<string>("");
-  const [cashflowReportLocationText, setCashflowReportLocationText] = useState<string>("");
+  const [cashflowReportCollectionPointId, setCashflowReportCollectionPointId] = useState<
+    string | null
+  >(null);
   const [cashflowReportRows, setCashflowReportRows] = useState<CashflowReportRow[]>([]);
   const [cashflowReportSummary, setCashflowReportSummary] = useState<
     CashflowReportResponse["summary"] | null
@@ -1253,6 +1260,16 @@ export const App = ({
     return next;
   };
 
+  useEffect(() => {
+    if (activeView !== "reporting") {
+      return;
+    }
+    void loadCollectionPoints().catch(() => {
+      setCollectionPoints([]);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeView, collectionPointsClient]);
+
   const enterSection = async (section: "collection" | "sales"): Promise<void> => {
     const targetView: NavViewKey = section === "collection" ? "collection-log" : "shop-sale";
     if (sessionCollectionPointId !== null && activeView === targetView) {
@@ -1406,7 +1423,7 @@ export const App = ({
   const loadMaterialsCollectedReport = async (filters?: {
     fromDate?: string | null;
     toDate?: string | null;
-    locationText?: string | null;
+    collectionPointId?: string | null;
     materialTypeId?: string | null;
   }): Promise<void> => {
     materialsReportRequestRef.current += 1;
@@ -1519,7 +1536,7 @@ export const App = ({
   const loadSalesReport = async (filters?: {
     fromDate?: string | null;
     toDate?: string | null;
-    locationText?: string | null;
+    collectionPointId?: string | null;
     itemId?: string | null;
   }): Promise<void> => {
     salesReportRequestRef.current += 1;
@@ -1552,7 +1569,7 @@ export const App = ({
   const loadCashflowReport = async (filters?: {
     fromDate?: string | null;
     toDate?: string | null;
-    locationText?: string | null;
+    collectionPointId?: string | null;
   }): Promise<void> => {
     cashflowReportRequestRef.current += 1;
     const requestId = cashflowReportRequestRef.current;
@@ -2898,11 +2915,10 @@ export const App = ({
     }
     const fromDate = materialsReportFromDate.trim();
     const toDate = materialsReportToDate.trim();
-    const locationText = materialsReportLocationText.trim();
     await loadMaterialsCollectedReport({
       fromDate: fromDate.length > 0 ? fromDate : null,
       toDate: toDate.length > 0 ? toDate : null,
-      locationText: locationText.length > 0 ? locationText : null,
+      collectionPointId: materialsReportCollectionPointId,
       materialTypeId: materialsReportMaterialTypeId,
     });
   };
@@ -2948,11 +2964,10 @@ export const App = ({
     }
     const fromDate = salesReportFromDate.trim();
     const toDate = salesReportToDate.trim();
-    const locationText = salesReportLocationText.trim();
     await loadSalesReport({
       fromDate: fromDate.length > 0 ? fromDate : null,
       toDate: toDate.length > 0 ? toDate : null,
-      locationText: locationText.length > 0 ? locationText : null,
+      collectionPointId: salesReportCollectionPointId,
       itemId: salesReportItemId,
     });
   };
@@ -2964,11 +2979,10 @@ export const App = ({
     }
     const fromDate = cashflowReportFromDate.trim();
     const toDate = cashflowReportToDate.trim();
-    const locationText = cashflowReportLocationText.trim();
     await loadCashflowReport({
       fromDate: fromDate.length > 0 ? fromDate : null,
       toDate: toDate.length > 0 ? toDate : null,
-      locationText: locationText.length > 0 ? locationText : null,
+      collectionPointId: cashflowReportCollectionPointId,
     });
   };
 
@@ -4832,11 +4846,19 @@ export const App = ({
                         searchable
                         clearable
                       />
-                      <TextInput
-                        label="Location"
-                        value={materialsReportLocationText}
+                      <NativeSelect
+                        label="Collection Point"
+                        data={[
+                          { value: "", label: "" },
+                          ...collectionPoints.map((collectionPoint) => ({
+                            value: collectionPoint.id,
+                            label: collectionPoint.name,
+                          })),
+                        ]}
+                        value={materialsReportCollectionPointId ?? ""}
                         onChange={(event) => {
-                          setMaterialsReportLocationText(event.currentTarget.value);
+                          const value = event.currentTarget.value;
+                          setMaterialsReportCollectionPointId(value.length > 0 ? value : null);
                         }}
                       />
                     </SimpleGrid>
@@ -5249,11 +5271,19 @@ export const App = ({
                         searchable
                         clearable
                       />
-                      <TextInput
-                        label="Sales Location"
-                        value={salesReportLocationText}
+                      <NativeSelect
+                        label="Sales Collection Point"
+                        data={[
+                          { value: "", label: "" },
+                          ...collectionPoints.map((collectionPoint) => ({
+                            value: collectionPoint.id,
+                            label: collectionPoint.name,
+                          })),
+                        ]}
+                        value={salesReportCollectionPointId ?? ""}
                         onChange={(event) => {
-                          setSalesReportLocationText(event.currentTarget.value);
+                          const value = event.currentTarget.value;
+                          setSalesReportCollectionPointId(value.length > 0 ? value : null);
                         }}
                       />
                     </SimpleGrid>
@@ -5362,11 +5392,19 @@ export const App = ({
                           setCashflowReportToDate(event.currentTarget.value);
                         }}
                       />
-                      <TextInput
-                        label="Cashflow Location"
-                        value={cashflowReportLocationText}
+                      <NativeSelect
+                        label="Cashflow Collection Point"
+                        data={[
+                          { value: "", label: "" },
+                          ...collectionPoints.map((collectionPoint) => ({
+                            value: collectionPoint.id,
+                            label: collectionPoint.name,
+                          })),
+                        ]}
+                        value={cashflowReportCollectionPointId ?? ""}
                         onChange={(event) => {
-                          setCashflowReportLocationText(event.currentTarget.value);
+                          const value = event.currentTarget.value;
+                          setCashflowReportCollectionPointId(value.length > 0 ? value : null);
                         }}
                       />
                     </SimpleGrid>

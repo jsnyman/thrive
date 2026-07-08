@@ -45,7 +45,7 @@ describe("core repository materials report", () => {
     const rows = await repository.listMaterialsCollectedReport({
       fromDate: "2026-03-01",
       toDate: "2026-03-31",
-      locationText: "village",
+      collectionPointId: "cp-1",
       materialTypeId: "mat-1",
     });
 
@@ -61,9 +61,9 @@ describe("core repository materials report", () => {
     ]);
     expect(capturedSql).toContain("from mv_materials_collected_daily");
     expect(capturedSql).toContain(
-      "where day >= $1::date and day <= $2::date and lower(location_text) like $3 and material_type_id = $4",
+      "where day >= $1::date and day <= $2::date and collection_point_id = $3 and material_type_id = $4",
     );
-    expect(capturedParams).toEqual(["2026-03-01", "2026-03-31", "%village%", "mat-1"]);
+    expect(capturedParams).toEqual(["2026-03-01", "2026-03-31", "cp-1", "mat-1"]);
   });
 
   test("queries points liability rows and filtered summary", async () => {
@@ -453,6 +453,12 @@ describe("core repository materials report", () => {
             isActive: true,
             createdAt: new Date("2026-01-01T00:00:00.000Z"),
           },
+          {
+            id: "cp-heuwelkroon",
+            name: "Heuwelkroon parkie",
+            isActive: true,
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+          },
         ],
         findUnique: async () => null,
       },
@@ -549,7 +555,7 @@ describe("core repository materials report", () => {
     const report = await repository.listSalesReport({
       fromDate: "2026-03-08",
       toDate: "2026-03-09",
-      locationText: "heuwelkroon",
+      collectionPointId: "cp-heuwelkroon",
       itemId: "item-1",
     });
 
@@ -575,7 +581,7 @@ describe("core repository materials report", () => {
     const defaultReport = await repository.listSalesReport({
       fromDate: "2026-03-01",
       toDate: "2026-03-31",
-      locationText: null,
+      collectionPointId: null,
       itemId: null,
     });
     expect(defaultReport.rows).toEqual([
@@ -642,6 +648,12 @@ describe("core repository materials report", () => {
           {
             id: "cp-1",
             name: "Village B",
+            isActive: true,
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+          },
+          {
+            id: "cp-heuwelkroon",
+            name: "Heuwelkroon parkie",
             isActive: true,
             createdAt: new Date("2026-01-01T00:00:00.000Z"),
           },
@@ -738,7 +750,7 @@ describe("core repository materials report", () => {
     const report = await repository.listCashflowReport({
       fromDate: "2026-03-08",
       toDate: "2026-03-09",
-      locationText: "heuwelkroon",
+      collectionPointId: "cp-heuwelkroon",
     });
 
     expect(report).toEqual({
@@ -765,7 +777,7 @@ describe("core repository materials report", () => {
     const defaultReport = await repository.listCashflowReport({
       fromDate: "2026-03-01",
       toDate: "2026-03-31",
-      locationText: null,
+      collectionPointId: null,
     });
     expect(defaultReport.rows).toEqual([
       {

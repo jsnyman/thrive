@@ -17,7 +17,7 @@ import type {
 import type { PrismaClient } from "@prisma/client";
 import { refreshProjections } from "../projections/refresh";
 import { createEventStore, type AppendEventResult } from "./event-store";
-import { resolveHistoricalLocationName } from "./historical-location";
+import { HEUWELKROON_PARKIE_NAME, resolveHistoricalLocationName } from "./historical-location";
 import { projectEventToReadModels } from "./project-event";
 import {
   applyAcceptedIncomingEvent,
@@ -105,7 +105,7 @@ type LedgerEntryRecord = {
 type MaterialsCollectedReportFilter = {
   fromDate: string | null;
   toDate: string | null;
-  locationText: string | null;
+  collectionPointId: string | null;
   materialTypeId: string | null;
 };
 
@@ -121,7 +121,7 @@ type MaterialsCollectedReportRow = {
 type SalesReportFilter = {
   fromDate: string | null;
   toDate: string | null;
-  locationText: string | null;
+  collectionPointId: string | null;
   itemId: string | null;
 };
 
@@ -147,7 +147,7 @@ type SalesReportResult = {
 type CashflowReportFilter = {
   fromDate: string | null;
   toDate: string | null;
-  locationText: string | null;
+  collectionPointId: string | null;
 };
 
 type CashflowReportRow = {
@@ -356,6 +356,7 @@ type MaterialsCollectedReportQueryRow = {
   day: Date;
   material_type_id: string;
   material_name: string;
+  collection_point_id: string | null;
   location_text: string;
   total_weight_kg: unknown;
   total_points: unknown;
@@ -1400,9 +1401,9 @@ export const createCoreRepository = (prisma: PrismaClient) => {
       params.push(filters.toDate);
       conditions.push(`day <= $${String(params.length)}::date`);
     }
-    if (filters.locationText !== null) {
-      params.push(`%${filters.locationText.toLowerCase()}%`);
-      conditions.push(`lower(location_text) like $${String(params.length)}`);
+    if (filters.collectionPointId !== null) {
+      params.push(filters.collectionPointId);
+      conditions.push(`collection_point_id = $${String(params.length)}`);
     }
     if (filters.materialTypeId !== null) {
       params.push(filters.materialTypeId);
@@ -1434,6 +1435,20 @@ export const createCoreRepository = (prisma: PrismaClient) => {
     }));
   };
 
+  const resolveHistoricalCollectionPointId = (
+    collectionPointId: string | null | undefined,
+    collectionPointNameById: ReadonlyMap<string, string>,
+    collectionPoints: readonly CollectionPointRecord[],
+  ): string | null => {
+    if (typeof collectionPointId === "string" && collectionPointNameById.has(collectionPointId)) {
+      return collectionPointId;
+    }
+    const fallback = collectionPoints.find(
+      (candidate) => candidate.name === HEUWELKROON_PARKIE_NAME,
+    );
+    return fallback?.id ?? null;
+  };
+
   const listSalesReport = async (filters: SalesReportFilter): Promise<SalesReportResult> => {
     const [rows, items, collectionPoints] = await Promise.all([
       prisma.$queryRaw<SalesReportEventRow[]>`
@@ -1462,9 +1477,13 @@ export const createCoreRepository = (prisma: PrismaClient) => {
     for (const eventRow of rows) {
       const day = eventRow.occurred_at.toISOString().slice(0, 10);
       const payload = eventRow.payload as Record<string, unknown>;
-      const collectionPointId = payload["collectionPointId"];
+      const collectionPointId = resolveHistoricalCollectionPointId(
+        typeof payload["collectionPointId"] === "string" ? payload["collectionPointId"] : null,
+        collectionPointNameById,
+        collectionPoints,
+      );
       const eventLocationText = resolveHistoricalLocationName(
-        typeof collectionPointId === "string" ? collectionPointId : null,
+        collectionPointId,
         collectionPointNameById,
       );
       if (filters.fromDate !== null && day < filters.fromDate) {
@@ -1473,10 +1492,7 @@ export const createCoreRepository = (prisma: PrismaClient) => {
       if (filters.toDate !== null && day > filters.toDate) {
         continue;
       }
-      if (
-        filters.locationText !== null &&
-        !eventLocationText.toLowerCase().includes(filters.locationText.toLowerCase())
-      ) {
+      if (filters.collectionPointId !== null && collectionPointId !== filters.collectionPointId) {
         continue;
       }
       const linesRaw = payload["lines"];
@@ -1596,20 +1612,18 @@ export const createCoreRepository = (prisma: PrismaClient) => {
       // the raw envelope value (always null) — this is what makes a location filter
       // hide global expenses. Sales resolve through the historical override so old
       // sale.recorded events (no collectionPointId) report as Heuwelkroon parkie.
-      const effectiveLocationText =
+      const effectiveCollectionPointId =
         eventRow.event_type === "sale.recorded"
-          ? resolveHistoricalLocationName(
+          ? resolveHistoricalCollectionPointId(
               typeof payload["collectionPointId"] === "string"
                 ? (payload["collectionPointId"] as string)
                 : null,
               collectionPointNameById,
+              collectionPoints,
             )
-          : eventRow.location_text;
-      if (filters.locationText !== null) {
-        if (
-          effectiveLocationText === null ||
-          !effectiveLocationText.toLowerCase().includes(filters.locationText.toLowerCase())
-        ) {
+          : null;
+      if (filters.collectionPointId !== null) {
+        if (effectiveCollectionPointId !== filters.collectionPointId) {
           continue;
         }
       }
