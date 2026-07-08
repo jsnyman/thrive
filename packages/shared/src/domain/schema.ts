@@ -87,6 +87,7 @@ export const EVENT_TYPES: EventType[] = [
   "inventory.adjustment_applied",
   "points.adjustment_requested",
   "points.adjustment_applied",
+  "sale.adjustment_requested",
   "conflict.detected",
   "conflict.resolved",
 ];
@@ -383,6 +384,15 @@ const pointsAdjustmentAppliedSchema = objectSchema(
   ["personId", "deltaPoints", "reason"],
 );
 
+const saleAdjustmentRequestedSchema = objectSchema(
+  {
+    saleEventId: stringSchema(),
+    personId: stringSchema(),
+    note: stringSchema(),
+  },
+  ["saleEventId", "personId", "note"],
+);
+
 const conflictDetectedSchema = objectSchema(
   {
     conflictId: stringSchema(),
@@ -437,6 +447,7 @@ export const eventPayloadSchemas: Record<EventType, JsonSchema> = {
   "inventory.adjustment_applied": inventoryAdjustmentAppliedSchema,
   "points.adjustment_requested": pointsAdjustmentRequestedSchema,
   "points.adjustment_applied": pointsAdjustmentAppliedSchema,
+  "sale.adjustment_requested": saleAdjustmentRequestedSchema,
   "conflict.detected": conflictDetectedSchema,
   "conflict.resolved": conflictResolvedSchema,
 };

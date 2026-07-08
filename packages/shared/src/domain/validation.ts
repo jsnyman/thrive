@@ -199,6 +199,7 @@ const EVENT_TYPES: EventType[] = [
   "inventory.adjustment_applied",
   "points.adjustment_requested",
   "points.adjustment_applied",
+  "sale.adjustment_requested",
   "conflict.detected",
   "conflict.resolved",
 ];
@@ -809,6 +810,20 @@ const validatePointsAdjustmentAppliedPayload = (
   return true;
 };
 
+const validateSaleAdjustmentRequestedPayload = (
+  payload: unknown,
+  issues: ValidationIssue[],
+  path: string,
+): payload is EventPayloadMap["sale.adjustment_requested"] => {
+  if (!expectRecord(payload, path, issues)) {
+    return false;
+  }
+  expectString(payload.saleEventId, `${path}.saleEventId`, issues);
+  expectString(payload.personId, `${path}.personId`, issues);
+  expectString(payload.note, `${path}.note`, issues);
+  return true;
+};
+
 const validateConflictDetectedPayload = (
   payload: unknown,
   issues: ValidationIssue[],
@@ -938,6 +953,9 @@ export const validateEventPayload = <T extends EventType>(
       break;
     case "points.adjustment_applied":
       validatePointsAdjustmentAppliedPayload(payload, issues, "payload");
+      break;
+    case "sale.adjustment_requested":
+      validateSaleAdjustmentRequestedPayload(payload, issues, "payload");
       break;
     case "conflict.detected":
       validateConflictDetectedPayload(payload, issues, "payload");

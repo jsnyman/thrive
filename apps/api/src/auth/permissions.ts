@@ -12,6 +12,7 @@ const permissionMap: Record<StaffRole, PermissionAction[]> = {
     "collection_point.read",
     "points.adjustment.request",
     "inventory.adjustment.request",
+    "sale.adjustment.request",
   ],
   administrator: [
     "person.read",
@@ -32,6 +33,7 @@ const permissionMap: Record<StaffRole, PermissionAction[]> = {
     "points.adjustment.apply",
     "inventory.adjustment.request",
     "inventory.adjustment.apply",
+    "sale.adjustment.request",
     "conflict.view",
     "conflict.resolve",
     "audit.view",

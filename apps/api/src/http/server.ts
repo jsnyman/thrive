@@ -181,6 +181,12 @@ type PointsAdjustmentRequestInput = {
   locationText?: string | null;
 };
 
+type SaleAdjustmentRequestInput = {
+  saleEventId: string;
+  personId: string;
+  note: string;
+};
+
 type AdjustmentRequestType = "points" | "inventory";
 type AdjustmentRequestStatus = "pending" | "approved" | "rejected";
 
@@ -1445,6 +1451,26 @@ const parsePointsAdjustmentRequest = (body: unknown): PointsAdjustmentRequestInp
   };
 };
 
+const parseSaleAdjustmentRequest = (body: unknown): SaleAdjustmentRequestInput | null => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+  const record = body as Record<string, unknown>;
+  const saleEventId = record["saleEventId"];
+  const personId = record["personId"];
+  const note = record["note"];
+  if (typeof saleEventId !== "string" || saleEventId.trim().length === 0) {
+    return null;
+  }
+  if (typeof personId !== "string" || personId.trim().length === 0) {
+    return null;
+  }
+  if (typeof note !== "string" || note.trim().length === 0) {
+    return null;
+  }
+  return { saleEventId, personId, note };
+};
+
 const parsePointsAdjustmentApplyRequest = (body: unknown): PointsAdjustmentApplyInput | null => {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return null;
@@ -2663,6 +2689,58 @@ const handlePointsAdjustmentRequest = async (
       deltaPoints: request.deltaPoints,
       reason: request.reason,
       notes: request.notes ?? null,
+    },
+  };
+  const appendResult = await dependencies.appendEventAndProject(event);
+  if (appendResult.status !== "accepted") {
+    sendJson(res, 400, { error: "BAD_REQUEST", reason: appendResult.reason ?? null });
+    return;
+  }
+  sendJson(res, 201, {
+    requestEventId: event.eventId,
+  });
+};
+
+const handleSaleAdjustmentRequest = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: ApiServerDependencies,
+): Promise<void> => {
+  const actor = requireAuthorization(req, res, dependencies, "sale.adjustment.request");
+  if (actor === null) {
+    return;
+  }
+  const bodyResult = await readJsonBody(req);
+  if (!bodyResult.ok) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const request = parseSaleAdjustmentRequest(bodyResult.value);
+  if (request === null) {
+    sendJson(res, 400, { error: "BAD_REQUEST" });
+    return;
+  }
+  const person = await dependencies.getPersonById(request.personId);
+  if (person === null) {
+    sendJson(res, 404, { error: "PERSON_NOT_FOUND" });
+    return;
+  }
+  const saleAudit = await dependencies.getSyncAuditEvent(request.saleEventId);
+  if (
+    saleAudit === null ||
+    saleAudit.event.eventType !== "sale.recorded" ||
+    saleAudit.event.payload.personId !== request.personId
+  ) {
+    sendJson(res, 404, { error: "SALE_NOT_FOUND" });
+    return;
+  }
+  const event: Event = {
+    ...toBaseEventFields(dependencies, actor, req),
+    eventType: "sale.adjustment_requested",
+    payload: {
+      saleEventId: request.saleEventId,
+      personId: request.personId,
+      note: request.note,
     },
   };
   const appendResult = await dependencies.appendEventAndProject(event);
@@ -3977,6 +4055,11 @@ const routeRequest = async (
 
   if (method === "POST" && pathname === "/points/adjustments/requests") {
     await handlePointsAdjustmentRequest(req, res, dependencies);
+    return;
+  }
+
+  if (method === "POST" && pathname === "/sales/adjustment-requests") {
+    await handleSaleAdjustmentRequest(req, res, dependencies);
     return;
   }
 

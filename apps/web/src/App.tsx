@@ -72,6 +72,7 @@ import {
   type AdjustmentRequestRecord,
   type InventoryStatus as AdjustmentInventoryStatus,
 } from "./offline/adjustments-client";
+import { createSaleAdjustmentRequestsClient } from "./offline/sale-adjustment-client";
 import { createUsersClient, type StaffUserRecord } from "./offline/users-client";
 import type {
   SyncReconciliationIssue,
@@ -455,6 +456,7 @@ const buildSaleRecordedEvent = (
   payload: {
     personId: string;
     lines: SaleEventLineInput[];
+    collectionPointId: string | null;
   },
 ): Event => {
   const lines = payload.lines.map((line) => ({
@@ -480,6 +482,7 @@ const buildSaleRecordedEvent = (
       lines,
       totalPoints,
       locationText: null,
+      collectionPointId: payload.collectionPointId,
     },
   };
 };
@@ -596,6 +599,7 @@ export const App = ({
   const reportsClient = useMemo(() => createReportsClient(), []);
   const reconciliationClient = useMemo(() => createReconciliationClient(), []);
   const adjustmentsClient = useMemo(() => createAdjustmentsClient(), []);
+  const saleAdjustmentRequestsClient = useMemo(() => createSaleAdjustmentRequestsClient(), []);
   const usersClient = useMemo(() => createUsersClient(), []);
 
   const [sessionStatus, setSessionStatus] = useState<SessionStatus>("loading");
@@ -670,10 +674,18 @@ export const App = ({
   const [intakeError, setIntakeError] = useState<string | null>(null);
   const [intakeSuccess, setIntakeSuccess] = useState<boolean>(false);
   const [salePersonId, setSalePersonId] = useState<string | null>(null);
+  const [salePersonSearchQuery, setSalePersonSearchQuery] = useState<string>("");
+  const [saleBroaderResults, setSaleBroaderResults] = useState<PersonRecord[] | null>(null);
   const [saleLines, setSaleLines] = useState<SaleDraftLine[]>(() => [createSaleDraftLine()]);
   const [salePending, setSalePending] = useState<boolean>(false);
   const [saleError, setSaleError] = useState<string | null>(null);
   const [saleSuccess, setSaleSuccess] = useState<string | null>(null);
+  const [saleAdjustmentNote, setSaleAdjustmentNote] = useState<string>("");
+  const [saleAdjustmentPending, setSaleAdjustmentPending] = useState<boolean>(false);
+  const [saleAdjustmentError, setSaleAdjustmentError] = useState<string | null>(null);
+  const [saleAdjustmentSuccess, setSaleAdjustmentSuccess] = useState<boolean>(false);
+  const [saleLastSaleEventId, setSaleLastSaleEventId] = useState<string | null>(null);
+  const [saleLastSalePersonId, setSaleLastSalePersonId] = useState<string | null>(null);
   const [procurementLines, setProcurementLines] = useState<ProcurementDraftLine[]>(() => [
     createProcurementDraftLine(),
   ]);
@@ -941,6 +953,19 @@ export const App = ({
   const selectedSalePerson = useMemo(
     () => allPeople.find((person) => person.id === salePersonId) ?? null,
     [allPeople, salePersonId],
+  );
+  const saleLocalSuggestions = useMemo(
+    () =>
+      filterLocalPersonSuggestions(
+        allPeople,
+        salePersonSearchQuery,
+        sessionCollectionPointId ?? "",
+      ),
+    [allPeople, salePersonSearchQuery, sessionCollectionPointId],
+  );
+  const saleCanOfferBroaderSearch = shouldOfferBroaderPersonSearch(
+    saleLocalSuggestions.length,
+    salePersonSearchQuery,
   );
   const isManagerPanelOpen = (panel: ManagerPanelKey): boolean => openManagerPanels[panel];
   const selectedReconciliationIssue = useMemo(
@@ -1555,13 +1580,10 @@ export const App = ({
     if (ledgerPersonId === null) {
       setLedgerPersonId(firstPerson.id);
     }
-    if (salePersonId === null) {
-      setSalePersonId(firstPerson.id);
-    }
     if (pointsAdjustmentPersonId === null) {
       setPointsAdjustmentPersonId(firstPerson.id);
     }
-  }, [sessionStatus, ledgerPersonId, allPeople, pointsAdjustmentPersonId, salePersonId]);
+  }, [sessionStatus, ledgerPersonId, allPeople, pointsAdjustmentPersonId]);
 
   useEffect(() => {
     const selected = staffUsers.find((user) => user.id === editUserId) ?? null;
@@ -1919,6 +1941,16 @@ export const App = ({
     setIntakeBroaderResults(filterGlobalPersonSuggestions(allPeople, intakePersonSearchQuery));
   };
 
+  const handleChangeSalePerson = (): void => {
+    setSalePersonId(null);
+    setSalePersonSearchQuery("");
+    setSaleBroaderResults(null);
+  };
+
+  const handleSearchBroaderSalePeople = (): void => {
+    setSaleBroaderResults(filterGlobalPersonSuggestions(allPeople, salePersonSearchQuery));
+  };
+
   const handleAddIntakeEntry = (): void => {
     if (intakeDraftMaterialId === null) {
       setIntakeError("Select a material to add");
@@ -2027,6 +2059,41 @@ export const App = ({
     }
   };
 
+  const handleSubmitSaleAdjustment = async (
+    saleEventId: string,
+    personId: string,
+    note: string,
+  ): Promise<void> => {
+    if (note.trim().length === 0) {
+      return;
+    }
+    setSaleAdjustmentPending(true);
+    setSaleAdjustmentError(null);
+    try {
+      await saleAdjustmentRequestsClient.requestAdjustment({
+        saleEventId,
+        personId,
+        note: note.trim(),
+      });
+      setSaleAdjustmentNote("");
+      setSaleAdjustmentSuccess(true);
+      setSaleLastSaleEventId(null);
+      setSaleLastSalePersonId(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSaleAdjustmentError(message);
+    } finally {
+      setSaleAdjustmentPending(false);
+    }
+  };
+
+  const handleRetrySaleAdjustment = (): void => {
+    if (saleLastSaleEventId === null || saleLastSalePersonId === null) {
+      return;
+    }
+    void handleSubmitSaleAdjustment(saleLastSaleEventId, saleLastSalePersonId, saleAdjustmentNote);
+  };
+
   const handleRecordSale = async (): Promise<void> => {
     if (!canRecordSales) {
       setSaleError("You do not have permission to record sales");
@@ -2129,26 +2196,27 @@ export const App = ({
     setSaleError(null);
     setSaleSuccess(null);
     try {
-      await queue.enqueue(
-        buildSaleRecordedEvent(sessionUser, {
-          personId: salePersonId,
-          lines: eventLines,
-        }),
-      );
+      const saleEvent = buildSaleRecordedEvent(sessionUser, {
+        personId: salePersonId,
+        lines: eventLines,
+        collectionPointId: sessionCollectionPointId,
+      });
+      await queue.enqueue(saleEvent);
       triggerDeferredSync({
         onAccepted: async () => {
           await Promise.all([loadInventory(), loadLedger(salePersonId)]);
         },
       });
+      const noteAtCheckout = saleAdjustmentNote;
       setLedgerPersonId(salePersonId);
       setSaleLines([createSaleDraftLine(items[0]?.id ?? null)]);
       setSaleSuccess("Sale recorded successfully");
-      return;
-      await sync.syncNow();
-      await Promise.all([loadInventory(), loadLedger(salePersonId ?? "")]);
-      setLedgerPersonId(salePersonId);
-      setSaleLines([createSaleDraftLine(items[0]?.id ?? null)]);
-      setSaleSuccess("Sale recorded successfully");
+      setSaleAdjustmentSuccess(false);
+      setSaleLastSaleEventId(saleEvent.eventId);
+      setSaleLastSalePersonId(salePersonId);
+      if (noteAtCheckout.trim().length > 0) {
+        await handleSubmitSaleAdjustment(saleEvent.eventId, salePersonId, noteAtCheckout);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setSaleError(message);
@@ -3579,22 +3647,69 @@ export const App = ({
               <Card className="sectionCard" shadow="sm" radius="md" padding="lg">
                 <Stack gap="sm">
                   <Title order={4}>Record Sale</Title>
-                  <Select
-                    label="Sale Person"
-                    data={allPeople.map((person) => ({
-                      value: person.id,
-                      label: `${person.name} ${person.surname}`,
-                    }))}
-                    value={salePersonId}
-                    onChange={handleSelectSalePerson}
-                    searchable
-                    clearable
-                  />
-                  {selectedSalePerson !== null ? (
-                    <Text size="xs" c="dimmed">
-                      {`${selectedSalePerson.name} ${selectedSalePerson.surname} — Assigned location: ${assignedLocationLabel(selectedSalePerson.assignedCollectionPointId)}`}
-                    </Text>
-                  ) : null}
+                  {selectedSalePerson === null ? (
+                    <Stack gap="xs">
+                      <TextInput
+                        label="Search person"
+                        placeholder="Name or surname"
+                        value={salePersonSearchQuery}
+                        onChange={(event) => {
+                          setSalePersonSearchQuery(event.currentTarget.value);
+                          setSaleBroaderResults(null);
+                        }}
+                      />
+                      {salePersonSearchQuery.trim().length > 0 &&
+                      salePersonSearchQuery.trim().length < MIN_PERSON_SEARCH_QUERY_LENGTH ? (
+                        <Text size="sm" c="dimmed">
+                          {`Type at least ${String(MIN_PERSON_SEARCH_QUERY_LENGTH)} characters to search.`}
+                        </Text>
+                      ) : null}
+                      {saleLocalSuggestions.map((person) => (
+                        <Button
+                          key={person.id}
+                          variant="subtle"
+                          justify="flex-start"
+                          onClick={() => {
+                            handleSelectSalePerson(person.id);
+                          }}
+                        >
+                          {`${person.name} ${person.surname}`}
+                        </Button>
+                      ))}
+                      {saleCanOfferBroaderSearch ? (
+                        <Button variant="default" size="xs" onClick={handleSearchBroaderSalePeople}>
+                          Search other locations
+                        </Button>
+                      ) : null}
+                      {saleBroaderResults?.map((person) => (
+                        <Button
+                          key={person.id}
+                          variant="subtle"
+                          justify="flex-start"
+                          onClick={() => {
+                            handleSelectSalePerson(person.id);
+                          }}
+                        >
+                          {`${person.name} ${person.surname} — ${assignedLocationLabel(person.assignedCollectionPointId)}`}
+                        </Button>
+                      ))}
+                      {saleBroaderResults !== null && saleBroaderResults.length === 0 ? (
+                        <Text size="sm" c="dimmed">
+                          No people found at other locations.
+                        </Text>
+                      ) : null}
+                    </Stack>
+                  ) : (
+                    <Group justify="space-between" align="center">
+                      <Text size="sm">
+                        {`${selectedSalePerson.name} ${selectedSalePerson.surname} — Assigned location: ${assignedLocationLabel(selectedSalePerson.assignedCollectionPointId)}`}
+                      </Text>
+                      <Button variant="subtle" size="xs" onClick={handleChangeSalePerson}>
+                        Change person
+                      </Button>
+                    </Group>
+                  )}
+                  <Divider />
                   {saleLines.map((line, index) => {
                     const lineBatches = inventoryBatches.filter(
                       (batch) => batch.itemId === line.itemId && batch.quantities.shop > 0,
@@ -3706,6 +3821,38 @@ export const App = ({
                   >
                     Record Sale
                   </Button>
+                  <Divider />
+                  <Textarea
+                    label="Points / inventory adjustment request (optional)"
+                    placeholder="e.g. Item was out of stock, please refund points"
+                    value={saleAdjustmentNote}
+                    onChange={(event) => {
+                      setSaleAdjustmentNote(event.currentTarget.value);
+                      setSaleAdjustmentSuccess(false);
+                    }}
+                  />
+                  {saleAdjustmentSuccess ? (
+                    <Text c="green" size="sm">
+                      Adjustment request recorded.
+                    </Text>
+                  ) : null}
+                  {saleAdjustmentError !== null ? (
+                    <Stack gap={4}>
+                      <Text c="red" size="sm">
+                        {`Adjustment request could not be saved: ${saleAdjustmentError}`}
+                      </Text>
+                      {saleLastSaleEventId !== null ? (
+                        <Button
+                          size="xs"
+                          variant="default"
+                          onClick={handleRetrySaleAdjustment}
+                          loading={saleAdjustmentPending}
+                        >
+                          Retry adjustment request
+                        </Button>
+                      ) : null}
+                    </Stack>
+                  ) : null}
                 </Stack>
               </Card>
             ) : null}

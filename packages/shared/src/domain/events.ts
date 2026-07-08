@@ -38,6 +38,7 @@ export type EventType =
   | "inventory.adjustment_applied"
   | "points.adjustment_requested"
   | "points.adjustment_applied"
+  | "sale.adjustment_requested"
   | "conflict.detected"
   | "conflict.resolved";
 
@@ -243,6 +244,12 @@ export type PointsAdjustmentAppliedPayload = {
   notes?: string | null;
 };
 
+export type SaleAdjustmentRequestedPayload = {
+  saleEventId: EventId;
+  personId: PersonId;
+  note: string;
+};
+
 export type ConflictDetectedPayload = {
   conflictId: ConflictId;
   entityType:
@@ -288,6 +295,7 @@ export type EventPayloadMap = {
   "inventory.adjustment_applied": InventoryAdjustmentAppliedPayload;
   "points.adjustment_requested": PointsAdjustmentRequestedPayload;
   "points.adjustment_applied": PointsAdjustmentAppliedPayload;
+  "sale.adjustment_requested": SaleAdjustmentRequestedPayload;
   "conflict.detected": ConflictDetectedPayload;
   "conflict.resolved": ConflictResolvedPayload;
 };

@@ -3195,6 +3195,140 @@ describe("core HTTP endpoints", () => {
     expect(response.body.requests[0]?.status).toBe("pending");
   });
 
+  test("POST /sales/adjustment-requests links a free-text note to an existing sale", async () => {
+    const dependencies = createDependencies({
+      inventoryBatches: [
+        {
+          inventoryBatchId: "batch-1",
+          itemId: "item-1",
+          quantities: { storage: 0, shop: 5, sold: 0, spoiled: 0, damaged: 0, missing: 0 },
+        },
+      ],
+    });
+    const server = createApiServer(dependencies);
+    const token = await loginAndGetToken(server, "user", userPasscode);
+
+    const sale = await supertest(server)
+      .post("/sales")
+      .set("authorization", `Bearer ${token}`)
+      .send({ personId: "person-a", lines: [{ itemId: "item-1", quantity: 1 }] });
+    expect(sale.status).toBe(201);
+
+    const pull = await supertest(server)
+      .get("/sync/pull?cursor=0&limit=50")
+      .set("authorization", `Bearer ${token}`);
+    const saleEvent = (pull.body.events as Array<{ eventType: string; eventId: string }>).find(
+      (event) => event.eventType === "sale.recorded",
+    );
+    expect(saleEvent).toBeDefined();
+
+    const response = await supertest(server)
+      .post("/sales/adjustment-requests")
+      .set("authorization", `Bearer ${token}`)
+      .send({
+        saleEventId: saleEvent?.eventId,
+        personId: "person-a",
+        note: "Item was damaged, please refund the points",
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.requestEventId).toBeDefined();
+
+    const requestPull = await supertest(server)
+      .get("/sync/pull?cursor=0&limit=50")
+      .set("authorization", `Bearer ${token}`);
+    const requestEvent = (
+      requestPull.body.events as Array<{
+        eventType: string;
+        payload: { saleEventId: string; personId: string; note: string };
+      }>
+    ).find((event) => event.eventType === "sale.adjustment_requested");
+    expect(requestEvent?.payload.saleEventId).toBe(saleEvent?.eventId);
+    expect(requestEvent?.payload.personId).toBe("person-a");
+    expect(requestEvent?.payload.note).toBe("Item was damaged, please refund the points");
+  });
+
+  test("POST /sales/adjustment-requests returns 404 when the sale event does not exist", async () => {
+    const server = createApiServer(createDependencies());
+    const token = await loginAndGetToken(server, "user", userPasscode);
+
+    const response = await supertest(server)
+      .post("/sales/adjustment-requests")
+      .set("authorization", `Bearer ${token}`)
+      .send({ saleEventId: "no-such-event", personId: "person-a", note: "Note" });
+
+    expect(response.status).toBe(404);
+    expect(response.body.error).toBe("SALE_NOT_FOUND");
+  });
+
+  test("POST /sales/adjustment-requests returns 404 when the referenced event is not a sale", async () => {
+    const dependencies = createDependencies({
+      inventoryBatches: [
+        {
+          inventoryBatchId: "batch-1",
+          itemId: "item-1",
+          quantities: { storage: 0, shop: 5, sold: 0, spoiled: 0, damaged: 0, missing: 0 },
+        },
+      ],
+    });
+    const server = createApiServer(dependencies);
+    const token = await loginAndGetToken(server, "user", userPasscode);
+
+    const intake = await supertest(server)
+      .post("/intakes")
+      .set("authorization", `Bearer ${token}`)
+      .send({ personId: "person-a", lines: [{ materialTypeId: "mat-1", weightKg: 2 }] });
+    expect(intake.status).toBe(201);
+
+    const pull = await supertest(server)
+      .get("/sync/pull?cursor=0&limit=50")
+      .set("authorization", `Bearer ${token}`);
+    const intakeEvent = (pull.body.events as Array<{ eventType: string; eventId: string }>).find(
+      (event) => event.eventType === "intake.recorded",
+    );
+
+    const response = await supertest(server)
+      .post("/sales/adjustment-requests")
+      .set("authorization", `Bearer ${token}`)
+      .send({ saleEventId: intakeEvent?.eventId, personId: "person-a", note: "Note" });
+
+    expect(response.status).toBe(404);
+    expect(response.body.error).toBe("SALE_NOT_FOUND");
+  });
+
+  test("POST /sales/adjustment-requests rejects a missing or empty note", async () => {
+    const dependencies = createDependencies({
+      inventoryBatches: [
+        {
+          inventoryBatchId: "batch-1",
+          itemId: "item-1",
+          quantities: { storage: 0, shop: 5, sold: 0, spoiled: 0, damaged: 0, missing: 0 },
+        },
+      ],
+    });
+    const server = createApiServer(dependencies);
+    const token = await loginAndGetToken(server, "user", userPasscode);
+
+    const sale = await supertest(server)
+      .post("/sales")
+      .set("authorization", `Bearer ${token}`)
+      .send({ personId: "person-a", lines: [{ itemId: "item-1", quantity: 1 }] });
+    const pull = await supertest(server)
+      .get("/sync/pull?cursor=0&limit=50")
+      .set("authorization", `Bearer ${token}`);
+    const saleEvent = (pull.body.events as Array<{ eventType: string; eventId: string }>).find(
+      (event) => event.eventType === "sale.recorded",
+    );
+    expect(sale.status).toBe(201);
+
+    const response = await supertest(server)
+      .post("/sales/adjustment-requests")
+      .set("authorization", `Bearer ${token}`)
+      .send({ saleEventId: saleEvent?.eventId, personId: "person-a", note: "   " });
+
+    expect(response.status).toBe(400);
+  });
+
   test("POST /points/adjustments/apply requires administrator and records apply event", async () => {
     const server = createApiServer(createDependencies());
     const userToken = await loginAndGetToken(server, "user", userPasscode);

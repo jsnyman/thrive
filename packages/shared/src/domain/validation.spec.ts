@@ -646,6 +646,49 @@ describe("expense.recorded payload", () => {
   });
 });
 
+describe("sale.adjustment_requested payload", () => {
+  const makeSaleAdjustmentEvent = (payload: Record<string, unknown>) => ({
+    eventId: "event-1",
+    eventType: "sale.adjustment_requested",
+    occurredAt: "2026-03-12T10:00:00.000Z",
+    recordedAt: "2026-03-12T10:00:01.000Z",
+    actorUserId: "user-1",
+    deviceId: "device-1",
+    locationText: null,
+    schemaVersion: 1,
+    correlationId: null,
+    causationId: null,
+    payload,
+  });
+
+  test("accepts a valid sale adjustment request", () => {
+    const result = validateEvent(
+      makeSaleAdjustmentEvent({
+        saleEventId: "sale-event-1",
+        personId: "person-1",
+        note: "Customer says an item was out of stock, please refund points",
+      }),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  test("rejects a request missing saleEventId", () => {
+    const result = validateEvent(makeSaleAdjustmentEvent({ personId: "person-1", note: "Note" }));
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Expected validation to fail");
+    expect(result.issues.some((issue) => issue.path === "payload.saleEventId")).toBe(true);
+  });
+
+  test("rejects a request with an empty note", () => {
+    const result = validateEvent(
+      makeSaleAdjustmentEvent({ saleEventId: "sale-event-1", personId: "person-1", note: "" }),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Expected validation to fail");
+    expect(result.issues.some((issue) => issue.path === "payload.note")).toBe(true);
+  });
+});
+
 describe("validateEventEnvelope", () => {
   test("accepts valid event envelope", () => {
     const result = validateEventEnvelope({

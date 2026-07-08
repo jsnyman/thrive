@@ -2077,6 +2077,8 @@ describe("App person registry", () => {
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Sale" })).toBeInTheDocument();
     });
+    await userEvent.type(view.getByLabelText("Search person"), "Jane");
+    await userEvent.click(view.getByRole("button", { name: "Jane Doe" }));
     await userEvent.type(view.getByLabelText("Quantity 1"), "3");
     await userEvent.click(view.getAllByRole("button", { name: "Record Sale" }).slice(-1)[0]!);
 
@@ -2105,6 +2107,9 @@ describe("App person registry", () => {
     expect(pushBody.events[0]?.payload.lines[0]?.quantity).toBe(2);
     expect(pushBody.events[0]?.payload.lines[1]?.inventoryBatchId).toBe("batch-2");
     expect(pushBody.events[0]?.payload.lines[1]?.quantity).toBe(1);
+    expect(
+      (pushBody.events[0]?.payload as { collectionPointId?: string | null }).collectionPointId,
+    ).toBe("cp-1");
   });
 
   test("sale form returns immediately before sync completes", async () => {
@@ -2133,7 +2138,9 @@ describe("App person registry", () => {
       }
       if (url.includes("/people")) {
         return jsonResponse({
-          people: [{ id: "person-1", name: "Jane", surname: "Doe" }],
+          people: [
+            { id: "person-1", name: "Jane", surname: "Doe", assignedCollectionPointId: "cp-1" },
+          ],
         });
       }
       if (url.includes("/materials")) {
@@ -2210,6 +2217,8 @@ describe("App person registry", () => {
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Record Sale" })).toBeInTheDocument();
     });
+    await userEvent.type(view.getByLabelText("Search person"), "Jane");
+    await userEvent.click(view.getByRole("button", { name: "Jane Doe" }));
     await userEvent.type(view.getByLabelText("Quantity 1"), "1");
     await userEvent.click(view.getAllByRole("button", { name: "Record Sale" }).slice(-1)[0]!);
 
@@ -7098,5 +7107,309 @@ describe("App person registry", () => {
     expect(view.queryByText(/^PET:/)).not.toBeInTheDocument();
     expect(view.getByText("Glass: 5 kg — 10.0 pts")).toBeInTheDocument();
     expect(view.getByText("Total preview points: 10.0")).toBeInTheDocument();
+  });
+
+  test("sale person search scopes suggestions to the session collection point", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({
+          people: [
+            { id: "person-0", name: "Alice", surname: "Zulu", assignedCollectionPointId: "cp-1" },
+            { id: "person-1", name: "Jane", surname: "Doe", assignedCollectionPointId: "cp-2" },
+            {
+              id: "person-2",
+              name: "Jane",
+              surname: "Smith",
+              assignedCollectionPointId: "cp-1",
+            },
+          ],
+        });
+      }
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.click(view.getByRole("button", { name: "Record Sale" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
+    await waitFor(() => {
+      expect(view.getByText("Collection point: Heuwelkroon parkie")).toBeInTheDocument();
+    });
+
+    await userEvent.type(view.getByLabelText("Search person"), "Jane");
+
+    expect(view.getByRole("button", { name: "Jane Smith" })).toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "Jane Doe" })).not.toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "Search other locations" })).not.toBeInTheDocument();
+
+    await userEvent.click(view.getByRole("button", { name: "Jane Smith" }));
+    expect(
+      view.getByText("Jane Smith — Assigned location: Heuwelkroon parkie"),
+    ).toBeInTheDocument();
+  });
+
+  test("drafting an adjustment note and completing checkout links a sale adjustment request", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    let capturedAdjustmentBody: unknown = null;
+    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue(
+      "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    );
+
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({
+          people: [
+            { id: "person-1", name: "Jane", surname: "Doe", assignedCollectionPointId: "cp-1" },
+          ],
+        });
+      }
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) {
+        return jsonResponse({ items: [{ id: "item-1", name: "Soap", pointsPrice: 5 }] });
+      }
+      if (url.includes("/inventory/status-summary")) {
+        return jsonResponse({ summary: [{ status: "shop", totalQuantity: 5 }] });
+      }
+      if (url.includes("/inventory/batches")) {
+        return jsonResponse({
+          batches: [
+            {
+              inventoryBatchId: "batch-1",
+              itemId: "item-1",
+              quantities: { storage: 0, shop: 5, sold: 0, spoiled: 0, damaged: 0, missing: 0 },
+            },
+          ],
+        });
+      }
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      if (url.includes("/sales/adjustment-requests")) {
+        if (typeof init?.body === "string") {
+          capturedAdjustmentBody = JSON.parse(init.body) as unknown;
+        }
+        return jsonResponse({ requestEventId: "request-1" }, 201);
+      }
+      if (url.includes("/sync/push")) {
+        return jsonResponse({ acknowledgements: [], latestCursor: "cursor-1" });
+      }
+      if (url.includes("/sync/pull")) return jsonResponse({ events: [], nextCursor: "cursor-1" });
+      if (url.includes("/sync/status")) {
+        return jsonResponse({
+          latestCursor: "cursor-1",
+          projectionRefreshedAt: "2026-07-08T08:00:00.000Z",
+          projectionCursor: "cursor-1",
+        });
+      }
+      if (url.includes("/ledger/person-1/balance")) {
+        return jsonResponse({ balance: { personId: "person-1", balancePoints: 0 } });
+      }
+      if (url.includes("/ledger/person-1/entries")) return jsonResponse({ entries: [] });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App queue={queue} syncStateStore={syncStateStore} />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await userEvent.click(view.getByRole("button", { name: "Record Sale" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Record Sale" })).toBeInTheDocument();
+    });
+
+    await userEvent.type(view.getByLabelText("Search person"), "Jane");
+    await userEvent.click(view.getByRole("button", { name: "Jane Doe" }));
+    await userEvent.type(
+      view.getByLabelText("Points / inventory adjustment request (optional)"),
+      "Item was scratched, please refund points",
+    );
+    await userEvent.type(view.getByLabelText("Quantity 1"), "1");
+    await userEvent.click(view.getAllByRole("button", { name: "Record Sale" }).slice(-1)[0]!);
+
+    await waitFor(() => {
+      expect(view.getByText("Adjustment request recorded.")).toBeInTheDocument();
+    });
+
+    expect(capturedAdjustmentBody).toEqual({
+      saleEventId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      personId: "person-1",
+      note: "Item was scratched, please refund points",
+    });
+    expect(view.queryByLabelText("Points / inventory adjustment request (optional)")).toHaveValue(
+      "",
+    );
+  });
+
+  test("retries a sale adjustment request after it initially fails", async () => {
+    stubResizeObserver();
+    const queue = createEventQueue(createMemoryEventQueueStore());
+    const syncStateStore = createMemorySyncStateStore();
+    let adjustmentAttempts = 0;
+    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue(
+      "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+    );
+
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/collection-points")) {
+        return jsonResponse({
+          collectionPoints: [{ id: "cp-1", name: "Heuwelkroon parkie", isActive: true }],
+        });
+      }
+      if (url.includes("/people")) {
+        return jsonResponse({
+          people: [
+            { id: "person-1", name: "Jane", surname: "Doe", assignedCollectionPointId: "cp-1" },
+          ],
+        });
+      }
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) {
+        return jsonResponse({ items: [{ id: "item-1", name: "Soap", pointsPrice: 5 }] });
+      }
+      if (url.includes("/inventory/status-summary")) {
+        return jsonResponse({ summary: [{ status: "shop", totalQuantity: 5 }] });
+      }
+      if (url.includes("/inventory/batches")) {
+        return jsonResponse({
+          batches: [
+            {
+              inventoryBatchId: "batch-1",
+              itemId: "item-1",
+              quantities: { storage: 0, shop: 5, sold: 0, spoiled: 0, damaged: 0, missing: 0 },
+            },
+          ],
+        });
+      }
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      if (url.includes("/sales/adjustment-requests")) {
+        adjustmentAttempts += 1;
+        if (adjustmentAttempts === 1) {
+          return jsonResponse({ error: "SALE_NOT_FOUND" }, 404);
+        }
+        return jsonResponse({ requestEventId: "request-1" }, 201);
+      }
+      if (url.includes("/sync/push")) {
+        return jsonResponse({ acknowledgements: [], latestCursor: "cursor-1" });
+      }
+      if (url.includes("/sync/pull")) return jsonResponse({ events: [], nextCursor: "cursor-1" });
+      if (url.includes("/sync/status")) {
+        return jsonResponse({
+          latestCursor: "cursor-1",
+          projectionRefreshedAt: "2026-07-08T08:00:00.000Z",
+          projectionCursor: "cursor-1",
+        });
+      }
+      if (url.includes("/ledger/person-1/balance")) {
+        return jsonResponse({ balance: { personId: "person-1", balancePoints: 0 } });
+      }
+      if (url.includes("/ledger/person-1/entries")) return jsonResponse({ entries: [] });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App queue={queue} syncStateStore={syncStateStore} />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await userEvent.click(view.getByRole("button", { name: "Record Sale" }));
+    await waitFor(() => {
+      expect(view.getByText("Select collection point")).toBeInTheDocument();
+    });
+    await userEvent.click(view.getByRole("button", { name: "Heuwelkroon parkie" }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Record Sale" })).toBeInTheDocument();
+    });
+
+    await userEvent.type(view.getByLabelText("Search person"), "Jane");
+    await userEvent.click(view.getByRole("button", { name: "Jane Doe" }));
+    await userEvent.type(
+      view.getByLabelText("Points / inventory adjustment request (optional)"),
+      "Item was scratched, please refund points",
+    );
+    await userEvent.type(view.getByLabelText("Quantity 1"), "1");
+    await userEvent.click(view.getAllByRole("button", { name: "Record Sale" }).slice(-1)[0]!);
+
+    await waitFor(() => {
+      expect(
+        view.getByText("Adjustment request could not be saved: SALE_NOT_FOUND"),
+      ).toBeInTheDocument();
+    });
+    expect(view.queryByText("Adjustment request recorded.")).not.toBeInTheDocument();
+    // The sale itself still stands even though the adjustment request failed.
+    await expect(queue.pendingCount()).resolves.toBe(1);
+
+    await userEvent.click(view.getByRole("button", { name: "Retry adjustment request" }));
+
+    await waitFor(() => {
+      expect(view.getByText("Adjustment request recorded.")).toBeInTheDocument();
+    });
+    expect(adjustmentAttempts).toBe(2);
   });
 });

@@ -115,6 +115,7 @@ enum EventType {
   inventory_adjustment_applied   @map("inventory.adjustment_applied")
   points_adjustment_requested    @map("points.adjustment_requested")
   points_adjustment_applied      @map("points.adjustment_applied")
+  sale_adjustment_requested      @map("sale.adjustment_requested")
   conflict_detected              @map("conflict.detected")
   conflict_resolved              @map("conflict.resolved")
 }
