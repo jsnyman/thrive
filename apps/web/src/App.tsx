@@ -41,6 +41,7 @@ import { createItemsClient, type ItemRecord } from "./offline/items-client";
 import { createLedgerClient, type LedgerBalance, type LedgerEntry } from "./offline/ledger-client";
 import { createMaterialsClient, type MaterialRecord } from "./offline/materials-client";
 import { createPeopleClient, type PersonRecord } from "./offline/people-client";
+import { MIN_PERSON_SEARCH_QUERY_LENGTH } from "./offline/person-search";
 import { createProcurementClient, type ProcurementRecord } from "./offline/procurement-client";
 import { downloadCsv, type CsvRow } from "./offline/report-export";
 import {
@@ -970,6 +971,15 @@ export const App = ({
   );
 
   const loadPeople = async (searchText?: string): Promise<void> => {
+    if (
+      searchText !== undefined &&
+      searchText.trim().length > 0 &&
+      searchText.trim().length < MIN_PERSON_SEARCH_QUERY_LENGTH
+    ) {
+      setPeople([]);
+      setPeopleError(null);
+      return;
+    }
     setPeopleLoading(true);
     setPeopleError(null);
     try {
@@ -3115,6 +3125,12 @@ export const App = ({
                       </Button>
                     </Group>
                     {peopleError !== null ? <Text c="red">{peopleError}</Text> : null}
+                    {search.trim().length > 0 &&
+                    search.trim().length < MIN_PERSON_SEARCH_QUERY_LENGTH ? (
+                      <Text size="sm" c="dimmed">
+                        {`Type at least ${String(MIN_PERSON_SEARCH_QUERY_LENGTH)} characters to search.`}
+                      </Text>
+                    ) : null}
                     <Stack gap={4}>
                       {people.map((person) => (
                         <Group

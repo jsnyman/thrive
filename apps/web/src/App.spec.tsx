@@ -357,6 +357,101 @@ describe("App person registry", () => {
     expect(view.queryByText("0821234567")).not.toBeInTheDocument();
   }, 20000);
 
+  test("Search People shows a hint and no results below the 3-letter threshold, without querying the server", async () => {
+    stubResizeObserver();
+    let peopleCallCount = 0;
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people")) {
+        peopleCallCount += 1;
+        return jsonResponse({
+          people: [{ id: "person-1", name: "Jane", surname: "Doe" }],
+        });
+      }
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+    const callsAfterLoad = peopleCallCount;
+
+    await userEvent.type(view.getByLabelText("Search"), "ja");
+    await userEvent.click(view.getAllByRole("button", { name: "Search" })[1]!);
+
+    expect(view.getByText("Type at least 3 characters to search.")).toBeInTheDocument();
+    expect(view.queryByText("Jane Doe")).not.toBeInTheDocument();
+    expect(peopleCallCount).toBe(callsAfterLoad);
+  });
+
+  test("Search People runs a global search once the 3-letter threshold is met", async () => {
+    stubResizeObserver();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/login")) {
+        return jsonResponse({
+          user: { id: "user-1", username: "administrator", role: "administrator" },
+          token: "token-1",
+        });
+      }
+      if (url.includes("/people?search=")) {
+        return jsonResponse({
+          people: [{ id: "person-1", name: "Jane", surname: "Doe" }],
+        });
+      }
+      if (url.includes("/people")) return jsonResponse({ people: [] });
+      if (url.includes("/materials")) return jsonResponse({ materials: [] });
+      if (url.includes("/items")) return jsonResponse({ items: [] });
+      if (url.includes("/inventory/status-summary")) return jsonResponse({ summary: [] });
+      if (url.includes("/inventory/batches")) return jsonResponse({ batches: [] });
+      if (url.includes("/sync/conflicts")) return jsonResponse({ conflicts: [], nextCursor: null });
+      return jsonResponse({ error: "NOT_EXPECTED" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    );
+
+    await userEvent.type(view.getByLabelText("Username"), "administrator");
+    await userEvent.type(view.getByLabelText("Passcode"), "1234");
+    await userEvent.click(view.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => {
+      expect(view.getByText("Person Registry")).toBeInTheDocument();
+    });
+
+    await userEvent.type(view.getByLabelText("Search"), "jan");
+    await userEvent.click(view.getAllByRole("button", { name: "Search" })[1]!);
+
+    await waitFor(() => {
+      expect(view.getByText("Jane Doe")).toBeInTheDocument();
+    });
+    expect(view.queryByText("Type at least 3 characters to search.")).not.toBeInTheDocument();
+  });
+
   test("edit flow queues update event and refreshes list", async () => {
     stubResizeObserver();
     const queue = createEventQueue(createMemoryEventQueueStore());
