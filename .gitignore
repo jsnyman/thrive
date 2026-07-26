@@ -24,5 +24,6 @@ Thumbs.db
 .vscode/
 
 .playwright-mcp/
+.worktrees/
 
 /docs/tmp/
