@@ -21,6 +21,7 @@ This folder holds the long-lived system design docs for the Recycling Swap-Shop 
 - `docs/architecture/decisions/0002-event-log-jsonb-payload.md`
 - `docs/architecture/decisions/0003-event-log-ordering-and-streams.md`
 - `docs/architecture/decisions/0004-field-deployment-topology-for-low-connectivity-sites.md`
+- `docs/architecture/decisions/0005-feature-controllers-with-session-scoped-state.md`
 
 ## Related Docs
 

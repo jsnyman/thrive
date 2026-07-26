@@ -33,7 +33,7 @@ Offline-first software for a mobile recycling swap-shop that moves between villa
 
 **Tech Stack (as implemented)**
 
-- Frontend: React + TypeScript + Vite, single-page app shell in `apps/web/src/App.tsx` (no client-side router; navigation is view-state driven)
+- Frontend: React + TypeScript + Vite, currently using a single-page shell in `apps/web/src/App.tsx` with view-state navigation and no client-side router. ADR 0005 defines the accepted migration to feature controllers with authenticated session-scoped state.
 - UI: Mantine with strictly responsive layouts
 - Offline storage: SQLite in the browser via OPFS, with a local event queue and sync engine under `apps/web/src/offline/`
 - Sync model: Event-sourced sync using an append-only log and server-side merge (`apps/api/src/data/sync-merge-policy.ts`)
@@ -45,6 +45,7 @@ Offline-first software for a mobile recycling swap-shop that moves between villa
 **Architecture Notes**
 
 - Offline-first PWA to support intermittent connectivity.
+- The web UI will retain in-app navigation while moving workflow state and behavior from `App` into session-scoped feature controllers (`docs/architecture/decisions/0005-feature-controllers-with-session-scoped-state.md`).
 - Append-only event log retained indefinitely, with projections for reporting.
 - Conflicts are flagged for administrator review and resolutions are logged.
 
