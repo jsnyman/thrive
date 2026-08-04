@@ -188,6 +188,8 @@ const EVENT_TYPES: EventType[] = [
   "material_type.image_set",
   "item.created",
   "item.updated",
+  "collection_point.created",
+  "collection_point.updated",
   "staff_user.created",
   "staff_user.role_changed",
   "intake.recorded",

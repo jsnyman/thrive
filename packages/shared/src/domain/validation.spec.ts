@@ -672,6 +672,46 @@ describe("expense.recorded payload", () => {
   });
 });
 
+describe("collection point events", () => {
+  const makeCollectionPointEvent = (
+    eventType: "collection_point.created" | "collection_point.updated",
+    payload: Record<string, unknown>,
+  ) => ({
+    eventId: "event-1",
+    eventType,
+    occurredAt: "2026-08-04T18:35:48.273Z",
+    actorUserId: "user-1",
+    deviceId: "api-server",
+    locationText: null,
+    schemaVersion: 1,
+    correlationId: null,
+    causationId: null,
+    payload,
+  });
+
+  test("accepts a valid collection point creation event", () => {
+    const result = validateEvent(
+      makeCollectionPointEvent("collection_point.created", {
+        collectionPointId: "cp-1",
+        name: "Vanguard Hall, Genadendal",
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+  });
+
+  test("accepts a valid collection point update event", () => {
+    const result = validateEvent(
+      makeCollectionPointEvent("collection_point.updated", {
+        collectionPointId: "cp-1",
+        updates: { isActive: false },
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+  });
+});
+
 describe("sale.adjustment_requested payload", () => {
   const makeSaleAdjustmentEvent = (payload: Record<string, unknown>) => ({
     eventId: "event-1",

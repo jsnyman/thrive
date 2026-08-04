@@ -78,7 +78,18 @@ describe("createCollectionPointsClient", () => {
     });
   });
 
-  test("throws a deterministic error when creating a collection point fails", async () => {
+  test("includes the server reason when creating a collection point fails", async () => {
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ reason: "Expected valid event type" }, 400));
+    const client = createCollectionPointsClient({ fetchFn });
+
+    await expect(
+      client.createCollectionPoint({ name: "Vanguard Hall, Genadendal" }),
+    ).rejects.toThrow("Collection point create failed with status 400: Expected valid event type");
+  });
+
+  test("uses the status when a failed collection point creation has no reason", async () => {
     const fetchFn = vi.fn<typeof fetch>().mockResolvedValueOnce(jsonResponse({}, 400));
     const client = createCollectionPointsClient({ fetchFn });
 

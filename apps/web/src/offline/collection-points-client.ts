@@ -57,7 +57,12 @@ export const createCollectionPointsClient = (options?: {
       body: input,
     });
     if (!response.ok) {
-      throw new Error(`Collection point create failed with status ${String(response.status)}`);
+      const body: unknown = await response.json().catch(() => null);
+      const reason = isRecord(body) && typeof body["reason"] === "string" ? body["reason"] : null;
+      const reasonSuffix = reason === null ? "" : `: ${reason}`;
+      throw new Error(
+        `Collection point create failed with status ${String(response.status)}${reasonSuffix}`,
+      );
     }
     const body = await apiClient.readJson<unknown>(response, "collection point create");
     if (!isRecord(body) || !isRecord(body["collectionPoint"])) {
